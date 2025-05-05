@@ -16,3 +16,4 @@ scikit-learn
 tensorboard
 kaggle
 pyarrow
+ConfigSpace
