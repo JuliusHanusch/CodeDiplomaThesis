@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typer import Typer, Option
 import subprocess
+from shutil import which
 
 app = Typer()
 
@@ -28,6 +29,9 @@ def download_corpus(corpus_name: str = Option(..., help="Name of the corpus to d
 
 
 def download_kaggle_corpus():
+    if which("kaggle") is None:
+        print("kaggle missing. pip install kaggle to proceed.")
+        return
     kaggle_dataset = ds.load_dataset("ddrg/kaggle-time-series-datasets", "TIME_SERIES", trust_remote_code = True, cache_dir=cache_path)
     kaggle_dataset.save_to_disk(output_path/"Time_Corpus")
 
