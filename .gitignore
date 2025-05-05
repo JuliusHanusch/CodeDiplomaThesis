@@ -5,3 +5,4 @@ data/cache/*
 data/data_sets_raw/*
 hpc/logs/*
 hpc/venvs/*/*
+*.csv
