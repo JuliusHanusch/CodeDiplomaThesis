@@ -67,9 +67,12 @@ if __name__ == "__main__":
     cache_path.mkdir(parents=True, exist_ok=True)
 
     # Load the config file
-    with open(credentials_path, "r") as f:
-        config = yaml.safe_load(f)
-
+    try:
+        with open(credentials_path, "r") as f:
+            config = yaml.safe_load(f)
+    except:
+        print("Missing credentials.yml file. Run generate_credentials_file.py")
+        exit(1)
     os.environ["KAGGLE_USERNAME"] = config["KAGGLE"]["KAGGLE_USERNAME"]
     os.environ["KAGGLE_KEY"] = config["KAGGLE"]["KAGGLE_KEY"]
     os.environ["HF_TOKEN"] = config["HUGGINGFACE"]["HF_TOKEN"]
