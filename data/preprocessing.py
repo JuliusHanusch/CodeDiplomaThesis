@@ -25,7 +25,7 @@ def preprocessing():
 
         df_data['datetime'] = pd.to_datetime(df_data['datetime'])
 
-        equi_distance = eval_frequency(df_data)
+        equi_distance = eval_frequency(df_data, debug=True)
 
         if equi_distance:
             count_equi += 1
