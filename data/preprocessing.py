@@ -25,23 +25,25 @@ def preprocessing():
         for i, values in enumerate(set_data['value']):
             df_data[f'value_{i}'] = values
 
-        df_cleaned = df_data[
-            ~df_data.astype(str).apply(lambda row: row.str.contains('0000-01-01 00:00:00', case=False, na=False)).any(axis=1)]
-        df_cleaned['datetime'] = pd.to_datetime(df_cleaned['datetime'])
+        df_data = df_data[
+            ~df_data.astype(str).apply(lambda row: row.str.contains('0000-01-01 00:00:00', case=False, na=False)).any(axis=1)].copy()
+        df_data['datetime'] = pd.to_datetime(df_data['datetime'], format='%Y-%m-%d %H:%M:%S')
 
-        equi_distance = eval_frequency(df_cleaned)
+        equi_distance = eval_frequency(df_data)
         if equi_distance:
             count_equi += 1
-            if len(df_cleaned.columns) > 2:
-                for column in df_cleaned.columns[1:]:
+            if len(df_data.columns) > 2:
+                for column in df_data.columns[1:]:
                     df_set = pd.DataFrame()
-                    df_set['datetime'] = df_cleaned["datetime"]
-                    df_set['value'] = df_cleaned[column]
+                    df_set['datetime'] = df_data["datetime"]
+                    df_set['value'] = df_data[column]
 
                     column_dataset = ds.Dataset.from_pandas(df_set)
                     list_dataset.append(column_dataset)
             else:
-                count_nonequi += 1
+                list_dataset.append(ds.Dataset.from_pandas(df_data))
+        else:
+            count_nonequi += 1
 
     concatinated_dataset = ds.concatenate_datasets(list_dataset)
     dataset = ds.DatasetDict()
