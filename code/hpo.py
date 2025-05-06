@@ -2,10 +2,10 @@
 import sys  
 import os  
 from pathlib import Path
-sys.path.append(str(Path(__file__).parent.parent.resolve()))  
+root_dir = Path(__file__).parent.parent
+sys.path.append(str(root_dir.resolve()))  
+sys.path.append(str((root_dir/"code").resolve()))  
 sys.path.append(str((Path(__file__).parent.parent / "chronos_pkg/src").resolve()))
-from chronos_pkg.scripts.training.train import main as train_chronos
-from chronos_pkg.scripts.evaluation.evaluate import main as eval_chronos
 from ConfigSpace import Configuration, ConfigurationSpace
 from functools import partial
 from pathlib import Path
@@ -19,6 +19,9 @@ from smac.intensifier.hyperband import Hyperband
 from smac.intensifier.successive_halving import SuccessiveHalving
 from search_space import get_config_space
 from smac import HyperparameterOptimizationFacade as HPOFacade
+from dask.distributed import Client
+from dask_jobqueue import SLURMCluster
+from time import sleep
 
 BASE_OUTPATH = Path("./chronos_models")
 
@@ -29,7 +32,6 @@ def main(
     config: Configuration = Option(..., help="Configuration for the model."),
     training_data_paths: str = Option(..., help="Path to the training data."),
     seed: int = Option(0, help="Random seed for reproducibility."),
-    dask_client: str = Option(None, help="Dask cluster address."),
     model_id: str = Option("google/t5-efficient-tiny", help="Which base model to use."),
 ):
 
@@ -39,14 +41,39 @@ def main(
     # Define our environment variables
     scenario = Scenario(
         configspace=configs_space,
-        walltime_limit=60,  # TODO After 60 seconds, we stop the hyperparameter optimization
-        n_trials=1,  # TODO Evaluate max 500 different trials
+        trial_walltime_limit=600,  # TODO After 60 seconds, we stop the hyperparameter optimization
+        n_trials=10,  # TODO Evaluate max 500 different trials
         min_budget=1,  # TODO Train the MLP using a hyperparameter configuration for at least 5 epochs
         max_budget=25,  # TODO Train the MLP using a hyperparameter configuration for at most 25 epochs
-        n_workers=8,
+        # n_workers=8, not by cluster jobs
         seed=seed,
-        objectives=["WQL_ZS", "MASE_ZS", "WQL_ID", "MASE_ID"],  
+        objectives=["WQL_ZS", "MASE_ZS", "WQL_ID", "MASE_ID"],  # TODO Add NRMSE
     )
+
+    # TODO
+    cluster = SLURMCluster(
+        cores=1,
+        memory="160G",
+        walltime="01:00:00",
+        job_extra_directives=["--gres=gpu:1"],
+        account="p_automl",
+        job_name="chronos_hpo",
+        local_directory=str((root_dir / "hpc/logs/dask").resolve()),
+        processes=1,
+        log_directory=str((root_dir / "hpc/logs/smac").resolve()),
+        nanny = False,
+        job_script_prologue=[
+            f"cd {root_dir.resolve()}",
+            "pwd",
+            "source ./hpc/modules.sh",
+        ],
+    )
+
+    print(cluster.job_script())
+
+    cluster.scale(jobs=2)  # Ask for 1 job
+
+    client = Client(address=cluster)
 
     # We want to run five random configurations before starting the optimization.
     initial_design = MFFacade.get_initial_design(scenario, n_configs=5)
@@ -61,12 +88,14 @@ def main(
         initial_design=initial_design,
         intensifier=intensifier,
         overwrite=True,
-        dask_client=dask_client,
+        dask_client=client,
         multi_objective_algorithm=HPOFacade.get_multi_objective_algorithm(
             scenario,
             objective_weights=[2, 2, 1, 1],  # Weights Zeroshot twice as much as in domain (To avoid overweighting datasets in validation set)
         ),
     )
+
+    sleep(10)
 
     # Let's optimize
     incumbents = smac.optimize()
@@ -76,6 +105,9 @@ def main(
         print(f"Best configuration: {incumbent}")
         cost = smac.validate(incumbent)
         print("---", cost)
+
+    client.close()
+    cluster.close()
 
 
 
@@ -99,20 +131,30 @@ def train(
         raise NotImplementedError(f"Model already trained for config {config_hash}.")
         # TODO Load Config Results from DB and return
         return
+    
+    config: dict = dict(config)
 
     # Import Train Function
-    import chronos_pkg.scripts.training.train as trainer
+    from code.evaluate import main as eval_chronos
+    import code.train as trainer
     # Set Missing Global Variables
     logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     logger = logging.getLogger(__file__)
     logger.setLevel(logging.INFO)
     trainer.logger = logger
+
+    # Special HPs
+    tokenizer_limit = config.pop("tokenizer_limit", 15)
+    tokenizer_kwargs = f"{{'low_limit': -{tokenizer_limit:.3f}, 'high_limit': {tokenizer_limit:.3f}}}"
+    print(f"Tokenizer Kwargs: {tokenizer_kwargs}")
+
     # Train Chronos and Save to outpath
     trainer.main(
         output_dir=output_path,
         training_data_paths=training_data_paths,
         #max_steps=training_steps,
-        **dict(config), 
+        tokenizer_kwargs=tokenizer_kwargs,
+        **config, 
     )
 
 
@@ -137,6 +179,7 @@ def train(
             top_p=1.0,
         )
 
+    # TODO Check that all metrics are near 0-1 range (e.g. NRMSE)
     print(f"Results: {results}")
 
     # ! Save Meta Data To DB
@@ -147,6 +190,7 @@ def train(
 
 
 if __name__ == "__main__":
+    from evaluate import main as eval_chronos
     # Go to current file directory
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
@@ -156,6 +200,5 @@ if __name__ == "__main__":
         config={}, # TODO Add Config
         training_data_paths="['/data/horse/ws/jipo020b-aion/AION/data/testfiles/training_mix.arrow']", # TODO Path to Chronos Data
         seed=0,
-        dask_client=None,
     )
     #app()

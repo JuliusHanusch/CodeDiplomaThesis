@@ -7,8 +7,9 @@ probability_options = [
     "[0.9, 0.05, 0.05]",
     "[0.85, 0.1, 0.05]"
 ]
+# define data splits
 
-def get_config_space(model_id = "google/t5-efficient-tiny") -> ConfigurationSpace:
+def get_config_space(model_id = "google/t5-efficient-tiny", batch_size= 32, gradient_accumulation_steps = 1) -> ConfigurationSpace:
     # Fixed parameters to be added as constants
     fixed_config = {
         "training_data_paths": [ # TODO Update
@@ -16,26 +17,20 @@ def get_config_space(model_id = "google/t5-efficient-tiny") -> ConfigurationSpac
             "your/path/tp/kernelsynth.arrow"
             "your/path/to/realdata.arrow"
         ],
-        "context_length": 512, # TODO Include
-        "prediction_length": 64, # TODO Include
+        "per_device_train_batch_size": batch_size,
         "min_past": 60,
-        "max_steps": 200_000, # TODO Cut (We set via Budget)
         "save_steps": 200_000,
         "log_steps": 500,
-        "optim": "adamw_torch_fused", # TODO Are there alternatives
-        "num_samples": 20, # TODO I dont get what this is
+        "num_samples": 20,
         "shuffle_buffer_length": 100_000,
-        "gradient_accumulation_steps": 1, # TODO Define Manually 
+        "gradient_accumulation_steps": gradient_accumulation_steps,
         "tokenizer_class": "MeanScaleUniformBins",
-        "model_id": model_id, # TODO Three
+        "model_id": model_id,
         "model_type": "seq2seq",
         "random_init": True,
         "tf32": True,
         "torch_compile": True,
-        "tokenizer_kwargs": {"low_limit": -15.0, "high_limit": 15.0}, # TODO Include
         "dataloader_num_workers": 1,
-        "max_missing_prop": 0.9, # TODO Include
-        "lr_scheduler_type": "linear", # TODO Include
         "use_eos_token": True,
     }
 
@@ -51,15 +46,22 @@ def get_config_space(model_id = "google/t5-efficient-tiny") -> ConfigurationSpac
     cs.add(UniformIntegerHyperparameter("n_tokens", lower= 2048, upper = 8192, log=False))
     cs.add(UniformFloatHyperparameter("learning_rate", lower = 0.00001, upper = 0.01, log = True))
     cs.add(UniformFloatHyperparameter("warmup_ratio",lower = 1e-6, upper = 0.1, log = True))
-    cs.add(UniformFloatHyperparameter("dropout_rate", lower = 1e-6, upper = 0.2, log = True)) # TODO not valid yet
+    cs.add(UniformFloatHyperparameter("dropout_rate", lower = 1e-6, upper = 0.2, log = True)) 
     cs.add(CategoricalHyperparameter("feed_forward_proj", ["relu", "gated-relu"]))
+    cs.add(CategoricalHyperparameter("optim", ["adamw_torch_fused", "adafactor"]))
     cs.add(UniformFloatHyperparameter("layer_norm_epsilon", lower = 1e-07, upper = 1e-05, log = True))
-    cs.add(UniformIntegerHyperparameter("d_model", lower=64, upper=512, log = False)) # TODO not valid
-    cs.add(UniformIntegerHyperparameter("d_ff", lower = 356, upper = 2048, log = False)) # TODO not valid arg
+    cs.add(UniformIntegerHyperparameter("d_model", lower=64, upper=512, log = False))
     cs.add(UniformIntegerHyperparameter("num_layers", lower = 3, upper = 6, log = False))
     cs.add(UniformIntegerHyperparameter("num_heads", lower = 4, upper = 8, log = False))
-    cs.add(CategoricalHyperparameter("probability", [probability_options]))
+    cs.add(UniformIntegerHyperparameter("context_length", lower = 128, upper = 512, log = False))
+    cs.add(UniformIntegerHyperparameter("prediction_length", lower = 16, upper = 64, log = False))
+    cs.add(UniformFloatHyperparameter("max_missing_prop", lower=0.07, upper=0.9, log = True))
+    # TODO Must be as long as there a Corpora cs.add(CategoricalHyperparameter("probability", [probability_options]))
+    cs.add(CategoricalHyperparameter("lr_scheduler_type", ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau","cosine_with_min_lr", "warmup_stable_decay"]))
+    cs.add(UniformFloatHyperparameter("tokenizer_limit", lower=5.0, upper=50, log=False))
+
     return cs
+
 
 if __name__ == "__main__":
     cs = get_config_space()
