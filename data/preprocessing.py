@@ -1,10 +1,6 @@
-import os
-import pathlib
-
 import pandas as pd
 import datasets as ds
-
-from typer import Typer
+import datetime as dt
 
 from eval_frequency import eval_frequency
 
@@ -27,7 +23,7 @@ def preprocessing():
 
         df_data = df_data[
             ~df_data.astype(str).apply(lambda row: row.str.contains('0000-01-01 00:00:00', case=False, na=False)).any(axis=1)].copy()
-        df_data['datetime'] = pd.to_datetime(df_data['datetime'], format='%Y-%m-%d %H:%M:%S')
+        df_data['datetime'] = df_data['datetime'].apply(lambda x: dt.datetime.strptime(x, '%Y-%m-%d %H:%M:%S'))
 
         equi_distance = eval_frequency(df_data)
         if equi_distance:
