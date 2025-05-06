@@ -7,3 +7,10 @@ hpc/logs/*
 hpc/venvs/*/*
 *.csv
 .idea
+code/smac3_output/*
+hpc/tools/*
+*.out
+*.err
+*.arrow
+*.pyc
+events.out.*
