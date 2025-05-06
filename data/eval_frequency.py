@@ -1,3 +1,5 @@
+import datetime
+
 import pandas as pd
 from dateutil.relativedelta import *
 from datetime import timedelta
@@ -43,7 +45,11 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
         return False
         #raise Exception("Dataset malformed")
 
-    average_time_diff_per_data_point = (last_time - first_time) / max(len(date_time) - 1, 1)
+    if isinstance(first_time, pd.Timestamp):
+        average_time_diff_per_data_point = (last_time.to_pydatetime() - first_time.to_pydatetime()) / max(len(date_time) - 1, 1)
+    else:
+        average_time_diff_per_data_point = (last_time - first_time) / max(len(date_time) - 1, 1)
+
     time_diff_ratio = relative_delta_to_time_delta(most_common_time_diff) / average_time_diff_per_data_point
 
     if debug:
