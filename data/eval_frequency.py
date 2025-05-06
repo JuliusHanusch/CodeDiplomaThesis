@@ -40,7 +40,8 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
     last_time = date_time[-1]
 
     if first_time == last_time:
-        raise Exception("Dataset malformed")
+        return False
+        #raise Exception("Dataset malformed")
 
     average_time_diff_per_data_point = (last_time.to_pydatetime() - first_time.to_pydatetime()) / max(len(date_time) - 1, 1)
     time_diff_ratio = relative_delta_to_time_delta(most_common_time_diff) / average_time_diff_per_data_point
