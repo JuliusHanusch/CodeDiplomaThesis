@@ -23,8 +23,11 @@ def preprocessing():
 
         df_data = df_data[
             ~df_data.astype(str).apply(lambda row: row.str.contains('0000-01-01 00:00:00', case=False, na=False)).any(axis=1)].copy()
-        df_data['datetime'] = df_data['datetime'].apply(lambda x: dt.datetime.strptime(x, '%Y-%m-%d %H:%M:%S'))
-
+        try:
+            df_data['datetime'] = df_data['datetime'].apply(lambda x: dt.datetime.strptime(x, '%Y-%m-%d %H:%M:%S'))
+        except:
+            print("skipping malformed row")
+            continue
         equi_distance = eval_frequency(df_data)
         if equi_distance:
             count_equi += 1
