@@ -57,11 +57,11 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
         print("time_diff_dict", time_diff_dict)
         print("Amount share",amount_share, ("above" if (amount_share>amount_threshold) else "below"), "threshold")
         print("Timediff ratio", time_diff_ratio, ("above" if (time_diff_ratio > total_time_ratio_threshold) else "below"), "threshold")
-        print("Reciprocal Timediff ratio", 1/time_diff_ratio, ("above" if ((1/time_diff_ratio) > total_time_ratio_threshold) else "below"),
+        print("Reciprocal Timediff ratio", 1/max(time_diff_ratio,1E-5), ("above" if ((1/max(time_diff_ratio,1E-5)) > total_time_ratio_threshold) else "below"),
           "threshold")
 
     # true if both are above threshold
     return (amount_share > amount_threshold
             and time_diff_ratio > total_time_ratio_threshold
-            and (1/time_diff_ratio) > total_time_ratio_threshold)
+            and 1/max(time_diff_ratio,1E-5) > total_time_ratio_threshold)
 
