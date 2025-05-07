@@ -14,3 +14,4 @@ hpc/tools/*
 *.arrow
 *.pyc
 events.out.*
+*/chronos_models/*

@@ -1,5 +1,9 @@
 from ConfigSpace import ConfigurationSpace, CategoricalHyperparameter, Constant, UniformIntegerHyperparameter, UniformFloatHyperparameter
 
+# TODO Update
+training_data_paths = "['/data/horse/ws/jipo020b-aion/AION/data/testfiles/training_mix.arrow']"
+
+
 probability_options = [
     "[0.8, 0.1, 0.1]",
     "[0.7, 0.2, 0.1]",
@@ -24,7 +28,6 @@ def get_config_space(model_id = "google/t5-efficient-tiny", batch_size= 32, grad
         "num_samples": 20,
         "shuffle_buffer_length": 100_000,
         "gradient_accumulation_steps": gradient_accumulation_steps,
-        "tokenizer_class": "MeanScaleUniformBins",
         "model_id": model_id,
         "model_type": "seq2seq",
         "random_init": True,
@@ -43,22 +46,25 @@ def get_config_space(model_id = "google/t5-efficient-tiny", batch_size= 32, grad
             cs.add(Constant(key, value))
 
     # Add tunable hyperparameters
-    cs.add(UniformIntegerHyperparameter("n_tokens", lower= 2048, upper = 8192, log=False))
-    cs.add(UniformFloatHyperparameter("learning_rate", lower = 0.00001, upper = 0.01, log = True))
-    cs.add(UniformFloatHyperparameter("warmup_ratio",lower = 1e-6, upper = 0.1, log = True))
-    cs.add(UniformFloatHyperparameter("dropout_rate", lower = 1e-6, upper = 0.2, log = True)) 
-    cs.add(CategoricalHyperparameter("feed_forward_proj", ["relu", "gated-relu"]))
-    cs.add(CategoricalHyperparameter("optim", ["adamw_torch_fused", "adafactor"]))
-    cs.add(UniformFloatHyperparameter("layer_norm_epsilon", lower = 1e-07, upper = 1e-05, log = True))
-    cs.add(UniformIntegerHyperparameter("d_model", lower=64, upper=512, log = False))
-    cs.add(UniformIntegerHyperparameter("num_layers", lower = 3, upper = 6, log = False))
-    cs.add(UniformIntegerHyperparameter("num_heads", lower = 4, upper = 8, log = False))
-    cs.add(UniformIntegerHyperparameter("context_length", lower = 128, upper = 512, log = False))
-    cs.add(UniformIntegerHyperparameter("prediction_length", lower = 16, upper = 64, log = False))
-    cs.add(UniformFloatHyperparameter("max_missing_prop", lower=0.07, upper=0.9, log = True))
+    cs.add(UniformIntegerHyperparameter("n_tokens", lower= 512, upper = 8192, log=False, default_value=4096))
+    cs.add(UniformFloatHyperparameter("learning_rate", lower = 0.00005, upper = 0.01, log = True, default_value=0.001))
+    cs.add(UniformFloatHyperparameter("warmup_ratio",lower = 1e-7, upper = 0.1, log = True, default_value=1e-7))
+    cs.add(UniformFloatHyperparameter("dropout_rate", lower = 1e-7, upper = 0.2, log = True, default_value=1e-7)) 
+    cs.add(CategoricalHyperparameter("feed_forward_proj", ["relu", "gated-gelu", "gated-relu"], default_value="relu"))
+    cs.add(CategoricalHyperparameter("optim", ["adamw_torch_fused", "adafactor"], default_value="adamw_torch_fused"))
+    cs.add(UniformFloatHyperparameter("layer_norm_epsilon", lower = 1e-07, upper = 1e-03, log = True, default_value=1e-6))
+    cs.add(UniformIntegerHyperparameter("d_model", lower=64, upper=2048, log = False, default_value=512))
+    cs.add(UniformIntegerHyperparameter("num_layers", lower = 1, upper = 12, log = False, default_value=6))
+    cs.add(UniformIntegerHyperparameter("num_heads", lower = 1, upper = 12, log = False, default_value=8))
+    cs.add(UniformIntegerHyperparameter("d_kv", lower = 3, upper = 10, log = False, default_value=6))
+    cs.add(UniformIntegerHyperparameter("d_ff", lower = 5, upper = 13, log = False, default_value=11))
+    cs.add(UniformIntegerHyperparameter("context_length", lower = 128, upper = 2048, log = False, default_value=512))
+    cs.add(UniformIntegerHyperparameter("prediction_length", lower = 16, upper = 128, log = False, default_value=64))
+    cs.add(UniformFloatHyperparameter("max_missing_prop", lower=0.8, upper=1.0, log = True, default_value=0.9))
+    #cs.add(CategoricalHyperparameter("tokenizer_class", ["MeanScaleUniformBins", "MeanScaleQuantileBins"], default_value="MeanScaleUniformBins"))
     # TODO Must be as long as there a Corpora cs.add(CategoricalHyperparameter("probability", [probability_options]))
-    cs.add(CategoricalHyperparameter("lr_scheduler_type", ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau","cosine_with_min_lr", "warmup_stable_decay"]))
-    cs.add(UniformFloatHyperparameter("tokenizer_limit", lower=5.0, upper=50, log=False))
+    cs.add(CategoricalHyperparameter("lr_scheduler_type", ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau","cosine_with_min_lr", "warmup_stable_decay"],default_value="linear"))
+    cs.add(UniformFloatHyperparameter("tokenizer_limit", lower=5.0, upper=50, log=False, default_value=15))
 
     return cs
 

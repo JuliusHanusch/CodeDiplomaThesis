@@ -354,7 +354,7 @@ def main(
         )
         .sort_values(by="dataset")
     )
-    results_df.to_csv(metrics_path, index=False)
+    #results_df.to_csv(metrics_path, index=False)
     return results_df
 
 

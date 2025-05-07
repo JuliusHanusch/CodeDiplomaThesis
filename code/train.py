@@ -53,6 +53,7 @@ from gluonts.transform import (
     LeavesMissingValues,
     LastValueImputation,
 )
+from utils import make_dict_storable
 
 
 from chronos import ChronosConfig, ChronosTokenizer
@@ -120,6 +121,9 @@ def save_training_info(ckpt_path: Path, training_config: Dict):
     Save info about this training job in a json file for documentation.
     """
     assert ckpt_path.is_dir()
+    training_config = make_dict_storable(training_config)
+    print(training_config)
+    print(ckpt_path / "training_info.json")
     with open(ckpt_path / "training_info.json", "w") as fp:
         json.dump(
             {"training_config": training_config, "job_info": get_training_job_info()},
@@ -179,7 +183,8 @@ def load_model(
     is_encoder_decoder = True,
     num_layers = 6,
     num_heads = 8,
-    d_ff = 2048
+    d_ff = 2048,
+    d_kv = 64,
 
 ):
     """
@@ -204,6 +209,7 @@ def load_model(
         config.num_heads = num_heads
         config.num_layers = num_layers
         config.d_ff = d_ff
+        config.d_kv = d_kv
         if isinstance(config, T5Config):
             # The default initializer_factor (1.0) in transformers is too large
             config.initializer_factor = 0.05
@@ -557,6 +563,7 @@ def main(
     is_encoder_decoder: bool = True,
     num_layers: int = 6,
     num_heads: int = 8,
+    d_kv: int = 6,
     d_ff: int = 2048,
     output_dir: str = "./output/",
     tf32: bool = True,
@@ -668,6 +675,7 @@ def main(
         num_layers = num_layers,
         num_heads = num_heads,
         d_ff = d_ff,
+        d_kv = d_kv,
     )
 
     chronos_config = ChronosConfig(
@@ -740,6 +748,8 @@ def main(
         save_training_info(
             output_dir / "checkpoint-final", training_config=raw_training_config
         )
+
+        return output_dir / "checkpoint-final"
 
 
 if __name__ == "__main__":

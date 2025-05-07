@@ -1,6 +1,9 @@
 import sqlite3
 
 def getType(value):
+    """
+    Takes a value of a dict and return the sql type of the value
+    """
     if isinstance(value, int):
         return "INTEGER"
     elif isinstance(value, float):
@@ -11,6 +14,10 @@ def getType(value):
         return "TEXT"
 
 def insertTable(table_name: str, row_data: dict, db_path: str = "AION.db"):
+    """
+    Takes a table name, adict and a db name, inserts the dict as one row into the table,
+    creates table if not exists
+    """
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
 
