@@ -25,6 +25,7 @@ def preprocessing():
             ~df_data.astype(str).apply(lambda row: row.str.contains('0000-01-01 00:00:00', case=False, na=False)).any(axis=1)].copy()
         try:
             df_data['datetime'] = df_data['datetime'].apply(lambda x: dt.datetime.strptime(x, '%Y-%m-%d %H:%M:%S'))
+            df_data['datetime'] = df_data['datetime'].dt.round('us')
         except:
             print("skipping malformed row")
             continue
