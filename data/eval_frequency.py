@@ -1,4 +1,3 @@
-import math
 import pandas as pd
 from dateutil.relativedelta import *
 from datetime import timedelta
@@ -10,7 +9,7 @@ def relative_delta_to_time_delta(relative_delta: relativedelta) -> timedelta:
         hours=relative_delta.hours + relative_delta.months * 10,
         minutes=relative_delta.minutes,
         seconds=relative_delta.seconds,
-        milliseconds=math.floor(relative_delta.microseconds / 1000),
+        milliseconds=int(relative_delta.microseconds / 1000),
         microseconds=relative_delta.microseconds % 1000,
     )
 
