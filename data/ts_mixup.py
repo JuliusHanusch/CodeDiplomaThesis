@@ -1,7 +1,7 @@
 import numpy as np
+from typing import List
 
-def ts_mixup(datasets, alpha=1.5):
-
+def ts_mixup(datasets: List[np.ndarray], alpha: np.float64 = 1.5) -> np.ndarray:
     ### INIT AND SANITY CHECKS ###
     FUNC_NAME = 'ts_mixup'
     k = len(datasets)
@@ -10,15 +10,18 @@ def ts_mixup(datasets, alpha=1.5):
 
     l = len(datasets[0])
     for dataset in datasets:
-        if l!=len(dataset):
+        if l != len(dataset):
             raise Exception(FUNC_NAME, 'Datasets differ in length')
 
     ### IMPLEMENTATION ###
-    lambdas = np.random.dirichlet([alpha] * k)                              # weights for each dataset
-    means = np.array([np.mean(np.abs(dataset)) for dataset in datasets])    # means of each dataset
-    means[means==0] = 1e-5                                                  # prevent division by zero
+    lambdas: np.ndarray = np.random.dirichlet([alpha] * k)  # weights for each dataset
+    means: np.ndarray = np.array([np.mean(np.abs(dataset)) for dataset in datasets])  # means of each dataset
+    means[means == 0] = 1e-5  # prevent division by zero
 
-    datasets = [dataset / mean for dataset, mean in zip(datasets, means)]
-    mixed_ts = [sum(lambdas[ds_idx] * datasets[ds_idx][row_idx] for ds_idx in range(len(datasets))) for row_idx in range(len(datasets[0]))]
+    datasets: List[np.ndarray] = [dataset / mean for dataset, mean in zip(datasets, means)]
+    mixed_ts: np.ndarray = np.array(
+        [sum(lambdas[ds_idx] * datasets[ds_idx][row_idx]
+        for ds_idx in range(len(datasets)))
+        for row_idx in range(len(datasets[0]))])
 
     return mixed_ts
