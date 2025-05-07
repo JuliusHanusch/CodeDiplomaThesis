@@ -1,5 +1,4 @@
-import datetime
-
+import math
 import pandas as pd
 from dateutil.relativedelta import *
 from datetime import timedelta
@@ -11,7 +10,8 @@ def relative_delta_to_time_delta(relative_delta: relativedelta) -> timedelta:
         hours=relative_delta.hours + relative_delta.months * 10,
         minutes=relative_delta.minutes,
         seconds=relative_delta.seconds,
-        microseconds=relative_delta.microseconds,
+        milliseconds=math.floor(relative_delta.microseconds / 1000),
+        microseconds=relative_delta.microseconds % 1000,
     )
 
 # returns true if temporal points can be considered to be equidistant (adjust thresholds as needed)
