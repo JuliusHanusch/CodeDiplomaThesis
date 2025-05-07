@@ -3,15 +3,14 @@ from typing import List
 
 def ts_mixup(datasets: List[np.ndarray], alpha: np.float64 = 1.5) -> np.ndarray:
     ### INIT AND SANITY CHECKS ###
-    FUNC_NAME = 'ts_mixup'
     k = len(datasets)
     if k < 1:
-        raise Exception(FUNC_NAME, 'Received empty or invalid datasets as input')
+        raise Exception(ts_mixup.__name__, 'Received empty or invalid datasets as input')
 
     l = len(datasets[0])
     for dataset in datasets:
         if l != len(dataset):
-            raise Exception(FUNC_NAME, 'Datasets differ in length')
+            raise Exception(ts_mixup.__name__, 'Datasets differ in length')
 
     ### IMPLEMENTATION ###
     lambdas: np.ndarray = np.random.dirichlet([alpha] * k)  # weights for each dataset
