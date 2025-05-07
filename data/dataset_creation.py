@@ -1,6 +1,5 @@
 import datasets as ds
 import numpy as np
-import random
 import pandas as pd
 
 from itertools import repeat
@@ -8,6 +7,7 @@ from concurrent import futures
 from pathlib import Path
 from typing import List, Union
 from gluonts.dataset.arrow import ArrowWriter
+from ts_mixup import ts_mixup
 
 
 def convert_to_arrow(
@@ -36,31 +36,32 @@ def convert_to_arrow(
     )
 
 
-def create_snippets(length: int, dataset: ds.Dataset):
+def create_snippets(n: int, length: int, dataset: ds.Dataset):
     values = dataset["value"]
-
     if len(values) < length:
         return None
 
+    n = min(len(values) - length, n)
     snippets = []
-    while values and len(values) >= length:
-        snippet = random.sample(values, length)
-
-        for value in snippet:
-            values.remove(value)
-
+    start_points = np.random.choice(
+        list(range(len(values) - length)), n, replace=False
+    ).tolist()
+    for start_point in start_points:
+        snippet = values[start_point : start_point + length + 1]
         snippets.append(snippet)
 
     return snippets
 
 
 def create_dataset(
-    load_corpui: Union[List, str] = "all", k: int = 1, length: int = 128
+    load_corpui: Union[List, str] = "all",
+    k: int = 1,
+    n: int = 50,
+    length: int = 128,
+    alpha: int = 1.5,
 ):
     cwd = Path.cwd()
     data_path = cwd / "data_sets_raw"
-
-    df_preselect = pd.DataFrame()
 
     dict_dataset = {}
     for dataset_folder in data_path.iterdir():
@@ -80,48 +81,68 @@ def create_dataset(
 
     corpi_data = []
     if isinstance(load_corpui, list):
+        save_file = f"tsm_{load_corpui[0]}_and_{load_corpui[1]}_combined_with_k-{k}_length-{length}_alpha-{str(alpha).replace('.','')}.arrow"
         for corpus in load_corpui:
             data_train = dict_dataset[corpus.name]["train"]
             corpi_data.append(data_train)
         combined_corpus = ds.concatenate_datasets(corpi_data)
     elif load_corpui.lower() == "all":
+        save_file = f"training_data/tsm_all_combined_with_k-{k}_length-{length}_alpha-{alpha}.arrow"
         for dataset in dict_dataset.keys():
             corpi_data.append(dict_dataset[dataset]["train"])
         combined_corpus = ds.concatenate_datasets(corpi_data)
     else:
+        save_file = (
+            f"tsm_for_{load_corpui}_with_k-{k}_length-{length}_alpha-{alpha}.arrow"
+        )
         combined_corpus = dict_dataset[load_corpui]
 
     lst_data = []
     for data_set in combined_corpus:
         lst_data.append(data_set)
     with futures.ProcessPoolExecutor() as executor:
-        results = list(executor.map(create_snippets, repeat(length), lst_data))
+        results = list(
+            executor.map(create_snippets, repeat(n), repeat(length), lst_data)
+        )
 
     df_snippets = pd.DataFrame(columns=["snippets"])
-    for i, result in enumerate(results):
-        df_snippets["snippets"].loc[i] = result
+    for result in results:
+        df_tmp = pd.DataFrame()
+        if result is None:
+            continue
+        df_tmp["snippets"] = result
+        df_snippets = pd.concat([df_snippets, df_tmp], ignore_index=True)
 
-    indices = np.arange(len(combined_corpus)).tolist()
-    while indices and indices >= k:
-        random_selection = random.sample(range(len(combined_corpus)), k)
+    ts_data = []
+    indices = list(df_snippets.index)
+    while indices and len(indices) >= k:
+        rows = df_snippets.sample(n=k)
+        data = []
+        for row in rows:
+            index = row.index[0]
+            snippets = row["snippets"]
+            snippet = np.random.choice(snippets)
+            snippets.remove(snippet)
+            snippet = np.array(snippet)
+            data.append(snippet)
+            if snippets:
+                row["snippets"] = snippets
+            else:
+                df_snippets.drop(index, inplace=True)
+                indices.remove(index)
 
-        for removal in random_selection:
-            indices.remove(removal)
+        ts_data.append(data)
 
-        df_preselect["selection"] = random_selection
+    with futures.ProcessPoolExecutor() as executor:
+        results = list(executor.map(ts_mixup, ts_data, repeat(alpha)))
 
-        for selection in random_selection:
-            if len(combined_corpus[selection]) < length:
-                print(
-                    f"Dataset smaller than {length} found in random dataset combination {random_selection}! Discarding combination and removing selection"
-                )
-
-    convert_to_arrow(path, ts)
+    convert_to_arrow(f"train/{save_file}", results)
 
 
 if __name__ == "__main__":
     load_corpui = "Time_Corpus_Processed"
     k = 3
+    n = 50
     length = 128
 
-    create_dataset(load_corpui, k, length)
+    create_dataset(load_corpui, k, n, length)
