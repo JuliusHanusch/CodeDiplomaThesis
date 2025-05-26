@@ -36,8 +36,12 @@ def convert_to_arrow(
     )
 
 
-def create_snippets(n: int, length: int, dataset: ds.Dataset):
-    values = dataset["value"]
+def create_snippets(n: int, length: int, dataset: dict):
+    try:
+        values = dataset["value"]
+    except:
+        values = dataset["value_0"]
+
     if len(values) < length:
         return None
 
@@ -60,24 +64,32 @@ def create_dataset(
     length: int = 128,
     alpha: int = 1.5,
 ):
-    cwd = Path.cwd()
-    data_path = cwd / "data_sets_raw"
+    print("Starting Load process")
+    data_path = Path("./data_sets_raw")
+    print(data_path.resolve())
 
     dict_dataset = {}
     for dataset_folder in data_path.iterdir():
         if dataset_folder.name in load_corpui:
             dataset = ds.load_from_disk(dataset_folder)
             dict_dataset[dataset_folder.name] = dataset
+        elif dataset_folder.name == load_corpui:
+            dataset = ds.load_from_disk(dataset_folder)
+            dict_dataset[dataset_folder.name] = dataset
         elif load_corpui.lower() == "all":
             if dataset_folder.name != "Time_Corpus":
                 dataset = ds.load_from_disk(dataset_folder)
                 dict_dataset[dataset_folder.name] = dataset
-        else:
-            raise ValueError(
-                f"The value or values provided in {load_corpui} did not match any available Dataset. Please"
-                f"choose one or more of the following Datasets any combination will work: Time_Corpus_Processed, "
-                f"Lotsa or Chronos. Defaults to all combinations"
-            )
+
+    if not dict_dataset:
+        raise ValueError(
+            f"The value or values provided in {load_corpui} did not match any available Dataset. Please "
+            f"choose one or more of the following Datasets any combination will work: Time_Corpus_Processed, "
+            f"Lotsa or Chronos. Defaults to all combinations"
+        )
+
+    print("Finished Loading Dataset")
+    print("Start combining Datasets")
 
     corpi_data = []
     if isinstance(load_corpui, list):
@@ -95,15 +107,24 @@ def create_dataset(
         save_file = (
             f"tsm_for_{load_corpui}_with_k-{k}_length-{length}_alpha-{alpha}.arrow"
         )
-        combined_corpus = dict_dataset[load_corpui]
+        combined_corpus = dict_dataset[load_corpui]["train"]
 
-    lst_data = []
-    for data_set in combined_corpus:
-        lst_data.append(data_set)
-    with futures.ProcessPoolExecutor() as executor:
-        results = list(
-            executor.map(create_snippets, repeat(n), repeat(length), lst_data)
-        )
+    print("Finished Combining Datasets")
+    print(combined_corpus)
+
+    print("Starting snippet creation")
+    results = []
+    for idx in range(len(combined_corpus)):
+        result = create_snippets(n, length, combined_corpus[idx])
+        results.append(result)
+
+    # with futures.ProcessPoolExecutor() as executor:
+    #    results = list(
+    #        executor.map(create_snippets, repeat(n), repeat(length), lst_data)
+    #    )
+
+    print("Finished Snippet Creation")
+    print("Starting random selection procedure")
 
     df_snippets = pd.DataFrame(columns=["snippets"])
     for result in results:
@@ -132,6 +153,9 @@ def create_dataset(
                 indices.remove(index)
 
         ts_data.append(data)
+
+    print("Finished random selection procedure")
+    print("Starting TSMixup procedure")
 
     with futures.ProcessPoolExecutor() as executor:
         results = list(executor.map(ts_mixup, ts_data, repeat(alpha)))
