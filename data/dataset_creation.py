@@ -37,10 +37,7 @@ def convert_to_arrow(
 
 
 def create_snippets(n: int, length: int, dataset: dict):
-    try:
-        values = dataset["value"]
-    except:
-        values = dataset["value_0"]
+    values = dataset["value"][0]
 
     if len(values) < length:
         return None
@@ -65,8 +62,7 @@ def create_dataset(
     alpha: int = 1.5,
 ):
     print("Starting Load process")
-    data_path = Path("./data_sets_raw")
-    print(data_path.resolve())
+    data_path = Path("./data/data_sets_raw")
 
     dict_dataset = {}
     for dataset_folder in data_path.iterdir():
@@ -110,12 +106,15 @@ def create_dataset(
         combined_corpus = dict_dataset[load_corpui]["train"]
 
     print("Finished Combining Datasets")
-    print(combined_corpus)
-
     print("Starting snippet creation")
+
     results = []
-    for idx in range(len(combined_corpus)):
-        result = create_snippets(n, length, combined_corpus[idx])
+    # for idx in range(len(combined_corpus)):
+    #    result = create_snippets(n, length, combined_corpus[idx])
+    #    results.append(result)
+
+    for data in combined_corpus:
+        result = create_snippets(n, length, data)
         results.append(result)
 
     # with futures.ProcessPoolExecutor() as executor:
