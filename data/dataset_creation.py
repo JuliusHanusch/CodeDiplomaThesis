@@ -57,7 +57,7 @@ def create_snippets(length: int, cover_threshold: int, dataset: dict):
     return snippets
 
 
-def draw_snippets_with_replacement(df_snippets: pd.DataFrame, iterations: int):
+def draw_snippets_with_replacement(df_snippets: pd.DataFrame, iterations: int, k: int):
     ts_data = []
 
     for i in range(iterations):
@@ -74,7 +74,7 @@ def draw_snippets_with_replacement(df_snippets: pd.DataFrame, iterations: int):
     return ts_data
 
 
-def draw_snippets_without_replacement(df_snippets: pd.DataFrame):
+def draw_snippets_without_replacement(df_snippets: pd.DataFrame, k: int):
     ts_data = []
     indices = list(df_snippets.index)
     while indices and len(indices) >= k:
@@ -182,9 +182,9 @@ def create_dataset(
         df_snippets = pd.concat([df_snippets, df_tmp], ignore_index=True)
 
     if iterations is not None:
-        ts_data = draw_snippets_with_replacement(df_snippets, iterations)
+        ts_data = draw_snippets_with_replacement(df_snippets, iterations, k)
     else:
-        ts_data = draw_snippets_without_replacement(df_snippets)
+        ts_data = draw_snippets_without_replacement(df_snippets, k)
 
     print("Finished random selection procedure")
     print("Starting TSMixup procedure")
