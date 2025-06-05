@@ -1,6 +1,7 @@
 import datasets as ds
 import numpy as np
 import pandas as pd
+import random as rd
 
 from itertools import repeat
 from concurrent import futures
@@ -36,33 +37,77 @@ def convert_to_arrow(
     )
 
 
-def create_snippets(n: int, length: int, dataset: dict):
-    values = dataset["value"][0]
+def create_snippets(length: int, cover_threshold: int, dataset: dict):
+    values = dataset["value"]
+    ts_length = len(values)
 
-    if len(values) < length:
+    if ts_length < length:
         return None
 
-    n = min(len(values) - length, n)
+    n = round((ts_length * cover_threshold) / length)
+
     snippets = []
     start_points = np.random.choice(
         list(range(len(values) - length)), n, replace=False
     ).tolist()
     for start_point in start_points:
-        snippet = values[start_point : start_point + length + 1]
+        snippet = values[start_point : start_point + length]
         snippets.append(snippet)
 
     return snippets
 
 
+def draw_snippets_with_replacement(df_snippets: pd.DataFrame, iterations: int):
+    ts_data = []
+
+    for i in range(iterations):
+        rows = df_snippets.sample(n=k)
+        data = []
+        for index, row in rows.iterrows():
+            snippets = row["snippets"]
+            snippet = rd.choice(snippets)
+            snippet = np.array(snippet)
+            data.append(snippet)
+
+        ts_data.append(data)
+
+    return ts_data
+
+
+def draw_snippets_without_replacement(df_snippets: pd.DataFrame):
+    ts_data = []
+    indices = list(df_snippets.index)
+    while indices and len(indices) >= k:
+        rows = df_snippets.sample(n=k)
+        data = []
+        for index, row in rows.iterrows():
+            snippets = row["snippets"]
+            snippet = rd.choice(snippets)
+            snippets.remove(snippet)
+            snippet = np.array(snippet)
+            data.append(snippet)
+            if snippets:
+                df_snippets.loc[index, "snippets"] = snippets
+            else:
+                df_snippets.drop(index, inplace=True)
+                indices.remove(index)
+
+        ts_data.append(data)
+
+    return ts_data
+
+
 def create_dataset(
     load_corpui: Union[List, str] = "all",
     k: int = 1,
-    n: int = 50,
     length: int = 128,
     alpha: int = 1.5,
+    cover_threshold: int = 1,
+    iterations: int = None,
 ):
     print("Starting Load process")
     data_path = Path("./data/data_sets_raw")
+    print(data_path.resolve())
 
     dict_dataset = {}
     for dataset_folder in data_path.iterdir():
@@ -95,63 +140,51 @@ def create_dataset(
             corpi_data.append(data_train)
         combined_corpus = ds.concatenate_datasets(corpi_data)
     elif load_corpui.lower() == "all":
-        save_file = f"training_data/tsm_all_combined_with_k-{k}_length-{length}_alpha-{alpha}.arrow"
+        save_file = f"training_data/tsm_all_combined_with_k-{k}_length-{length}_alpha-{str(alpha).replace('.','')}.arrow"
         for dataset in dict_dataset.keys():
             corpi_data.append(dict_dataset[dataset]["train"])
         combined_corpus = ds.concatenate_datasets(corpi_data)
     else:
-        save_file = (
-            f"tsm_for_{load_corpui}_with_k-{k}_length-{length}_alpha-{alpha}.arrow"
-        )
+        save_file = f"tsm_for_{load_corpui}_with_k-{k}_length-{length}_alpha-{str(alpha).replace('.','')}.arrow"
         combined_corpus = dict_dataset[load_corpui]["train"]
 
     print("Finished Combining Datasets")
     print("Starting snippet creation")
 
-    results = []
+    # results = []
     # for idx in range(len(combined_corpus)):
     #    result = create_snippets(n, length, combined_corpus[idx])
     #    results.append(result)
 
-    for data in combined_corpus:
-        result = create_snippets(n, length, data)
-        results.append(result)
+    # for data in combined_corpus:
+    #    result = create_snippets(n, length, data)
+    #    results.append(result)
 
-    # with futures.ProcessPoolExecutor() as executor:
-    #    results = list(
-    #        executor.map(create_snippets, repeat(n), repeat(length), lst_data)
-    #    )
+    with futures.ProcessPoolExecutor() as executor:
+        results = list(
+            executor.map(
+                create_snippets,
+                repeat(length),
+                repeat(cover_threshold),
+                combined_corpus,
+            )
+        )
 
     print("Finished Snippet Creation")
     print("Starting random selection procedure")
 
     df_snippets = pd.DataFrame(columns=["snippets"])
     for result in results:
-        df_tmp = pd.DataFrame()
         if result is None:
             continue
-        df_tmp["snippets"] = result
+        df_tmp = pd.DataFrame()
+        df_tmp["snippets"] = [result]
         df_snippets = pd.concat([df_snippets, df_tmp], ignore_index=True)
 
-    ts_data = []
-    indices = list(df_snippets.index)
-    while indices and len(indices) >= k:
-        rows = df_snippets.sample(n=k)
-        data = []
-        for row in rows:
-            index = row.index[0]
-            snippets = row["snippets"]
-            snippet = np.random.choice(snippets)
-            snippets.remove(snippet)
-            snippet = np.array(snippet)
-            data.append(snippet)
-            if snippets:
-                row["snippets"] = snippets
-            else:
-                df_snippets.drop(index, inplace=True)
-                indices.remove(index)
-
-        ts_data.append(data)
+    if iterations is not None:
+        ts_data = draw_snippets_with_replacement(df_snippets, iterations)
+    else:
+        ts_data = draw_snippets_without_replacement(df_snippets)
 
     print("Finished random selection procedure")
     print("Starting TSMixup procedure")
@@ -167,5 +200,6 @@ if __name__ == "__main__":
     k = 3
     n = 50
     length = 128
+    cover_threshold = 1
 
-    create_dataset(load_corpui, k, n, length)
+    create_dataset(load_corpui, k, n, length, cover_threshold)
