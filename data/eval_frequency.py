@@ -2,10 +2,13 @@ import pandas as pd
 from dateutil.relativedelta import *
 from datetime import timedelta
 
+# needed for further calculations with time
+# relative delta will have non-exact values like "month"
+# time delta is an absolute value
 def relative_delta_to_time_delta(relative_delta: relativedelta) -> timedelta:
     return timedelta(
         # months are approximated as an average of 30d10h
-        days=relative_delta.days + relative_delta.months * 30 + relative_delta.weeks * 7 + relative_delta.years * 365,
+        days=relative_delta.days + relative_delta.months * 30 + relative_delta.years * 365,
         hours=relative_delta.hours + relative_delta.months * 10,
         minutes=relative_delta.minutes,
         seconds=relative_delta.seconds,
@@ -15,11 +18,15 @@ def relative_delta_to_time_delta(relative_delta: relativedelta) -> timedelta:
 
 # returns true if temporal points can be considered to be equidistant (adjust thresholds as needed)
 def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
+    if debug: print(">>> eval_frequency DEBUG OUTPUT")
+
     amount_threshold = 0.9 # minimal share of precisely equidistant time data points
     total_time_ratio_threshold = 0.9 # ratio of most common time difference to average time difference
+    amount_threshold_fixable = 0.8
 
     date_time = df['datetime']
-    if (len(date_time) < 2):
+    if len(date_time) < 2:
+        if debug: print("Dataset too short")
         return True
     date_time = sorted(date_time)
 
@@ -32,8 +39,29 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
 
     time_diff_dict = dict(sorted(time_diff_dict.items(), key=lambda item: item[1], reverse=True))
     most_common_time_diff = list(time_diff_dict.keys())[0]
-    amount_share = time_diff_dict[most_common_time_diff] / max(len(date_time) - 1, 1)
 
+    if debug: print("Pre-Clustering", time_diff_dict)
+    # If most common timediff == 0
+    if most_common_time_diff == relativedelta():
+        if debug: print("Dataset malformed: most common time diff 0")
+        return False
+
+    # cluster time deltas that are close to most common time diff
+    to_del = []
+    most_common_time_diff_time_delta = relative_delta_to_time_delta(most_common_time_diff)
+    for ditem in list(time_diff_dict.keys())[1:]:
+        if ditem != relativedelta():
+            if ((relative_delta_to_time_delta(ditem) / most_common_time_diff_time_delta > amount_threshold)
+                and (most_common_time_diff_time_delta / relative_delta_to_time_delta(ditem) > amount_threshold)):
+                if debug: print("clustering", most_common_time_diff_time_delta, "item:", ditem, relative_delta_to_time_delta(ditem))
+                time_diff_dict[most_common_time_diff] = time_diff_dict[most_common_time_diff] + time_diff_dict[ditem]
+                time_diff_dict[ditem] = 0
+                to_del.append(ditem)
+            else:
+                if debug: print("NOT clustering", most_common_time_diff_time_delta, "item:", ditem, relative_delta_to_time_delta(ditem))
+    for del_item in to_del:
+        del time_diff_dict[del_item]
+    amount_share = time_diff_dict[most_common_time_diff] / max(len(date_time) - 1, 1)
 
     # ensure we don't have too many gaps in the data
     ## calculate ratio of (most common time difference) / (average time delta per data point)
@@ -41,6 +69,7 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
     last_time = date_time[-1]
 
     if first_time == last_time:
+        if debug: print("Dataset malformed: first and last time are equal")
         return False
         #raise Exception("Dataset malformed")
 
@@ -49,16 +78,25 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
     else:
         average_time_diff_per_data_point = (last_time - first_time) / max(len(date_time) - 1, 1)
 
-    time_diff_ratio = relative_delta_to_time_delta(most_common_time_diff) / average_time_diff_per_data_point
+    time_diff_ratio = most_common_time_diff_time_delta / average_time_diff_per_data_point
 
     if debug:
-        print(">>> eval_frequency DEBUG OUTPUT")
-        print("date_time", date_time)
+        #print("date_time", date_time)
         print("time_diff_dict", time_diff_dict)
         print("Amount share",amount_share, ("above" if (amount_share>amount_threshold) else "below"), "threshold")
         print("Timediff ratio", time_diff_ratio, ("above" if (time_diff_ratio > total_time_ratio_threshold) else "below"), "threshold")
         print("Reciprocal Timediff ratio", 1/max(time_diff_ratio,1E-5), ("above" if ((1/max(time_diff_ratio,1E-5)) > total_time_ratio_threshold) else "below"),
           "threshold")
+
+    # find fixable time series:
+    # share of most frequent time distance is high enough,
+    # but total time doesnt match
+    if (amount_share > amount_threshold_fixable
+            and (time_diff_ratio < total_time_ratio_threshold or 1/max(time_diff_ratio,1E-5) < total_time_ratio_threshold))\
+            and (time_diff_ratio != 0.0):
+
+        print("Fixable?")
+
 
     # true if both are above threshold
     return (amount_share > amount_threshold
