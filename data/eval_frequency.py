@@ -17,17 +17,18 @@ def relative_delta_to_time_delta(relative_delta: relativedelta) -> timedelta:
     )
 
 # returns true if temporal points can be considered to be equidistant (adjust thresholds as needed)
-def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
+def eval_frequency(df: pd.DataFrame, debug=False) -> (bool, list):
     if debug: print(">>> eval_frequency DEBUG OUTPUT")
 
     amount_threshold = 0.9 # minimal share of precisely equidistant time data points
     total_time_ratio_threshold = 0.9 # ratio of most common time difference to average time difference
     amount_threshold_fixable = 0.8
+    min_df_len = 64
 
     date_time = df['datetime']
     if len(date_time) < 2:
         if debug: print("Dataset too short")
-        return True
+        return True, []
     date_time = sorted(date_time)
 
     # ensure a sufficient share of time points is equally spaced
@@ -44,7 +45,7 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
     # If most common timediff == 0
     if most_common_time_diff == relativedelta():
         if debug: print("Dataset malformed: most common time diff 0")
-        return False
+        return False, []
 
     # cluster time deltas that are close to most common time diff
     to_del = []
@@ -70,7 +71,7 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
 
     if first_time == last_time:
         if debug: print("Dataset malformed: first and last time are equal")
-        return False
+        return False, []
         #raise Exception("Dataset malformed")
 
     if isinstance(first_time, pd.Timestamp):
@@ -94,12 +95,32 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
     if (amount_share > amount_threshold_fixable
             and (time_diff_ratio < total_time_ratio_threshold or 1/max(time_diff_ratio,1E-5) < total_time_ratio_threshold))\
             and (time_diff_ratio != 0.0):
+        # attempting fix
 
         print("Fixable?")
+
+        split_series = []
+
+        tempdf_index = 0
+        for x in range(len(df) - 1):
+            relative_delta = relativedelta(df['datetime'][x + 1], df['datetime'][x])
+            if not (relative_delta == most_common_time_diff
+                    or relative_delta == most_common_time_diff * 2 # single gaps are OK
+                    or relative_delta in to_del): #in to_del means it got clustered
+                # split detected
+                if x+1 - tempdf_index > min_df_len:
+                    split_series.append(df.iloc[tempdf_index:x+1].reset_index(drop=True))
+                tempdf_index = x+1
+
+        if len(df) - tempdf_index > min_df_len:
+            split_series.append(df.iloc[tempdf_index:len(df)].reset_index(drop=True))
+
+        return False, split_series
+
 
 
     # true if both are above threshold
     return (amount_share > amount_threshold
             and time_diff_ratio > total_time_ratio_threshold
-            and 1/max(time_diff_ratio,1E-5) > total_time_ratio_threshold)
+            and 1/max(time_diff_ratio,1E-5) > total_time_ratio_threshold), []
 
