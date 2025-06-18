@@ -1,88 +1,76 @@
+from pathlib import Path
+import datetime as dt
+from typing import Dict, List
+
 import pandas as pd
 import datasets as ds
-import datetime as dt
+from tqdm.auto import tqdm
 
 from eval_frequency import eval_frequency
 
+RAW_DIR = Path("./data/data_sets_raw/Time_Corpus")
+PROCESSED_DIR = Path("./data/data_sets_raw/Time_Corpus_Processed")
 
-def preprocessing():
-    dataset = ds.load_from_disk("./data/data_sets_raw/Time_Corpus")
-    dataset = dataset["train"]
 
-    count_total = len(dataset)
-    count_equi = 0
-    count_nonequi = 0
+def to_datetime(series: pd.Series) -> pd.Series:
+    """Vector-parse & round datetimes (μs precision)."""
+    return (pd.to_datetime(series, format="%Y-%m-%d %H:%M:%S", errors="coerce")
+              .dt.round("us"))
 
-    list_dataset = []
-    case_study = {"EmptyValueColumn": [], "MalformedTimeColumn": []}
-    for set_data in dataset:
-        if not set_data["value"]:
-            case_study["EmptyValueColumn"].append(set_data["name"])
+
+def make_univar(name: str, df: pd.DataFrame, col: str) -> ds.Dataset:
+    ident = f"{name}_{col}" if col != "value" else name
+    return ds.Dataset.from_dict(
+        {
+            "identifier": [ident],
+            "datetime": [df["datetime"].dt.strftime("%Y-%m-%dT%H:%M:%S.%f").tolist()],
+            "value": [df[col].astype(float).tolist()],  # or .astype(str) if needed
+        }
+    )
+
+
+
+def preprocessing(min_ts_length=64) -> None:
+    assert min_ts_length > 0, "min_ts_length must be a positive integer"
+
+
+    src = ds.load_from_disk(RAW_DIR)["train"]
+    total = len(src)
+
+    stats = {"equi": 0, "nonequi": 0}
+    issues: Dict[str, List[str]] = {"EmptyValueColumn": [], "MalformedTimeColumn": []}
+    processed: List[ds.Dataset] = []
+
+    for rec in tqdm(src, desc="processing"):
+        if not rec["value"]:
+            issues["EmptyValueColumn"].append(rec["name"])
             continue
-        name = set_data["name"]
 
-        dict_dataset = {"datetime": eval(set_data["date"])}
-        for i, values in enumerate(set_data["value"]):
-            dict_dataset[f"value_{i}"] = values
+        df = pd.DataFrame(
+            {"datetime": eval(rec["date"]),
+             **{f"value_{i}": v for i, v in enumerate(rec["value"])}}
+        )
 
-        df_data = pd.DataFrame.from_dict(dict_dataset)
-
-        df_data = df_data[
-            ~df_data.astype(str)
-            .apply(
-                lambda row: row.str.contains(
-                    "0000-01-01 00:00:00", case=False, na=False
-                )
-            )
-            .any(axis=1)
-        ].copy()
-        try:
-            df_data["datetime"] = df_data["datetime"].apply(
-                lambda x: dt.datetime.strptime(x, "%Y-%m-%d %H:%M:%S")
-            )
-            df_data["datetime"] = df_data["datetime"].dt.round("us")
-        except:
-            case_study["MalformedTimeColumn"].append(name)
-            print("skipping malformed row")
+        # drop sentinel rows & parse datetimes
+        df = df[~df.astype(str).apply(
+            lambda r: r.str.contains("0000-01-01 00:00:00", na=False)).any(axis=1)]
+        df["datetime"] = to_datetime(df["datetime"])
+        if df["datetime"].isna().any():
+            issues["MalformedTimeColumn"].append(rec["name"])
             continue
-        equi_distance = eval_frequency(df_data)
-        if equi_distance:
-            count_equi += 1
-            if len(df_data.columns) > 2:
-                for column in df_data.columns[1:]:
-                    df_set = pd.DataFrame()
-                    df_set["datetime"] = df_data["datetime"]
-                    df_set["value"] = df_data[column]
 
-                    dict_set = {
-                        "identifier": [f"{name}_{column}"],
-                        "datetime": [list(df_set["datetime"])],
-                        "value": [list(df_set["value"])],
-                    }
-                    column_dataset = ds.Dataset.from_dict(dict_set)
-                    list_dataset.append(column_dataset)
-            else:
-                df_data.rename(columns={"value_0": "value"}, inplace=True)
-                dict_data = {
-                    "identifier": [name],
-                    "datetime": [list(df_data["datetime"])],
-                    "value": [list(df_data["value"])],
-                }
-                univar_dataset = ds.Dataset.from_dict(dict_data)
-                list_dataset.append(univar_dataset)
+        if eval_frequency(df):
+            stats["equi"] += 1
+            val_cols = df.columns.difference(["datetime"])
+            processed += [make_univar(rec["name"], df, c) for c in val_cols if len(df[c]) >= min_ts_length]
         else:
-            count_nonequi += 1
+            stats["nonequi"] += 1
 
-    concatinated_dataset = ds.concatenate_datasets(list_dataset)
-    dataset = ds.DatasetDict()
-    dataset["train"] = concatinated_dataset
+    ds.DatasetDict(train=ds.concatenate_datasets(processed)).save_to_disk(PROCESSED_DIR)
 
-    dataset.save_to_disk("./data/data_sets_raw/Time_Corpus_Processed")
-
-    print(count_equi)
-    print(count_nonequi)
-    print(count_equi / count_total)
-    print(case_study)
+    print(stats)
+    print(stats["equi"] / total)
+    print(issues)
 
 
 if __name__ == "__main__":

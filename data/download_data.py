@@ -8,6 +8,7 @@ from shutil import which
 
 app = Typer()
 
+
 @app.command()
 def download_corpus(corpus_name: str = Option(..., help="Name of the corpus to download. Options: 'kaggle', 'chronos', 'lotsa'")):
     """

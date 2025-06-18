@@ -120,16 +120,12 @@ def create_dataset(
     samples: int = None,
     alpha: int = 1.5,
 ):
-    print("Starting Load process")
-    data_path = Path("./data/data_sets_raw")
-    print(data_path.resolve())
+    data_path = Path("./data/data_sets_raw") #TODO pass as argument
+    print(f"Starting Load process, from {data_path.resolve()}")
 
     dict_dataset = {}
     for dataset_folder in data_path.iterdir():
-        if dataset_folder.name in load_corpui:
-            dataset = ds.load_from_disk(dataset_folder)
-            dict_dataset[dataset_folder.name] = dataset
-        elif dataset_folder.name == load_corpui:
+        if dataset_folder.name in load_corpui: # Includes  or dataset_folder.name == load_corpui
             dataset = ds.load_from_disk(dataset_folder)
             dict_dataset[dataset_folder.name] = dataset
         elif load_corpui.lower() == "all":
@@ -144,12 +140,10 @@ def create_dataset(
             f"Lotsa or Chronos. Defaults to all combinations"
         )
 
-    print("Finished Loading Dataset")
     print("Start combining Datasets")
-
     corpi_data = []
     if isinstance(load_corpui, list):
-        save_file = f"tsm_{load_corpui[0]}_and_{load_corpui[1]}_combined_with_k-{k}_length-{length}_alpha-{str(alpha).replace('.','')}.arrow"
+        save_file = f"tsm_{'_'.join(load_corpui)}_combined_with_k-{k}_length-{length}_alpha-{str(alpha).replace('.','')}.arrow"
         for corpus in load_corpui:
             data_train = dict_dataset[corpus.name]["train"]
             corpi_data.append(data_train)
@@ -163,12 +157,17 @@ def create_dataset(
         save_file = f"tsm_for_{load_corpui}_with_k-{k}_length-{length}_alpha-{str(alpha).replace('.','')}.arrow"
         combined_corpus = dict_dataset[load_corpui]["train"]
 
-    print("Finished Combining Datasets")
-    print("Starting snippet creation")
 
+    print("Starting snippet creation")
     corpus_length = 0
     for data in combined_corpus:
         corpus_length += len(data)
+
+
+
+
+
+
 
     results = []
     for data_set in combined_corpus:
