@@ -21,6 +21,8 @@ from gluonts.itertools import batcher
 from gluonts.model.evaluation import evaluate_forecasts
 from gluonts.model.forecast import SampleForecast
 from tqdm.auto import tqdm
+from functools import cache
+from autogluon.timeseries import TimeSeriesPredictor, TimeSeriesDataFrame
 
 from chronos import ChronosPipeline
 
@@ -346,7 +348,7 @@ def main(
                 "MASE[0.5]": "MASE",
                 "mean_weighted_sum_quantile_loss": "WQL",
                 "MAE[0.5]": "MAE",
-                "NRMSE[0.5]": "NRMSE",
+                "NRMSE[mean]": "NRMSE",
 
 
             },
@@ -356,6 +358,47 @@ def main(
     )
     #results_df.to_csv(metrics_path, index=False)
     return results_df
+
+
+@cache
+def eval_ag(
+        test_data_path: str, # we need a string to be hashable and cashable 
+        config: dict,
+):
+    # TODO
+    # Setup predictor
+    dataset_name = config["name"]
+    prediction_length = config["prediction_length"]
+    hf_repo = config["hf_repo"]
+    trust_remote_code = True if hf_repo == "autogluon/chronos_datasets_extra" else False
+
+
+    train_data = datasets.load_dataset(
+        hf_repo, dataset_name, split="train", trust_remote_code=trust_remote_code
+    )
+
+    test_data = datasets.load_dataset(
+        hf_repo, dataset_name, split="test", trust_remote_code=trust_remote_code
+    )
+
+
+    predictor = TimeSeriesPredictor(
+        prediction_length=prediction_length,
+        path=f"autogluon-predictor-{dataset_name}",
+        target="target",
+        eval_metric="MASE"
+    )    
+
+    predictor.fit(
+        train_data,
+        presets="medium_quality",
+        time_limit=300
+    )
+
+    # Evaluate on all metrics
+    # (Cache)
+    # return all metrics
+    pass # Return MASE, WQL, NRMSE
 
 
 if __name__ == "__main__":

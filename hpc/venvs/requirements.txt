@@ -19,3 +19,4 @@ ConfigSpace
 smac
 dask
 dask-jobqueue
+autogluon

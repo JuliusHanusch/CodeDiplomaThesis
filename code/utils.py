@@ -37,10 +37,10 @@ def make_dict_storable(advanced_dictionary: dict)->dict:
 
 def results_to_metrics(results_dict: dict):
     """
-    Takes in a the results dict containing two df for in-domain and zero shot eval, extracts the metrics,
+    Takes in a dict containing the results of thepretraining with two Dataframes one for in-domain and one for zero shot evaluation, extracts the metrics,
     returns all metrics as vaiables
     """
-    metrics = ["MASE", "WQL", "MAE", "NRMSE"]
+    metrics = ["MASE", "WQL", "MAE", "NRMSE[mean]"]
     
     # Ensure consistent keys
     in_domain_df = results_dict.get("in-domain")

@@ -205,15 +205,17 @@ def train(
         )
 
     # TODO Check that all metrics are near 0-1 range (e.g. NRMSE)
+    import pandas as pd
+    pd.options.display.max_columns = None
     print(f"Results:\n {results}")
 
     # ! Save Meta Data To DB
 
-    from code.db import main as save_to_db
+    from code.db import insertTable
 
     config_simple = make_dict_storable(config_dict)
     in_domain_mase, in_domain_wql, in_domain_mae, in_domain_nrmse, zero_shot_mase, zero_shot_wql, zero_shot_mae, zero_shot_nrmse = results_to_metrics(results)
-    save_to_db("Results", {"id":config_hash, "config":config_simple, "ModelPath":output_path,
+    insertTable("Results", {"id":config_hash, "config":config_simple, "ModelPath":output_path,
                             "in_domain_mase":in_domain_mase, "in_domain_wql":in_domain_wql, "in_domain_mae":in_domain_mae, "in_domain_nrmse":in_domain_nrmse,
                             "zero_shot_mase":zero_shot_mase,"zero_shot_wql":zero_shot_wql,"zero_shot_mae":zero_shot_mae,"zero_shot_nrmse":zero_shot_nrmse })
 

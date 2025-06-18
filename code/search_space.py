@@ -1,7 +1,8 @@
 from ConfigSpace import ConfigurationSpace, CategoricalHyperparameter, Constant, UniformIntegerHyperparameter, UniformFloatHyperparameter
 
 # TODO Update
-training_data_paths = "['/data/horse/ws/jipo020b-aion/AION/data/testfiles/training_mix.arrow']"
+#training_data_paths = "['/data/horse/ws/jipo020b-aion/AION/data/testfiles/training_mix.arrow']"
+training_data_paths = "['/data/horse/ws/jipo020b-aion/AION/data/train/tsm_for_Time_Corpus_Processed_with_k-3_length-128_alpha-1_5.arrow']"
 
 
 probability_options = [
