@@ -6,10 +6,10 @@
     "configurations": [
 
         {
-            "name": "dataset_creation2",
+            "name": "dataset_creation",
             "type": "debugpy",
             "request": "launch",
-            "program": "./data/dataset_creation2.py",
+            "program": "./data/dataset_creation.py",
             "console": "integratedTerminal",
             "args": []
         },

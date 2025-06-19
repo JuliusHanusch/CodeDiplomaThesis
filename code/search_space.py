@@ -14,7 +14,8 @@ probability_options = [
 ]
 # define data splits
 
-def get_config_space(model_id = "google/t5-efficient-tiny", batch_size= 32, gradient_accumulation_steps = 1) -> ConfigurationSpace:
+def get_config_space(model_id = "google/t5-efficient-tiny", batch_size= 256, gradient_accumulation_steps = 1) -> ConfigurationSpace:
+    # TODO include batch_size into search space
     # Fixed parameters to be added as constants
     fixed_config = {
         "training_data_paths": [ # TODO Update

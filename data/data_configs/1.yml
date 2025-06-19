@@ -1,0 +1,9 @@
+corpora: ["all"]
+k: 1
+length: 512
+samples: 100 # TODO Increase to 256 Samples/Batch * 2M steps = 512M -> 10M Instead to save Mem during Search afterwards 512M
+alpha: 1.5
+min_probability: 0.000025
+workers: 16
+data_path: "./data/data_sets_raw"
+# output_dir: "./data/train"

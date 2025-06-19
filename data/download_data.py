@@ -5,6 +5,7 @@ from pathlib import Path
 from typer import Typer, Option
 import subprocess
 from shutil import which
+import tempfile
 
 app = Typer()
 
@@ -33,8 +34,10 @@ def download_kaggle_corpus():
     if which("kaggle") is None:
         print("kaggle missing. pip install kaggle to proceed.")
         return
-    kaggle_dataset = ds.load_dataset("ddrg/kaggle-time-series-datasets", "TIME_SERIES", trust_remote_code = True, cache_dir=cache_path)
-    kaggle_dataset.save_to_disk(output_path/"Time_Corpus")
+    # Download Data but dont HF-Cache TS-Corpus has its own caching mechanism
+    with tempfile.TemporaryDirectory(dir=cache_path) as tmp_cache_dir:
+        kaggle_dataset = ds.load_dataset("ddrg/kaggle-time-series-datasets", "TIME_SERIES", trust_remote_code = True, cache_dir=tmp_cache_dir)
+        kaggle_dataset.save_to_disk(output_path/"Time_Corpus")
 
 def download_chronos_corpus():
     subdatasets = []
@@ -43,10 +46,7 @@ def download_chronos_corpus():
         for subdataset_name in subdataset_names:
             sub_ds = ds.load_dataset(super_dataset, subdataset_name, trust_remote_code=True, cache_dir=cache_path)
             sub_ds.save_to_disk(output_path/f"Chronos_Corpus/{subdataset_name}")
-            #subdatasets.append(sub_ds)
-        
-    #chronos_dataset = ds.concatenate_datasets(subdatasets)
-    #chronos_dataset.save_to_disk(output_path/"Chronos_Corpus")
+
 
 def download_lotsa_corpus():
     repo = "Salesforce/lotsa_data"
