@@ -17,6 +17,8 @@ def download_corpus(corpus_name: str = Option(..., help="Name of the corpus to d
     """
     if corpus_name == "kaggle":
         download_kaggle_corpus()
+    elif corpus_name == "uci":
+        download_uci_corpus()
     elif corpus_name == "chronos":
         download_chronos_corpus()
     elif corpus_name == "lotsa":
@@ -38,6 +40,14 @@ def download_kaggle_corpus():
     with tempfile.TemporaryDirectory(dir=cache_path) as tmp_cache_dir:
         kaggle_dataset = ds.load_dataset("ddrg/kaggle-time-series-datasets", "TIME_SERIES", trust_remote_code = True, cache_dir=tmp_cache_dir)
         kaggle_dataset.save_to_disk(output_path/"Time_Corpus")
+
+        
+def download_uci_corpus():
+    # Download Data but dont HF-Cache TS-Corpus has its own caching mechanism
+    with tempfile.TemporaryDirectory(dir=cache_path) as tmp_cache_dir:
+        dataset = ds.load_dataset("ddrg/time-series-datasets", "TIME_SERIES", trust_remote_code = True, cache_dir=tmp_cache_dir)
+        dataset.save_to_disk(output_path/"UCI_Corpus")
+
 
 def download_chronos_corpus():
     subdatasets = []
