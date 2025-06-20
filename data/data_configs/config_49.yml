@@ -1,0 +1,12 @@
+corpora:
+- UCI_Corpus
+- Lotsa_Corpus
+- Time_Corpus_Processed
+- Chronos_Corpus
+k: 4
+length: 64
+samples: 10000000
+min_probability: 1.0e-06
+workers: 16
+data_path: ./data/data_sets_raw
+alpha: 0.5

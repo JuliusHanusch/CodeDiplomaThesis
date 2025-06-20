@@ -1,0 +1,9 @@
+corpora:
+- Time_Corpus_Processed
+k: 2
+length: 128
+samples: 10000000
+min_probability: 2.5e-05
+workers: 16
+data_path: ./data/data_sets_raw
+alpha: 1
