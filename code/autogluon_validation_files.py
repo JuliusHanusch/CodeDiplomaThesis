@@ -63,111 +63,120 @@ def main(
             prediction_length = config["prediction_length"]
             num_rolls = config["num_rolls"]
 
-
-
             try:
                 ds = fetch_ucirepo(id=dataset_id)
                 print("Dataset can be fetched directly")
                 print(dataset_id)
 
-                # data (as pandas dataframes)
+                df = pd.concat([ds.data.features, ds.data.targets], axis=1)
+
                 for target in targets:
-                    df = pd.concat([ds.data.features, ds.data.targets], axis=1)
-                    data = df[[target]]
-                    data.reset_index(inplace=True) 
-                    features=Features({
-                        column_name: Value("float32")
-                        for column_name in data.columns
-                    })
-                    dataset = Dataset.from_pandas(data, features=features)
-                    _, test_template = split(dataset, offset=offset)
-                    validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
+                    try:
+                        if target not in df.columns:
+                            print(f"Skipping missing target '{target}' in dataset ID '{dataset_id}'")
+                            continue
+
+                        data = df[[target]].copy()
+                        data.reset_index(inplace=True)
+
+                        # Clean all values (remove $ and , from strings)
+                        def clean_currency(val):
+                            if isinstance(val, str):
+                                return pd.to_numeric(val.replace("$", "").replace(",", ""), errors="coerce")
+                            return val
+
+                        data = data.applymap(clean_currency)
+
+                        features = Features({col: Value("float64") for col in data.columns})
+
+                        dataset = Dataset.from_pandas(data, features=features)
+
+                        _, test_template = split(dataset, offset=offset)
+                        validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
+
+                    except Exception as e:
+                        print(f"Skipping target '{target}' in dataset ID '{dataset_id}' due to error: {e}")
+                        continue
 
                 print("Finished dataset")
+
             except DatasetNotFoundError:
                 try:
                     url = config["link"]
                     filename = config.get("filename")
                     dataset_name = config["name"]
 
-                    # Download dataset zip to temp file
                     local_zip = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
                     print("Downloading zip...")
                     subprocess.run(["wget", "-q", "-O", local_zip.name, url], check=True)
                     print("Downloaded zip to", local_zip.name)
 
-                    # Extract main zip into a temp directory
                     print("Extracting main zip...")
                     extract_dir = Path(tempfile.mkdtemp())
                     with zipfile.ZipFile(local_zip.name, "r") as zip_ref:
                         zip_ref.extractall(extract_dir)
                     print("Main extraction done.")
 
-
-                    # Recursively extract nested zip files in place
                     def extract_nested_zips(dir_path):
                         nested_zips = list(dir_path.glob("**/*.zip"))
                         for nested_zip in nested_zips:
                             with zipfile.ZipFile(nested_zip, "r") as zip_ref:
                                 zip_ref.extractall(nested_zip.parent)
-                            nested_zip.unlink()  # optional: remove nested zip after extraction
-                        # Check again for nested zips and recurse if any found
+                            nested_zip.unlink()
                         if list(dir_path.glob("**/*.zip")):
                             extract_nested_zips(dir_path)
 
                     extract_nested_zips(extract_dir)
 
-                    # Compose full path to target file inside extracted folder structure
                     filename = config.get("filename")
                     if filename is None:
                         raise ValueError(f"'filename' must be specified in config for dataset '{dataset_name}'")
 
-                    # Compose and check path
                     target_path = extract_dir / Path(filename)
                     print(f"Looking for file: {target_path}")
                     if not target_path.exists():
-                        # List everything found to help debug
                         print("Extracted files:")
                         for path in extract_dir.rglob("*"):
                             print(f" - {path.relative_to(extract_dir)}")
                         raise FileNotFoundError(f"'{filename}' not found in extracted contents of dataset '{dataset_name}'")
 
-
-                    # Read CSV or TXT file
                     if target_path.suffix.lower() in [".csv", ".txt"]:
                         print("Reading CSV...")
-                        df = pd.read_csv(target_path)
+                        df = pd.read_csv(target_path, on_bad_lines='skip')  # pandas >= 1.3
                         print("Finished reading, shape:", df.shape)
                     else:
                         raise ValueError(f"Unsupported file type: {target_path.suffix}")
 
-                    # Clean numeric values (remove $ and ,)
-                    def clean_currency(val):
-                        if isinstance(val, str):
-                            return pd.to_numeric(val.replace("$", "").replace(",", ""), errors="coerce")
-                        return val
-
-                    df = df.applymap(clean_currency)
-
-                    # Process each target column separately
                     for target in targets:
-                        if target not in df.columns:
-                            print(f"Skipping missing target '{target}' in dataset '{dataset_name}'")
+                        try:
+                            if target not in df.columns:
+                                print(f"Skipping missing target '{target}' in dataset '{dataset_name}'")
+                                continue
+
+                            data = df[[target]].copy()
+                            data.reset_index(inplace=True)
+
+                            def clean_currency(val):
+                                if isinstance(val, str):
+                                    return pd.to_numeric(val.replace("$", "").replace(",", ""), errors="coerce")
+                                return val
+
+                            data = data.applymap(clean_currency)
+
+                            features = Features({col: Value("float32") for col in data.columns})
+                            dataset = Dataset.from_pandas(data, features=features)
+
+                            _, test_template = split(dataset, offset=offset)
+                            validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
+
+                        except Exception as e:
+                            print(f"Skipping target '{target}' in dataset '{dataset_name}' due to error: {e}")
                             continue
-
-                        data = df[[target]].copy()
-                        data.reset_index(inplace=True)
-                        features = Features({col: Value("float32") for col in data.columns})
-                        dataset = Dataset.from_pandas(data, features=features)
-
-                        _, test_template = split(dataset, offset=offset)
-                        validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
 
                     print(f"Finished dataset: {dataset_name}")
 
                 except Exception as e:
-                    print(f"Failed to process dataset {config['name']}: {e}")
-
+                    print(f"Failed to process dataset '{config['name']}': {e}")
 
 if __name__ == "__main__":
     logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
