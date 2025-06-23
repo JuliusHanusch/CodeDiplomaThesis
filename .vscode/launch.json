@@ -11,7 +11,12 @@
             "request": "launch",
             "program": "./data/dataset_creation.py",
             "console": "integratedTerminal",
-            "args": []
+            "args": [
+                "--data-path",
+                "D:/cache/corpora",
+                // "--min-probability",
+                // "0.00004", // 0.1 / len(ds) ~ 10 % are reserved for the smallest DS 
+            ]
         },
         {
             "name": "prepro2",

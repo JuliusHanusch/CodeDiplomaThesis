@@ -16,12 +16,90 @@ from concurrent.futures import ThreadPoolExecutor
 from typer import Typer
 from typer_config import use_yaml_config
 import sys
+from abc import ABC, abstractmethod
 
 # --- Config ---
 logging.basicConfig(level=logging.INFO)
 CHUNK_SIZE = 100
 
 app = Typer()
+
+
+class DatasetAdapter(ABC):
+    """
+    Idea: We get DS in different shape (Every Corpus has its own unique shape)
+    Time Corpus: Fits entire DS into rows
+    Chronos: Fits Datasets into splits and TS into rows
+    Lotsa
+    Performing in depth preprocessing to bring all into the same shape somehow is too difficult
+    Instead we add to each DS such an adapter with the fundamental functions we require
+    Allows to translate rules according to the shape of each DS 
+    """
+    # Init
+    def __init__(self, dataset):
+        self.dataset = dataset
+
+    # len
+    @abstractmethod
+    def __len__(self):
+        pass
+    
+    # get random snippet of length n
+    @abstractmethod
+    def get_random_snippet(self, length: int):
+        pass
+
+
+class RowDataSet(DatasetAdapter):
+    """
+    Dataset for corpora where each row is an DS
+    """
+    def __init__(self, dataset, target_column: str = "value"):
+        super().__init__(dataset)
+        self.target_column = target_column
+        # Remember used startpoints to keep Birthday Problem from breaking the infinite Data Regiment
+        self.unused_startpoints = np.array([])
+
+    def __len__(self):
+        return len(self.dataset[self.target_column]) 
+
+    def get_random_snippet(self, length: int): # TODO Cut out length instead of just the start point
+        unused_startpoint_count = len(self.unused_startpoints)
+        if unused_startpoint_count == 0:
+            self.unused_startpoints = np.arange(len(self) - length + 1)
+            unused_startpoint_count = len(self.unused_startpoints)
+        start_point_id = np.random.randint(unused_startpoint_count)
+        start_point = self.unused_startpoints[start_point_id]
+        self.unused_startpoints = np.delete(self.unused_startpoints, start_point_id)
+        return self.dataset[self.target_column][start_point:start_point + length]
+
+
+class SplitDataSet(DatasetAdapter):
+    """
+    Dataset for corpora where each split (or subfolder) is a DS with each row being a TS of this
+    """
+    def __init__(self, dataset, target_column: str = "target"):
+        super().__init__(dataset)
+        self.target_column = target_column
+        # Remember used ts to keep Birthday Problem from breaking the infinite Data Regiment
+        self.unused_ts = np.array([])
+
+    def __len__(self):
+        return sum([len(ts[self.target_column]) for ts in self.dataset])
+
+    def get_random_snippet(self, length: int):
+        unused_ts_count = len(self.unused_ts)
+        if unused_ts_count == 0:
+            self.unused_ts = np.arange(len(self.dataset) - length + 1)
+            unused_ts_count = len(self.unused_ts)
+        ts_id_id = np.random.randint(unused_ts_count)
+        ts_id = self.unused_ts[ts_id_id]
+        self.unused_ts = np.delete(self.unused_ts, ts_id_id)
+
+        ts = self.dataset[int(ts_id)][self.target_column]
+        start_point = np.random.randint(0, len(ts) - length + 1)
+        return ts[start_point:start_point + length]
+
 
 # --- Utility Functions ---
 def convert_to_arrow(path: Union[str, Path], time_series: List[np.ndarray], compression: str = "lz4"):
@@ -30,18 +108,33 @@ def convert_to_arrow(path: Union[str, Path], time_series: List[np.ndarray], comp
     ArrowWriter(compression=compression).write_to_file(dataset, path=path)
 
 
-def load_datasets(data_path: Path, corpora: Union[List[str], str]) -> dict:
-    dict_dataset = {}
+def load_folder(folder: Path, min_length = 128):
+    corpus = []
+    try:
+        data = ds.load_from_disk(folder)
+            # Filter out the too short ones
+        data = data.map(trim_nans) # remove trivials (only long enough because of NaNs) TODO Maybe ok at beginning??
+        data = data.filter(lambda x: len(x["value"])>=min_length)
+        data = data["train"] if "train" in data else data  # unnest 
+        for dataset in data:
+            corpus.append(RowDataSet(dataset))
+    except:
+        for subfolder in tqdm(list(folder.iterdir()), desc="Loading datasets"):
+            data = ds.load_from_disk(subfolder)
+            corpus.append(SplitDataSet(data))
+    return corpus
+
+
+def load_datasets(data_path: Path, corpora: Union[List[str], str], min_length=128) -> dict:
+    corpus = []
     for folder in tqdm(list(data_path.iterdir()), desc="Loading datasets"):
         if "all" in corpora and folder.name != "Time_Corpus":
-            dict_dataset[folder.name] = ds.load_from_disk(folder)
+            corpus += load_folder(folder, min_length=min_length)
         elif isinstance(corpora, list) and folder.name in corpora:
-            dict_dataset[folder.name] = ds.load_from_disk(folder)
-        elif isinstance(corpora, str) and folder.name == corpora:
-            dict_dataset[folder.name] = ds.load_from_disk(folder)
-    if not dict_dataset:
+            corpus += load_folder(folder, min_length=min_length)
+    if not corpus:
         raise ValueError("No matching datasets found.")
-    return dict_dataset
+    return corpus
 
 def trim_nans(dataset):
     arr = np.array(dataset["value"])
@@ -55,6 +148,17 @@ def trim_nans(dataset):
     return dataset
 
 
+def get_top_contributors(values, thr=0.3):
+    arr = np.array(values)
+    sorted_indices = np.argsort(arr)[::-1]  # Descending
+    sorted_vals = arr[sorted_indices]
+
+    cumsum = np.cumsum(sorted_vals)
+    n = np.searchsorted(cumsum, thr, side='left') + 1
+
+    return sorted(sorted_indices[:n].tolist())
+
+
 @app.command()
 @use_yaml_config(param_name="config")
 def create_dataset(
@@ -63,7 +167,8 @@ def create_dataset(
     length: int = 128,
     samples: int = 1000,
     alpha: float = 1.5,
-    min_probability: float = 0.000025,
+    #min_probability: float = 0.000025, 
+    small_ts_share: float = 0.3,
     workers: int = 4,
     data_path: str = "./data/data_sets_raw",
     output_dir: str = "data/train"
@@ -71,29 +176,24 @@ def create_dataset(
     data_path = Path(data_path)
     output_dir = Path(output_dir)
     logging.info(f"Loading datasets from {data_path.resolve()}")
-    dict_dataset = load_datasets(data_path, corpora)
+    corpus = load_datasets(data_path, corpora, min_length=length)
 
-    combined = ds.concatenate_datasets([
-        ds_split["train"] for ds_split in dict_dataset.values()
-    ])
-    # Filter out the too short ones
-    combined = combined.map(trim_nans) # remove trivials (only long enough because of NaNs) TODO Maybe ok at beginning??
-    combined = combined.filter(lambda x: len(x["value"])>=length)
-
-    ds_lengths = [len(record["value"]) for record in combined]
+    ds_lengths = [len(record) for record in corpus]
     corpus_length = sum(ds_lengths)
     ds_count = len(ds_lengths)
     assert np.all(np.array(ds_lengths) >= length)
+    min_probability = small_ts_share / ds_count # 20% of the corpus are reserved for the smallest DS
 
     # calculate probs
     assert ds_count * min_probability < 1, "Minimum probability too high for the number of datasets, can't be satisfied." # If == 1 would be equal weights
-    ds_probability = np.array([max(ds_length / corpus_length, min_probability) for ds_length in ds_lengths])
+    # Capped to min probability or the probability that the expected number of samples from this DS covers the entire ds (Reason: No snippet twice)
+    ds_probability = np.array([max(ds_length / corpus_length, min((ds_length+1-length)/samples, min_probability)) for ds_length in ds_lengths])
     total_raise = sum(ds_probability) - 1 # raise through capping
-    top_1 = (ds_count + 99) // 100
-    big_ones = np.argpartition(-ds_probability, top_1)[:top_1] # find the biggest one
-    ds_probability[big_ones] -= total_raise / top_1  # the top 1% subsidies the smallest ones (hehehe)
+    big_ones = get_top_contributors(ds_probability, thr=0.3)
+    ds_probability[big_ones] -= total_raise / len(big_ones)  # the top 1% subsidies the smallest ones (hehehe)
     assert 1 - min_probability < sum(ds_probability) < 1 + min_probability, "Probabilities do not sum to near 1, something went wrong."
-    assert np.all(np.array(ds_probability) >= min_probability), "Some probabilities are below the minimum probability threshold."
+    assert np.all((0 < ds_probability) & (ds_probability < 1))
+    # assert np.all(np.array(ds_probability) >= min_probability), "Some probabilities are below the minimum probability threshold."
 
     logging.info("Creating snippets")
     def create_augmented_snippet(_):
@@ -102,10 +202,9 @@ def create_dataset(
             datasets_ids = np.random.choice(ds_count, size=k, replace=False, p=ds_probability)
             snippets = []
             for ds_id in datasets_ids:
-                dataset = combined[int(ds_id)]
-                # print(dataset["value"])
-                start_point = np.random.randint(0, len(dataset["value"]) - length + 1)
-                snippets.append(dataset["value"][start_point:start_point + length])
+                dataset = corpus[int(ds_id)]
+                snippets.append(dataset.get_random_snippet(length=length))
+
             final_sample = ts_mixup(snippets, alpha=alpha)
             # Quality insurance
             if np.isnan(np.array(final_sample)).sum() / length < 0.25:  # Less than 25% NaNs
@@ -128,11 +227,3 @@ def create_dataset(
 
 if __name__ == "__main__":
     app()
-    # if len(sys.argv) > 1:
-    # else:
-    #     create_dataset(
-    #         corpora="Time_Corpus_Processed",
-    #         k=3,
-    #         length=128,
-    #         samples=1000, #int(1e6),
-    #     )
