@@ -33,6 +33,14 @@
             "program": "./data/create_data_configs.py",
             "console": "integratedTerminal",
             "args": []
+        },
+        {
+            "name": "download data",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "./data/download_data.py",
+            "console": "integratedTerminal",
+            "args": []
         }
     ]
 }
