@@ -25,6 +25,14 @@
             "program": "./data/preprocessing.py",
             "console": "integratedTerminal",
             "args": []
+        },
+        {
+            "name": "data_configs",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "./data/create_data_configs.py",
+            "console": "integratedTerminal",
+            "args": []
         }
     ]
 }

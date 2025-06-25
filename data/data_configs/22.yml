@@ -1,0 +1,8 @@
+alpha: 0.0029580608382
+corpora:
+- Lotsa_Corpus
+- Chronos_Corpus
+deduplication: 1.0
+k: 6.0
+length: 512.0
+small_ts_share: 0.40090693019

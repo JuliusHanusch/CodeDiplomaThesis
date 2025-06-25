@@ -1,0 +1,8 @@
+alpha: 0.0692163323773
+corpora:
+- Time_Corpus_Processed
+- Lotsa_Corpus
+deduplication: 0.0
+k: 1.0
+length: 1024.0
+small_ts_share: 0.0639459168084

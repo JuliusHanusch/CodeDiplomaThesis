@@ -1,0 +1,7 @@
+alpha: 5.4013061246446
+corpora:
+- Lotsa_Corpus
+deduplication: 0.0
+k: 3.0
+length: 2048.0
+small_ts_share: 0.1265830821924

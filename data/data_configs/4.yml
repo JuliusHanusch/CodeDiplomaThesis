@@ -1,0 +1,7 @@
+alpha: 1.7992178968515
+corpora:
+- Chronos_Corpus
+deduplication: 1.0
+k: 1.0
+length: 512.0
+small_ts_share: 0.3248083887632

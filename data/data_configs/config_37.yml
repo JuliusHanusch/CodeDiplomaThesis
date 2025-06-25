@@ -1,9 +1,0 @@
-corpora:
-- Chronos_Corpus
-k: 4
-length: 512
-samples: 10000000
-min_probability: 2.5e-05
-workers: 16
-data_path: ./data/data_sets_raw
-alpha: 15

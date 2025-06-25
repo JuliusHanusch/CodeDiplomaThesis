@@ -1,9 +1,0 @@
-corpora:
-- UCI_Corpus
-k: 5
-length: 512
-samples: 10000000
-min_probability: 2.5e-05
-workers: 16
-data_path: ./data/data_sets_raw
-alpha: 0.5
