@@ -20,7 +20,7 @@ def download_corpus(corpus_name: str = Option(..., help="Name of the corpus to d
     Download the specified time series corpus.
     """
     # load test set names
-    with open(r"..\chronos_pkg\scripts\evaluation\configs\zero-shot.yaml", "r") as f:
+    with open(Path("../chronos_pkg/scripts/evaluation/configs/zero-shot.yaml").resolve(), "r") as f:
         test_set = yaml.safe_load(f)
         test_set_names = [cfg["name"] for cfg in test_set]
 
