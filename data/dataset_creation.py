@@ -26,6 +26,7 @@ from abc import ABC, abstractmethod
 from functools import partial
 from copy import deepcopy
 from src.db import insertTable, hash_dict
+from time import sleep
 
 # --- Config ---
 logging.basicConfig(level=logging.INFO)
@@ -69,12 +70,19 @@ class RowDataSet(DatasetAdapter):
         # Remember used startpoints to keep Birthday Problem from breaking the infinite Data Regiment
         self.unused_startpoints = np.array([])
         self.deduplication = deduplication
+        self.in_use = False # lock to avoid race conditions
+
 
     def __len__(self):
         return len(self.dataset[self.target_column]) 
 
     def get_random_snippet(self, length: int, exp_count: int = 1, **kwargs): # TODO Cut out length instead of just the start point
         if self.deduplication:
+            # Avoid Race Conditions during deduplication
+            while self.in_use: 
+                sleep(0.01)
+            self.in_use = True
+
             unused_startpoint_count = len(self.unused_startpoints)
             if unused_startpoint_count == 0:
                 self.unused_startpoints = np.arange(len(self) - length + 1)
@@ -85,6 +93,8 @@ class RowDataSet(DatasetAdapter):
             vals_to_spare = min(((len(self.dataset) + 1 - length) // exp_count), length) // 2
             startpoints_to_delete = ~np.isin(self.unused_startpoints, np.arange(start_point-vals_to_spare, start_point+vals_to_spare+1))
             self.unused_startpoints = self.unused_startpoints[startpoints_to_delete]
+
+            self.in_use = False
         else:
             start_point = np.random.randint(len(self) - length + 1)
         return self.dataset[self.target_column][start_point:start_point + length]
@@ -109,6 +119,7 @@ class SplitDataSet(DatasetAdapter):
         # Remember used ts to keep Birthday Problem from breaking the infinite Data Regiment
         self.unused_ts = np.array([])
         self.deduplication = deduplication
+        self.in_use = False # lock to avoid race conditions
 
         assert not isinstance(dataset[0][self.target_column][0], list), "Multivariate DS aren't supported yet"
 
@@ -117,6 +128,11 @@ class SplitDataSet(DatasetAdapter):
 
     def get_random_snippet(self, length: int, **kwargs):
         if self.deduplication:
+            # Avoid Race Conditions during deduplication
+            while self.in_use: 
+                sleep(0.01)
+            self.in_use = True
+
             unused_ts_count = len(self.unused_ts)
             if unused_ts_count == 0:
                 self.unused_ts = np.arange(len(self.dataset))
@@ -124,6 +140,8 @@ class SplitDataSet(DatasetAdapter):
             ts_id_id = np.random.randint(unused_ts_count)
             ts_id = self.unused_ts[ts_id_id]
             self.unused_ts = np.delete(self.unused_ts, ts_id_id)
+
+            self.in_use = False
         else:
             ts_id = np.random.randint(len(self.dataset) - length + 1)
 
@@ -207,7 +225,7 @@ def create_dataset(
     corpora: List[str] = ['all'],
     k: int = 1,
     length: int = 128,
-    samples: int = 1000,
+    samples: int = 10000,
     alpha: float = 1.5,
     #min_probability: float = 0.000025, 
     small_ts_share: float = 0.3,
