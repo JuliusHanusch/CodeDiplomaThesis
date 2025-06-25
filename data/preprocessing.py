@@ -8,9 +8,6 @@ from tqdm.auto import tqdm
 
 from eval_frequency import eval_frequency
 
-RAW_DIR = Path("./data/data_sets_raw/Time_Corpus")
-PROCESSED_DIR = Path("./data/data_sets_raw/Time_Corpus_Processed")
-
 
 def to_datetime(series: pd.Series) -> pd.Series:
     """Vector-parse & round datetimes (μs precision)."""
@@ -30,8 +27,10 @@ def make_univar(name: str, df: pd.DataFrame, col: str) -> ds.Dataset:
 
 
 
-def preprocessing(min_ts_length=64) -> None:
+def preprocessing(min_ts_length=64, RAW_DIR: str = "./data/data_sets_raw/Time_Corpus") -> None:
     assert min_ts_length > 0, "min_ts_length must be a positive integer"
+    PROCESSED_DIR = Path(RAW_DIR+"_Processed")
+    RAW_DIR = Path(RAW_DIR)
 
 
     src = ds.load_from_disk(RAW_DIR)["train"]

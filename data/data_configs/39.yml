@@ -1,9 +1,7 @@
-alpha: 0.0286781089437
+alpha: 3.9804350726942
 corpora:
-- Time_Corpus_Processed
-- Lotsa_Corpus
 - Chronos_Corpus
-deduplication: 1.0
+deduplication: 0.0
 k: 5.0
-length: 64.0
-small_ts_share: 0.2590512281485
+length: 2048.0
+small_ts_share: 0.061838237229

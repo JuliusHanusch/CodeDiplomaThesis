@@ -1,9 +1,11 @@
 import yaml
+from typer import Typer
 import typer
 from typing import Optional
 from ConfigSpace import ConfigurationSpace, Categorical, Integer, Float
 import numbers
 
+app = Typer()
 
 def all_subsets(collection: list):
     if len(collection) == 0:
@@ -39,6 +41,7 @@ def build_search_space(seed: Optional[int] = None) -> ConfigurationSpace:
 
     return cs
 
+@app.command()
 def main(
     count: int = typer.Option(5, "--count", "-n", help="Number of configs to generate"),
     seed: Optional[int] = typer.Option(None, "--seed", help="Random seed"),
@@ -57,4 +60,4 @@ def main(
             yaml.safe_dump(config, file)
 
 if __name__ == "__main__":
-    typer.run(main)
+    app()

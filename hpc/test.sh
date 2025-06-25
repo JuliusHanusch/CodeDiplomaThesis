@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 #SBATCH -J chronos_hpo
-#SBATCH -e /data/horse/ws/jipo020b-aion/AION/hpc/logs/smac/chronos_hpo-%J.err
-#SBATCH -o /data/horse/ws/jipo020b-aion/AION/hpc/logs/smac/chronos_hpo-%J.out
+#SBATCH -e ./hpc/logs/smac/chronos_hpo-%J.err
+#SBATCH -o ./hpc/logs/smac/chronos_hpo-%J.out
 #SBATCH -A p_automl
 #SBATCH -n 1
 #SBATCH --cpus-per-task=1

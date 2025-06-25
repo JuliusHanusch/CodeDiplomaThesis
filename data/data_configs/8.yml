@@ -1,8 +1,7 @@
-alpha: 0.004194401659
+alpha: 0.3841453489042
 corpora:
 - UCI_Corpus_Processed
-- Chronos_Corpus
-deduplication: 1.0
-k: 5.0
-length: 512.0
-small_ts_share: 0.0640010590037
+deduplication: 0.0
+k: 1.0
+length: 64.0
+small_ts_share: 0.2185420452386
