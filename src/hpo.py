@@ -151,9 +151,9 @@ def train(
 
     # Import Train Function
     #from code.evaluate import main as eval_chronos
-    from code.utils import make_dict_storable, results_to_metrics
-    import code.train as trainer
-    import code.evaluate as evaluater
+    from src.utils import make_dict_storable, results_to_metrics
+    import src.train as trainer
+    import src.evaluate as evaluater
     # Set Missing Global Variables
     logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     logger = logging.getLogger(__file__)
@@ -211,7 +211,7 @@ def train(
 
     # ! Save Meta Data To DB
 
-    from code.db import insertTable
+    from src.db import insertTable
 
     config_simple = make_dict_storable(config_dict)
     in_domain_mase, in_domain_wql, in_domain_mae, in_domain_nrmse, zero_shot_mase, zero_shot_wql, zero_shot_mae, zero_shot_nrmse = results_to_metrics(results)

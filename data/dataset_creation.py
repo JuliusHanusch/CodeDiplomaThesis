@@ -1,3 +1,9 @@
+# Add parent directory to share global utils with different experiments
+import sys  
+import os  
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent.resolve()))  
+
 import datasets as ds
 import numpy as np
 import pandas as pd
@@ -18,6 +24,8 @@ from typer_config import use_yaml_config
 import sys
 from abc import ABC, abstractmethod
 from functools import partial
+from copy import deepcopy
+from src.db import insertTable, hash_dict
 
 # --- Config ---
 logging.basicConfig(level=logging.INFO)
@@ -208,8 +216,19 @@ def create_dataset(
     data_path: str = "./data/data_sets_raw",
     output_dir: str = "data/train"
 ):
+    hp = dict(deepcopy(locals()))
+    hp_hash = hash_dict(hp)
+    hp["hash"] = hp_hash
     data_path = Path(data_path)
     output_dir = Path(output_dir)
+    output_adr: Path = output_dir / f"{hp_hash}.arrow"
+    if output_adr.exists():
+        raise Exception("Corpus already exists; the provided configuration might be a duplicate.")
+
+    insertTable(
+        table_name="corpora",
+        row_data=hp,
+    )
     logging.info(f"Loading datasets from {data_path.resolve()}")
     corpus = load_datasets(data_path, corpora, min_length=length, deduplication=deduplication)
 
@@ -256,9 +275,8 @@ def create_dataset(
     # Flatten the list of lists
     corpus_augmented = [snippet for chunk in corpus_augmented for snippet in chunk]
     # Convert to final format -> save to disk
-    filename = f"tsm_{'_'.join(corpora) if isinstance(corpora, list) else corpora}_k-{k}_len-{length}_a-{str(alpha).replace('.', '')}.arrow"
     output_dir.mkdir(parents=True, exist_ok=True)
-    convert_to_arrow(output_dir / filename, corpus_augmented[:samples])
+    convert_to_arrow(output_adr, corpus_augmented[:samples])
 
 
 if __name__ == "__main__":

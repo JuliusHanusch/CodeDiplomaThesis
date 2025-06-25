@@ -16,3 +16,4 @@ hpc/tools/*
 events.out.*
 */chronos_models/*
 /data/UCIData
+*.db
