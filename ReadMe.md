@@ -5,10 +5,15 @@
 ```bash
 git clone https://github.com/JP-SystemsX/AION.git
 cd AION
+git submodule update --init --recursive
 ```
 2. Setup a venv for the Preprocessing
 ```bash
 ./hpc/venvs/setup_cpu_venv.sh
+```
+3. Create Credentials for Huggingface and Kaggle
+```bash
+python generate_credentials_file.py 
 ```
 3. Download the data (this downloads all 4 corpora used by us)
 ```bash
