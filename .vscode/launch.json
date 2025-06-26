@@ -40,7 +40,7 @@
             "request": "launch",
             "program": "./data/download_data.py",
             "console": "integratedTerminal",
-            "args": []
+            "args": ["--corpus-name", "kaggle"]
         }
     ]
 }

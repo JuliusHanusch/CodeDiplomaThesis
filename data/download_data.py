@@ -22,7 +22,8 @@ def download_corpus(corpus_name: str = Option(..., help="Name of the corpus to d
     # load test set names
     with open(Path("../chronos_pkg/scripts/evaluation/configs/zero-shot.yaml").resolve(), "r") as f:
         test_set = yaml.safe_load(f)
-        test_set_names = [cfg["name"] for cfg in test_set]
+        # Convert To List + Add Human matches
+        test_set_names = [cfg["name"] for cfg in test_set] + ["m4-forecasting-competition-dataset", "monash-oiklab-weather"]
 
     if corpus_name == "kaggle":
         download_kaggle_corpus(test_set_names=test_set_names)
@@ -50,7 +51,9 @@ def download_kaggle_corpus(test_set_names):
     with tempfile.TemporaryDirectory(dir=cache_path) as tmp_cache_dir:
         kaggle_dataset = ds.load_dataset("ddrg/kaggle-time-series-datasets", "TIME_SERIES", trust_remote_code = True, cache_dir=tmp_cache_dir)
         # Filter out potential matches from test set
+        print(f"Corpus before filtering: {str(kaggle_dataset)}")
         kaggle_dataset = kaggle_dataset.filter(lambda x: not is_in_collection(x["name"], test_set_names))
+        print(f"Corpus after filtering: {str(kaggle_dataset)}")
         kaggle_dataset.save_to_disk(output_path/"Time_Corpus")
 
         
@@ -118,7 +121,7 @@ def bigram_similarity(s1: str, s2: str) -> float:
 def my_normalize(text: str|list[str]):
     if isinstance(text, str):
         return normalize(text, latinize=True, ascii=True)
-    elif isinstance(text, list):
+    elif isinstance(text, (list, tuple)):
         return [my_normalize(word) for word in text]
     else:
         raise Exception(f"Text has unsupported dtype {type(text)}")
