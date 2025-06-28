@@ -48,7 +48,7 @@ def make_dict_storable(advanced_dictionary: dict)->dict:
 
 def results_to_metrics(results_dict: dict):
     """
-    Takes in a dict containing the results of thepretraining with two Dataframes one for in-domain and one for zero shot evaluation, extracts the metrics,
+    Takes in a dict containing the results of the pretraining with two Dataframes one for in-domain and one for zero shot evaluation, extracts the metrics,
     returns all metrics as vaiables
     """
     metrics = ["MASE", "WQL", "MAE", "NRMSE[mean]"]

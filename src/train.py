@@ -10,8 +10,8 @@ import sys
 from pathlib import Path
 root_dir = Path(__file__).parent.parent
 sys.path.append(str(root_dir.resolve()))  
-sys.path.append(str((root_dir/"code").resolve()))  
-sys.path.append(str((Path(__file__).parent.parent / "chronos_pkg/src").resolve()))
+sys.path.append(str((root_dir/"src").resolve()))  
+sys.path.append(str((root_dir / "chronos_pkg/src").resolve()))
 
 import json
 import itertools
@@ -57,6 +57,8 @@ from utils import make_dict_storable
 
 
 from chronos import ChronosConfig, ChronosTokenizer
+import torch._dynamo
+torch._dynamo.config.suppress_errors = True
 
 
 app = typer.Typer(pretty_exceptions_enable=False)

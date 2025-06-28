@@ -1,0 +1,174 @@
+- name: AI4I_2020_Predictive_Maintenance_Dataset
+  id: 601
+  link: https://archive.ics.uci.edu/static/public/601/ai4i+2020+predictive+maintenance+dataset.zip
+  filename: ai4i2020.csv
+  targets:
+    - Air temperature #[K]
+    - Process temperature #[K]
+    - Rotational speed #[rpm]
+    - Torque #[Nm]
+    - Tool wear #[min]
+  offset: -1024
+  prediction_length: 64
+  num_rolls: 16
+
+- name: Bar_Crawl
+  id: 515
+  link: https://archive.ics.uci.edu/static/public/515/bar+crawl+detecting+heavy+drinking.zip
+  filename: all_accelerometer_data_pids_13.csv
+  targets:
+    - x
+    - y
+    - z
+  offset: -1024
+  prediction_length: 64
+  num_rolls: 16
+
+- name: Bejing
+  id: 381
+  link: https://archive.ics.uci.edu/static/public/381/beijing+pm2+5+data.zip
+  filename: PRSA_data_2010.1.1-2014.12.31.csv
+  targets:
+    - pm2.5
+    - DEWP
+    - TEMP
+    - PRES
+  offset: -1024
+  prediction_length: 64
+  num_rolls: 16
+
+
+- name: Down_Jones
+  id: 312
+  link: https://archive.ics.uci.edu/static/public/312/dow+jones+index.zip
+  filename: dow_jones_index.data
+  targets:
+    - close
+    - volume
+    - percent_change_price
+    - percent_change_volume_over_last_wk
+    - percent_return_next_dividend
+  offset: -512
+  prediction_length: 64
+  num_rolls: 8
+
+
+- name: EMG_Physical_Action_Data_Set
+  id: 213
+  link: https://archive.ics.uci.edu/static/public/213/emg+physical+action+data+set.zip
+  filename: "EMG Physical Action Data Set.rar/EMG Physical Action Data Set/sub1/Aggressive/txt"
+  targets:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+  offset: -1024
+  prediction_length: 64
+  num_rolls: 16
+
+- name: ElectricityLoadDiagrams20112014
+  id: 321
+  link: https://archive.ics.uci.edu/static/public/321/electricityloaddiagrams20112014.zip
+  filename: "LD2011_2014.txt"
+  targets:
+    - MT_144
+    - MT_158
+    - MT_369
+    - MT_002
+    - MT_222
+    - MT_350
+  offset: -1024
+  prediction_length: 64
+  num_rolls: 16
+
+- name: ISTANBUL_STOCK_EXCHANGE
+  id: 247
+  link: https://archive.ics.uci.edu/static/public/247/istanbul+stock+exchange.zip
+  filename: "data_akbilgic.xlsx"
+  targets:
+    - DAX
+    - NIKKEI
+    - EU 
+    - FTSE
+  offset: -1024
+  prediction_length: 64
+  num_rolls: 16
+
+
+- name: Ozone_Level_Detection
+  id: 172
+  link: https://archive.ics.uci.edu/static/public/172/ozone+level+detection.zip
+  filename: "eighthr.data"
+  targets:
+    - WSR0
+    - WSR1
+    - WSR2
+    - WSR3
+    - WSR4
+    - WSR5
+    - T85
+    - V85
+    - TT
+    - KI
+    - Precp
+    - V50
+    - HT70
+    - U70
+    - RH70
+  offset: -1024
+  prediction_length: 64
+  num_rolls: 16
+
+
+
+
+
+- name: monash_m3_monthly
+  hf_repo: autogluon/chronos_datasets
+  offset: -64
+  prediction_length: 18
+  num_rolls: 1
+
+- name: monash_cif_2016
+  hf_repo: autogluon/chronos_datasets
+  offset: -64
+  prediction_length: 12
+  num_rolls: 1
+
+- name: monash_hospital
+  hf_repo: autogluon/chronos_datasets
+  offset: -64
+  prediction_length: 12
+  num_rolls: 1
+
+- name: dominick
+  hf_repo: autogluon/chronos_datasets
+  offset: -64
+  prediction_length: 8
+  num_rolls: 1
+
+- name: monash_traffic
+  hf_repo: autogluon/chronos_datasets
+  offset: -64
+  prediction_length: 24
+  num_rolls: 1
+
+- name: ETTm
+  hf_repo: autogluon/chronos_datasets_extra
+  offset: -256
+  prediction_length: 24
+  num_rolls: 1
+
+- name: exchange_rate
+  hf_repo: autogluon/chronos_datasets
+  offset: -256
+  prediction_length: 30
+  num_rolls: 1
+
+- name: monash_nn5_weekly
+  hf_repo: autogluon/chronos_datasets
+  offset: -64
+  prediction_length: 8
+  num_rolls: 1

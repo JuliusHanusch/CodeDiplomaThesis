@@ -184,7 +184,7 @@ def train(
     # ! Eval Chronos
     val_configs = (
         #Path(literal_eval(training_data_paths)[0]),
-        Path("./chronos_pkg/scripts/evaluation/configs/in-domain.yaml").resolve(), # TODO Path to Zero-Shot Val Config
+        Path("./data/eval_configs/eval_config.yml").resolve(), # TODO Path to Zero-Shot Val Config
         #Path("./Chronos/Scripts/evaluation/configs/zero-shot.yaml"), # TODO Path to In-Domain Val Config
     )
     results = {}
@@ -234,7 +234,7 @@ if __name__ == "__main__":
         config={}, # TODO Add Config
         seed=0,
         model_id="google/t5-efficient-tiny",
-        trial_walltime_limit=60*60,
+        trial_walltime_limit=-1,
         number_trials=5,
         min_budget=100,
         max_budget=300,
