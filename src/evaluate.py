@@ -23,6 +23,7 @@ from gluonts.model.forecast import SampleForecast
 from tqdm.auto import tqdm
 from functools import cache
 from autogluon.timeseries import TimeSeriesPredictor, TimeSeriesDataFrame
+from utils import load_val_data
 
 from chronos import ChronosPipeline
 
@@ -303,7 +304,7 @@ def main(
         prediction_length = config["prediction_length"]
 
         logger.info(f"Loading {dataset_name}")
-        test_data = load_and_split_dataset(backtest_config=config)
+        test_data = load_val_data(config=config)
 
         logger.info(
             f"Generating forecasts for {dataset_name} "
@@ -336,6 +337,9 @@ def main(
             .reset_index(drop=True)
             .to_dict(orient="records")
         )
+
+        # TODO Get Baseline for Normaliasation & Comparability
+
         result_rows.append(
             {"dataset": dataset_name, "model": chronos_model_id, **metrics[0]}
         )
