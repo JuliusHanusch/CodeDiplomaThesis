@@ -17,3 +17,6 @@ events.out.*
 */chronos_models/*
 /data/UCIData
 *.db
+chronos_pkg/*
+*.ipynb
+*ipynb_checkpoints/*
