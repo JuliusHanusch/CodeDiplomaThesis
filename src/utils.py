@@ -160,6 +160,7 @@ def load_val_data(
                         return val
 
                     data = data.applymap(clean_currency)
+                    data = data.rename({target: "target"}, axis="columns")
 
                     features = Features({col: Value("float64") for col in data.columns})
 
@@ -236,6 +237,7 @@ def load_val_data(
                             return val
 
                         data = data.applymap(clean_currency)
+                        data = data.rename({target: "target"}, axis="columns")
 
                         features = Features({col: Value("float32") for col in data.columns})
                         dataset = Dataset.from_pandas(data, features=features)
