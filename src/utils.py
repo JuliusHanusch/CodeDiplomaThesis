@@ -262,6 +262,8 @@ def load_val_data(
 
         print("Finished dataset")
 
+    return validation_data
+
 
 # Taken from pandas._libs.tslibs.dtypes.OFFSET_TO_PERIOD_FREQSTR
 offset_alias_to_period_alias = {
