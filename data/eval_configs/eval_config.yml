@@ -92,9 +92,9 @@
     - NIKKEI
     - EU 
     - FTSE
-  offset: -96
-  prediction_length: 16
-  num_rolls: 16
+  offset: -128
+  prediction_length: 8
+  num_rolls: 4
 
 
 - name: Ozone_Level_Detection
@@ -125,50 +125,50 @@
 
 
 
-- name: monash_m3_monthly
-  hf_repo: autogluon/chronos_datasets
-  offset: -64
-  prediction_length: 18
-  num_rolls: 1
+# - name: monash_m3_monthly
+#   hf_repo: autogluon/chronos_datasets
+#   offset: -64
+#   prediction_length: 18
+#   num_rolls: 1
 
-- name: monash_cif_2016
-  hf_repo: autogluon/chronos_datasets
-  offset: -64
-  prediction_length: 12
-  num_rolls: 1
+# - name: monash_cif_2016
+#   hf_repo: autogluon/chronos_datasets
+#   offset: -64
+#   prediction_length: 12
+#   num_rolls: 1
 
-- name: monash_hospital
-  hf_repo: autogluon/chronos_datasets
-  offset: -64
-  prediction_length: 12
-  num_rolls: 1
+# - name: monash_hospital
+#   hf_repo: autogluon/chronos_datasets
+#   offset: -64
+#   prediction_length: 12
+#   num_rolls: 1
 
-- name: dominick
-  hf_repo: autogluon/chronos_datasets
-  offset: -64
-  prediction_length: 8
-  num_rolls: 1
+# - name: dominick
+#   hf_repo: autogluon/chronos_datasets
+#   offset: -64
+#   prediction_length: 8
+#   num_rolls: 1
 
-- name: monash_traffic
-  hf_repo: autogluon/chronos_datasets
-  offset: -64
-  prediction_length: 24
-  num_rolls: 1
+# - name: monash_traffic
+#   hf_repo: autogluon/chronos_datasets
+#   offset: -64
+#   prediction_length: 24
+#   num_rolls: 1
 
-- name: ETTm
-  hf_repo: autogluon/chronos_datasets_extra
-  offset: -256
-  prediction_length: 24
-  num_rolls: 1
+# - name: ETTm
+#   hf_repo: autogluon/chronos_datasets_extra
+#   offset: -256
+#   prediction_length: 24
+#   num_rolls: 1
 
-- name: exchange_rate
-  hf_repo: autogluon/chronos_datasets
-  offset: -256
-  prediction_length: 30
-  num_rolls: 1
+# - name: exchange_rate
+#   hf_repo: autogluon/chronos_datasets
+#   offset: -256
+#   prediction_length: 30
+#   num_rolls: 1
 
-- name: monash_nn5_weekly
-  hf_repo: autogluon/chronos_datasets
-  offset: -64
-  prediction_length: 8
-  num_rolls: 1
+# - name: monash_nn5_weekly
+#   hf_repo: autogluon/chronos_datasets
+#   offset: -64
+#   prediction_length: 8
+#   num_rolls: 1
