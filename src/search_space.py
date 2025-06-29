@@ -14,7 +14,7 @@ probability_options = [
 ]
 # define data splits
 
-def get_config_space(model_id = "google/t5-efficient-tiny", batch_size= 256, gradient_accumulation_steps = 1) -> ConfigurationSpace:
+def get_config_space(model_id = "google/t5-efficient-tiny") -> ConfigurationSpace:
     # TODO include batch_size into search space
     # Fixed parameters to be added as constants
     fixed_config = {
@@ -23,13 +23,13 @@ def get_config_space(model_id = "google/t5-efficient-tiny", batch_size= 256, gra
             "your/path/tp/kernelsynth.arrow"
             "your/path/to/realdata.arrow"
         ],
-        "per_device_train_batch_size": batch_size,
+        #"per_device_train_batch_size": batch_size,
         "min_past": 60,
         "save_steps": 200_000,
         "log_steps": 500,
         "num_samples": 20,
         "shuffle_buffer_length": 100_000,
-        "gradient_accumulation_steps": gradient_accumulation_steps,
+        #"gradient_accumulation_steps": gradient_accumulation_steps,
         "model_id": model_id,
         "model_type": "seq2seq",
         "random_init": True,
@@ -62,6 +62,7 @@ def get_config_space(model_id = "google/t5-efficient-tiny", batch_size= 256, gra
     cs.add(UniformIntegerHyperparameter("d_ff", lower = 5, upper = 13, log = False, default_value=11))
     cs.add(UniformIntegerHyperparameter("context_length", lower = 128, upper = 2048, log = False, default_value=512))
     cs.add(UniformIntegerHyperparameter("prediction_length", lower = 16, upper = 128, log = False, default_value=64))
+    cs.add(UniformIntegerHyperparameter("batch_size_expo", lower = 1, upper = 11, log = False, default_value=5))
     cs.add(UniformFloatHyperparameter("max_missing_prop", lower=0.8, upper=1.0, log = True, default_value=0.9))
     #cs.add(CategoricalHyperparameter("tokenizer_class", ["MeanScaleUniformBins", "MeanScaleQuantileBins"], default_value="MeanScaleUniformBins"))
     # TODO Must be as long as there a Corpora cs.add(CategoricalHyperparameter("probability", [probability_options]))

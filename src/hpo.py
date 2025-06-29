@@ -25,6 +25,7 @@ from dask_jobqueue import SLURMCluster
 from time import sleep
 import uuid
 from ast import literal_eval
+import torch
 
 
 BASE_OUTPATH = Path("./chronos_models")
@@ -38,8 +39,8 @@ def main(
     model_id: str = Option("google/t5-efficient-tiny", help="Which base model to use."),
     trial_walltime_limit: int = Option(300, help="How long until we stop a trial. (-1 ~ Unlimited)"),
     number_trials: int = Option(5, help="How many trials to run."),
-    min_budget: int = Option(30_000, help="Minimum number of Training Steps"),
-    max_budget: int = Option(2_500_000, help="Maximum number of Training Steps"),
+    min_budget: int = Option(960_000, help="Minimum number of Training Samples"),
+    max_budget: int = Option(512_000_000, help="Maximum number of Training Samples"),
     eta: int = Option(3, help="Hyperband eta."),
     memory: str = Option("160G", help="Memory to allocate for each worker."),
     worker_walltime: str = Option("01:00:00", help="How long shall each worker live."),
@@ -133,11 +134,16 @@ def train(
     seed: int = 0, 
     budget: int = 1
     ):
-    training_steps = int(budget) # 30k 90k 270k 810k 2430k -> Best Config Trained for 2.5M steps
 
     # Hash Config to get exactly one model per config
     config_dict = dict(config)
     config_dict["seed"] = seed
+    config_dict["batch_size"] = 2 ** config_dict["batch_size_expo"] 
+    config_dict["per_device_train_batch_size"] = min(32, config_dict["batch_size"])
+    config_dict["num_devices"] = torch.cuda.device_count()
+    real_bs = config_dict["per_device_train_batch_size"] * config_dict["num_devices"]
+    config_dict["gradient_accumulation_steps"] = (config_dict["batch_size"] + (real_bs - 1)) // (real_bs) 
+    training_steps = int(budget) // config_dict["batch_size"]  # Convert #Training Samples to number training steps
     config_dict["training_steps"] = training_steps
     config_hash = hash(frozenset([(key, str(val)) for key, val in config_dict.items()]))
     output_path =  Path(BASE_OUTPATH / f"chronos_{config_hash}")
@@ -167,10 +173,12 @@ def train(
     d_kv = 2 ** config.pop("d_kv", 6)
     d_ff = 2 ** config.pop("d_ff", 12)
     print(f"Tokenizer Kwargs: {tokenizer_kwargs}")
+    config.pop("batch_size_expo")
+    config["per_device_train_batch_size"] = config_dict["per_device_train_batch_size"]
+    config["gradient_accumulation_steps"] = config_dict["gradient_accumulation_steps"]
 
     # Train Chronos and Save to outpath
     model_path = trainer.main(
-        
         output_dir=output_path,
         training_data_paths=training_data_paths,
         max_steps=training_steps,
