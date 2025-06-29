@@ -21,3 +21,4 @@ chronos_pkg/*
 *.ipynb
 *ipynb_checkpoints/*
 chronos_models/*
+data/tmp/*

@@ -12,6 +12,7 @@ import zipfile
 import tempfile
 import subprocess
 from ucimlrepo import DatasetNotFoundError
+from functools import cache
 
 
 def make_dict_storable(advanced_dictionary: dict)->dict:
@@ -126,53 +127,49 @@ def subdfs_to_rows(df: pd.DataFrame, offset: int, n: int = 20) -> pd.DataFrame:
     
     return result
 
-def load_via_uci_api(config):
-    dataset_id = config["id"]
 
+def load_via_uci_api(dataset_id):
     ds = fetch_ucirepo(id=dataset_id)
     print("Dataset can be fetched directly")
     print(dataset_id)
 
     return pd.concat([ds.data.features, ds.data.targets], axis=1)
 
-def load_from_link(config):
-    url = config["link"]
-    filename = config.get("filename")
-    dataset_name = config["name"]
 
-    local_zip = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-    print("Downloading zip...")
-    subprocess.run(["wget", "-q", "-O", local_zip.name, url], check=True)
-    print("Downloaded zip to", local_zip.name)
-
-    print("Extracting main zip...")
-    extract_dir = Path(tempfile.mkdtemp())
-    with zipfile.ZipFile(local_zip.name, "r") as zip_ref:
-        zip_ref.extractall(extract_dir)
-    print("Main extraction done.")
-
-    def extract_nested_zips(dir_path):
-        nested_zips = list(dir_path.glob("**/*.zip"))
-        for nested_zip in nested_zips:
-            with zipfile.ZipFile(nested_zip, "r") as zip_ref:
-                zip_ref.extractall(nested_zip.parent)
-            nested_zip.unlink()
-        if list(dir_path.glob("**/*.zip")):
-            extract_nested_zips(dir_path)
-
-    extract_nested_zips(extract_dir)
-
-    filename = config.get("filename")
+def load_from_link(url, filename, dataset_name):
+    extract_dir = Path(f"./data/tmp/{filename}.zip")
+    target_path = extract_dir / Path(filename)
     if filename is None:
         raise ValueError(f"'filename' must be specified in config for dataset '{dataset_name}'")
 
-    target_path = extract_dir / Path(filename)
-    print(f"Looking for file: {target_path}")
     if not target_path.exists():
-        print("Extracted files:")
-        for path in extract_dir.rglob("*"):
-            print(f" - {path.relative_to(extract_dir)}")
-        raise FileNotFoundError(f"'{filename}' not found in extracted contents of dataset '{dataset_name}'")
+        local_zip = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        print("Downloading zip...")
+        subprocess.run(["wget", "-q", "-O", local_zip.name, url], check=True)
+        print("Downloaded zip to", local_zip.name)
+
+        print("Extracting main zip...")
+        with zipfile.ZipFile(local_zip.name, "r") as zip_ref:
+            zip_ref.extractall(extract_dir)
+        print("Main extraction done.")
+
+        def extract_nested_zips(dir_path):
+            nested_zips = list(dir_path.glob("**/*.zip"))
+            for nested_zip in nested_zips:
+                with zipfile.ZipFile(nested_zip, "r") as zip_ref:
+                    zip_ref.extractall(nested_zip.parent)
+                nested_zip.unlink()
+            if list(dir_path.glob("**/*.zip")):
+                extract_nested_zips(dir_path)
+
+        extract_nested_zips(extract_dir)
+
+        print(f"Looking for file: {target_path}")
+        if not target_path.exists():
+            print("Extracted files:")
+            for path in extract_dir.rglob("*"):
+                print(f" - {path.relative_to(extract_dir)}")
+            raise FileNotFoundError(f"'{filename}' not found in extracted contents of dataset '{dataset_name}'")
 
     if target_path.suffix.lower() in [".csv", ".txt"]:
         print("Reading CSV...")
@@ -216,9 +213,13 @@ def load_val_data(
 
     else:
         try:
-            df = load_via_uci_api(config=config)
+            df = load_via_uci_api(dataset_id=config["id"])
         except DatasetNotFoundError:
-            df = load_from_link(config=config)
+            df = load_from_link(
+                    url = config["link"],
+                    filename = config.get("filename"),
+                    dataset_name = config["name"]
+                )
 
         offset = config["offset"]
         prediction_length = config["prediction_length"]

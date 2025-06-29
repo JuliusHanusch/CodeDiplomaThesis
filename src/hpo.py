@@ -139,7 +139,7 @@ def train(
     config_dict = dict(config)
     config_dict["seed"] = seed
     config_dict["batch_size"] = 2 ** config_dict["batch_size_expo"] 
-    config_dict["per_device_train_batch_size"] = min(32, config_dict["batch_size"])
+    config_dict["per_device_train_batch_size"] = min(config_dict["max_per_device_train_batch_size"], config_dict["batch_size"])
     config_dict["num_devices"] = torch.cuda.device_count()
     real_bs = config_dict["per_device_train_batch_size"] * config_dict["num_devices"]
     config_dict["gradient_accumulation_steps"] = (config_dict["batch_size"] + (real_bs - 1)) // (real_bs) 
@@ -191,9 +191,7 @@ def train(
 
     # ! Eval Chronos
     val_configs = (
-        #Path(literal_eval(training_data_paths)[0]),
         Path("./data/eval_configs/eval_config.yml").resolve(), # TODO Path to Zero-Shot Val Config
-        #Path("./Chronos/Scripts/evaluation/configs/zero-shot.yaml"), # TODO Path to In-Domain Val Config
     )
     results = {}
 

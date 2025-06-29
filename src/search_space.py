@@ -14,7 +14,7 @@ probability_options = [
 ]
 # define data splits
 
-def get_config_space(model_id = "google/t5-efficient-tiny") -> ConfigurationSpace:
+def get_config_space(model_id = "google/t5-efficient-tiny", max_batch_size=32) -> ConfigurationSpace:
     # TODO include batch_size into search space
     # Fixed parameters to be added as constants
     fixed_config = {
@@ -23,7 +23,7 @@ def get_config_space(model_id = "google/t5-efficient-tiny") -> ConfigurationSpac
             "your/path/tp/kernelsynth.arrow"
             "your/path/to/realdata.arrow"
         ],
-        #"per_device_train_batch_size": batch_size,
+        "max_per_device_train_batch_size": max_batch_size,
         "min_past": 60,
         "save_steps": 200_000,
         "log_steps": 500,
