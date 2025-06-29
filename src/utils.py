@@ -7,7 +7,7 @@ from gluonts.dataset.split import split
 import datasets
 from datasets import Dataset
 import pandas as pd
-from datasets import Features, Value
+from datasets import Features, Value, Sequence, SplitInfo
 import zipfile
 import tempfile
 import subprocess
@@ -100,6 +100,89 @@ def to_gluonts_univariate(hf_dataset: datasets.Dataset):
 
     return gts_dataset
 
+
+def sample_least_overlapping_subdfs(df: pd.DataFrame, offset: int, n: int = 20) -> list[pd.DataFrame]:
+    L = len(df)
+    offset = abs(offset)
+    max_start = L - offset
+    if n > max_start + 1:
+        raise ValueError("Too many sub-DFs for given length and offset.")
+
+    step = max((max_start) // (n - 1), 1)
+    starts = [min(i * step, max_start) for i in range(n)]
+    return [df.iloc[s : s + offset] for s in starts]
+
+def subdfs_to_rows(df: pd.DataFrame, offset: int, n: int = 20) -> pd.DataFrame:
+    subdfs = sample_least_overlapping_subdfs(df, offset, n)
+    
+    result = pd.DataFrame([
+        {
+            #'indices': list(subdf.index),
+            'timestamp': subdf["timestamp"] if "timestamp" in df.columns else  [str(ts) for ts in pd.date_range(start='1990-12-01', freq="D", periods=len(subdf.index))],
+            'target': subdf["target"].tolist()
+        }
+        for subdf in subdfs
+    ])
+    
+    return result
+
+def load_via_uci_api(config):
+    dataset_id = config["id"]
+
+    ds = fetch_ucirepo(id=dataset_id)
+    print("Dataset can be fetched directly")
+    print(dataset_id)
+
+    return pd.concat([ds.data.features, ds.data.targets], axis=1)
+
+def load_from_link(config):
+    url = config["link"]
+    filename = config.get("filename")
+    dataset_name = config["name"]
+
+    local_zip = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    print("Downloading zip...")
+    subprocess.run(["wget", "-q", "-O", local_zip.name, url], check=True)
+    print("Downloaded zip to", local_zip.name)
+
+    print("Extracting main zip...")
+    extract_dir = Path(tempfile.mkdtemp())
+    with zipfile.ZipFile(local_zip.name, "r") as zip_ref:
+        zip_ref.extractall(extract_dir)
+    print("Main extraction done.")
+
+    def extract_nested_zips(dir_path):
+        nested_zips = list(dir_path.glob("**/*.zip"))
+        for nested_zip in nested_zips:
+            with zipfile.ZipFile(nested_zip, "r") as zip_ref:
+                zip_ref.extractall(nested_zip.parent)
+            nested_zip.unlink()
+        if list(dir_path.glob("**/*.zip")):
+            extract_nested_zips(dir_path)
+
+    extract_nested_zips(extract_dir)
+
+    filename = config.get("filename")
+    if filename is None:
+        raise ValueError(f"'filename' must be specified in config for dataset '{dataset_name}'")
+
+    target_path = extract_dir / Path(filename)
+    print(f"Looking for file: {target_path}")
+    if not target_path.exists():
+        print("Extracted files:")
+        for path in extract_dir.rglob("*"):
+            print(f" - {path.relative_to(extract_dir)}")
+        raise FileNotFoundError(f"'{filename}' not found in extracted contents of dataset '{dataset_name}'")
+
+    if target_path.suffix.lower() in [".csv", ".txt"]:
+        print("Reading CSV...")
+        df = pd.read_csv(target_path, on_bad_lines='skip')  # pandas >= 1.3
+        print("Finished reading, shape:", df.shape)
+    else:
+        raise ValueError(f"Unsupported file type: {target_path.suffix}")
+    return df
+
+
 def load_val_data(
     config: dict
 ):
@@ -131,129 +214,53 @@ def load_val_data(
 
 
     else:
-        dataset_id = config["id"]
+        try:
+            df = load_via_uci_api(config=config)
+        except DatasetNotFoundError:
+            df = load_from_link(config=config)
+
         targets = config["targets"]
         offset = config["offset"]
         prediction_length = config["prediction_length"]
         num_rolls = config["num_rolls"]
+        dataset_id = config["id"]
 
-        try:
-            ds = fetch_ucirepo(id=dataset_id)
-            print("Dataset can be fetched directly")
-            print(dataset_id)
+        for target in targets:
+            if target not in df.columns:
+                print(f"Skipping missing target '{target}' in dataset ID '{dataset_id}'")
+                continue
 
-            df = pd.concat([ds.data.features, ds.data.targets], axis=1)
+            data = df[[target]].copy()
+            data = data.rename({target: "target"}, axis="columns")
+            data.reset_index(inplace=True)
 
-            for target in targets:
-                try:
-                    if target not in df.columns:
-                        print(f"Skipping missing target '{target}' in dataset ID '{dataset_id}'")
-                        continue
+            # Clean all values (remove $ and , from strings)
+            def clean_currency(val):
+                if isinstance(val, str):
+                    return pd.to_numeric(val.replace("$", "").replace(",", ""), errors="coerce")
+                return val
 
-                    data = df[[target]].copy()
-                    data.reset_index(inplace=True)
+            data = data.applymap(clean_currency)
+            data = subdfs_to_rows(data, offset=offset, n=num_rolls)
 
-                    # Clean all values (remove $ and , from strings)
-                    def clean_currency(val):
-                        if isinstance(val, str):
-                            return pd.to_numeric(val.replace("$", "").replace(",", ""), errors="coerce")
-                        return val
+            features = Features({
+                #'indices': Sequence(Value('int64')),
+                'timestamp': Sequence(Value('string')),  # or 'timestamp[s]' if ISO format
+                'target': Sequence(Value('float64'))  # 2D array: rows of values per sub-df
+            })
 
-                    data = data.applymap(clean_currency)
-                    data = data.rename({target: "target"}, axis="columns")
+            dataset = Dataset.from_pandas(data, features=features)
+            dataset._info.splits = {
+                "train": SplitInfo(name="train", num_examples=len(dataset)),
+                "test": SplitInfo(name="test", num_examples=0)
+            }
+            dataset = to_gluonts_univariate(dataset)
 
-                    features = Features({col: Value("float64") for col in data.columns})
+            _, test_template = split(dataset, offset=offset)
+            validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
 
-                    dataset = Dataset.from_pandas(data, features=features)
 
-                    _, test_template = split(dataset, offset=offset)
-                    validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
-
-                except Exception as e:
-                    print(f"Skipping target '{target}' in dataset ID '{dataset_id}' due to error: {e}")
-                    continue
-
-            print("Finished dataset")
-
-        except DatasetNotFoundError:
-            try:
-                url = config["link"]
-                filename = config.get("filename")
-                dataset_name = config["name"]
-
-                local_zip = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-                print("Downloading zip...")
-                subprocess.run(["wget", "-q", "-O", local_zip.name, url], check=True)
-                print("Downloaded zip to", local_zip.name)
-
-                print("Extracting main zip...")
-                extract_dir = Path(tempfile.mkdtemp())
-                with zipfile.ZipFile(local_zip.name, "r") as zip_ref:
-                    zip_ref.extractall(extract_dir)
-                print("Main extraction done.")
-
-                def extract_nested_zips(dir_path):
-                    nested_zips = list(dir_path.glob("**/*.zip"))
-                    for nested_zip in nested_zips:
-                        with zipfile.ZipFile(nested_zip, "r") as zip_ref:
-                            zip_ref.extractall(nested_zip.parent)
-                        nested_zip.unlink()
-                    if list(dir_path.glob("**/*.zip")):
-                        extract_nested_zips(dir_path)
-
-                extract_nested_zips(extract_dir)
-
-                filename = config.get("filename")
-                if filename is None:
-                    raise ValueError(f"'filename' must be specified in config for dataset '{dataset_name}'")
-
-                target_path = extract_dir / Path(filename)
-                print(f"Looking for file: {target_path}")
-                if not target_path.exists():
-                    print("Extracted files:")
-                    for path in extract_dir.rglob("*"):
-                        print(f" - {path.relative_to(extract_dir)}")
-                    raise FileNotFoundError(f"'{filename}' not found in extracted contents of dataset '{dataset_name}'")
-
-                if target_path.suffix.lower() in [".csv", ".txt"]:
-                    print("Reading CSV...")
-                    df = pd.read_csv(target_path, on_bad_lines='skip')  # pandas >= 1.3
-                    print("Finished reading, shape:", df.shape)
-                else:
-                    raise ValueError(f"Unsupported file type: {target_path.suffix}")
-
-                for target in targets:
-                    try:
-                        if target not in df.columns:
-                            print(f"Skipping missing target '{target}' in dataset '{dataset_name}'")
-                            continue
-
-                        data = df[[target]].copy()
-                        data.reset_index(inplace=True)
-
-                        def clean_currency(val):
-                            if isinstance(val, str):
-                                return pd.to_numeric(val.replace("$", "").replace(",", ""), errors="coerce")
-                            return val
-
-                        data = data.applymap(clean_currency)
-                        data = data.rename({target: "target"}, axis="columns")
-
-                        features = Features({col: Value("float32") for col in data.columns})
-                        dataset = Dataset.from_pandas(data, features=features)
-
-                        _, test_template = split(dataset, offset=offset)
-                        validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
-
-                    except Exception as e:
-                        print(f"Skipping target '{target}' in dataset '{dataset_name}' due to error: {e}")
-                        continue
-
-                print(f"Finished dataset: {dataset_name}")
-
-            except Exception as e:
-                print(f"Failed to process dataset '{config['name']}': {e}")
-    return validation_data
+        print("Finished dataset")
 
 
 # Taken from pandas._libs.tslibs.dtypes.OFFSET_TO_PERIOD_FREQSTR
