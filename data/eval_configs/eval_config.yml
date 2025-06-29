@@ -53,20 +53,20 @@
   num_rolls: 8
 
 
-- name: EMG_Physical_Action_Data_Set
-  id: 213
-  link: https://archive.ics.uci.edu/static/public/213/emg+physical+action+data+set.zip
-  filename: "EMG Physical Action Data Set.rar/EMG Physical Action Data Set/sub1/Aggressive/txt"
-  targets:
-    - 0
-    - 1
-    - 2
-    - 3
-    - 4
-    - 5
-  offset: -1024
-  prediction_length: 64
-  num_rolls: 16
+# - name: EMG_Physical_Action_Data_Set
+#   id: 213
+#   link: https://archive.ics.uci.edu/static/public/213/emg+physical+action+data+set.zip
+#   filename: "EMG Physical Action Data Set.rar/EMG Physical Action Data Set/sub1/Aggressive/txt"
+#   targets:
+#     - 0
+#     - 1
+#     - 2
+#     - 3
+#     - 4
+#     - 5
+#   offset: -1024
+#   prediction_length: 64
+#   num_rolls: 16
 
 - name: ElectricityLoadDiagrams20112014
   id: 321
@@ -92,8 +92,8 @@
     - NIKKEI
     - EU 
     - FTSE
-  offset: -1024
-  prediction_length: 64
+  offset: -96
+  prediction_length: 16
   num_rolls: 16
 
 

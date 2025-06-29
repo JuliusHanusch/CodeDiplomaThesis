@@ -92,49 +92,50 @@ def main(
 
     result_rows = []
     for config in backtest_configs:
-        dataset_name = config["name"]
-        prediction_length = config["prediction_length"]
+        for target in config.get("targets", ["target"]):
+            dataset_name = config["name"]
+            prediction_length = config["prediction_length"]
 
-        logger.info(f"Loading {dataset_name}")
-        test_data = load_val_data(config=config)
+            logger.info(f"Loading {dataset_name}")
+            test_data = load_val_data(config=config, target=target)
 
-        logger.info(
-            f"Generating forecasts for {dataset_name} "
-            f"({len(test_data.input)} time series)"
-        )
-        sample_forecasts = generate_sample_forecasts(
-            test_data.input,
-            pipeline=pipeline,
-            prediction_length=prediction_length,
-            batch_size=batch_size,
-            num_samples=num_samples,
-            temperature=temperature,
-            top_k=top_k,
-            top_p=top_p,
-        )
-
-        logger.info(f"Evaluating forecasts for {dataset_name}")
-        metrics = (
-            evaluate_forecasts(
-                sample_forecasts,
-                test_data=test_data,
-                metrics=[
-                    MASE(),
-                    MeanWeightedSumQuantileLoss(np.arange(0.1, 1.0, 0.1)),
-                    MAE(),
-                    NRMSE()
-                ],
-                batch_size=5000,
+            logger.info(
+                f"Generating forecasts for {dataset_name} "
+                f"({len(test_data.input)} time series)"
             )
-            .reset_index(drop=True)
-            .to_dict(orient="records")
-        )
+            sample_forecasts = generate_sample_forecasts(
+                test_data.input,
+                pipeline=pipeline,
+                prediction_length=prediction_length,
+                batch_size=batch_size,
+                num_samples=num_samples,
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+            )
 
-        # TODO Get Baseline for Normaliasation & Comparability
+            logger.info(f"Evaluating forecasts for {dataset_name}")
+            metrics = (
+                evaluate_forecasts(
+                    sample_forecasts,
+                    test_data=test_data,
+                    metrics=[
+                        MASE(),
+                        MeanWeightedSumQuantileLoss(np.arange(0.1, 1.0, 0.1)),
+                        MAE(),
+                        NRMSE()
+                    ],
+                    batch_size=5000,
+                )
+                .reset_index(drop=True)
+                .to_dict(orient="records")
+            )
 
-        result_rows.append(
-            {"dataset": dataset_name, "model": chronos_model_id, **metrics[0]}
-        )
+            # TODO Get Baseline for Normaliasation & Comparability
+
+            result_rows.append(
+                {"dataset": dataset_name, "model": chronos_model_id, **metrics[0]}
+            )
 
     # Save results to a CSV file
     results_df = (

@@ -176,7 +176,10 @@ def load_from_link(config):
 
     if target_path.suffix.lower() in [".csv", ".txt"]:
         print("Reading CSV...")
-        df = pd.read_csv(target_path, on_bad_lines='skip')  # pandas >= 1.3
+        if target_path.suffix.lower() == ".txt":
+            df = pd.read_csv(target_path, on_bad_lines='skip', sep=";")  # pandas >= 1.3
+        else:
+            df = pd.read_csv(target_path, on_bad_lines='skip')  # pandas >= 1.3
         print("Finished reading, shape:", df.shape)
     else:
         raise ValueError(f"Unsupported file type: {target_path.suffix}")
@@ -184,7 +187,8 @@ def load_from_link(config):
 
 
 def load_val_data(
-    config: dict
+    config: dict,
+    target: str = "target"
 ):
     print(f"\n=== Processing dataset: {config.get('name', config.get('id', 'unknown'))} ===")
     print(f"\nStarting processing: {config['name']}")
@@ -210,54 +214,45 @@ def load_val_data(
         _, test_template = split(gts_dataset, offset=offset)
         validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
 
-        print("Finished dataset")
-
-
     else:
         try:
             df = load_via_uci_api(config=config)
         except DatasetNotFoundError:
             df = load_from_link(config=config)
 
-        targets = config["targets"]
         offset = config["offset"]
         prediction_length = config["prediction_length"]
         num_rolls = config["num_rolls"]
-        dataset_id = config["id"]
 
-        for target in targets:
-            if target not in df.columns:
-                print(f"Skipping missing target '{target}' in dataset ID '{dataset_id}'")
-                continue
+        data = df[[target]].copy()
+        data = data.rename({target: "target"}, axis="columns")
+        data.reset_index(inplace=True)
 
-            data = df[[target]].copy()
-            data = data.rename({target: "target"}, axis="columns")
-            data.reset_index(inplace=True)
+        # Clean all values (remove $ and , from strings)
+        def clean_currency(val):
+            if isinstance(val, str):
+                return pd.to_numeric(val.replace("$", "").replace(",", ""), errors="coerce")
+            return val
 
-            # Clean all values (remove $ and , from strings)
-            def clean_currency(val):
-                if isinstance(val, str):
-                    return pd.to_numeric(val.replace("$", "").replace(",", ""), errors="coerce")
-                return val
+        data = data.applymap(clean_currency)
+        data = subdfs_to_rows(data, offset=offset, n=num_rolls)
 
-            data = data.applymap(clean_currency)
-            data = subdfs_to_rows(data, offset=offset, n=num_rolls)
+        features = Features({
+            #'indices': Sequence(Value('int64')),
+            'timestamp': Sequence(Value('string')),  # or 'timestamp[s]' if ISO format
+            'target': Sequence(Value('float64'))  # 2D array: rows of values per sub-df
+        })
 
-            features = Features({
-                #'indices': Sequence(Value('int64')),
-                'timestamp': Sequence(Value('string')),  # or 'timestamp[s]' if ISO format
-                'target': Sequence(Value('float64'))  # 2D array: rows of values per sub-df
-            })
+        dataset = Dataset.from_pandas(data, features=features)
+        dataset.set_format("numpy") # Convert lists into np arrays
+        dataset._info.splits = {
+            "train": SplitInfo(name="train", num_examples=len(dataset)),
+            "test": SplitInfo(name="test", num_examples=0)
+        }
+        dataset = to_gluonts_univariate(dataset)
 
-            dataset = Dataset.from_pandas(data, features=features)
-            dataset._info.splits = {
-                "train": SplitInfo(name="train", num_examples=len(dataset)),
-                "test": SplitInfo(name="test", num_examples=0)
-            }
-            dataset = to_gluonts_univariate(dataset)
-
-            _, test_template = split(dataset, offset=offset)
-            validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
+        _, test_template = split(dataset, offset=offset)
+        validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
 
 
         print("Finished dataset")
