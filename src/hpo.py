@@ -26,7 +26,7 @@ from time import sleep
 import uuid
 from ast import literal_eval
 import torch
-
+import pandas as pd
 
 BASE_OUTPATH = Path("./chronos_models")
 
@@ -197,11 +197,10 @@ def train(
     results = {}
 
     print(f"Start Evaluating {model_path} on {val_configs}")
-    for val_config in val_configs:
-        results[val_config.stem] = evaluater.main(
+    for val_config in val_configs: # TODO support multiple val configs
+        results[val_config.stem]: pd.DataFrame = evaluater.main(
             config_path=val_config,
             chronos_model_id = model_path,
-            metrics_path="./cache/validation_scores.csv",
             device="cuda",
             torch_dtype="bfloat16",
             batch_size=32,
@@ -210,6 +209,8 @@ def train(
             top_k=50,
             top_p=1.0,
         )
+        numeric_cols = results[val_config.stem].select_dtypes(include='number').columns
+        average_errors = results[val_config.stem][numeric_cols].mean(numeric_only=True).to_dict()
 
     # TODO Check that all metrics are near 0-1 range (e.g. NRMSE)
     import pandas as pd
@@ -221,13 +222,13 @@ def train(
     from src.db import insertTable
 
     config_simple = make_dict_storable(config_dict)
-    in_domain_mase, in_domain_wql, in_domain_mae, in_domain_nrmse, zero_shot_mase, zero_shot_wql, zero_shot_mae, zero_shot_nrmse = results_to_metrics(results)
-    insertTable("Results", {"id":config_hash, "config":config_simple, "ModelPath":output_path,
-                            "in_domain_mase":in_domain_mase, "in_domain_wql":in_domain_wql, "in_domain_mae":in_domain_mae, "in_domain_nrmse":in_domain_nrmse,
-                            "zero_shot_mase":zero_shot_mase,"zero_shot_wql":zero_shot_wql,"zero_shot_mae":zero_shot_mae,"zero_shot_nrmse":zero_shot_nrmse })
+    # in_domain_mase, in_domain_wql, in_domain_mae, in_domain_nrmse, zero_shot_mase, zero_shot_wql, zero_shot_mae, zero_shot_nrmse = results_to_metrics(results)
+    insertTable("Results", {"config_hash":config_hash, "config":config_simple, "ModelPath":output_path, **average_errors})
+                            # "in_domain_mase":in_domain_mase, "in_domain_wql":in_domain_wql, "in_domain_mae":in_domain_mae, "in_domain_nrmse":in_domain_nrmse,
+                            # "zero_shot_mase":zero_shot_mase,"zero_shot_wql":zero_shot_wql,"zero_shot_mae":zero_shot_mae,"zero_shot_nrmse":zero_shot_nrmse })
 
     # ! Return Costs
-    return # TODO ["WQL_ZS", "MASE_ZS", "WQL_ID", "MASE_ID"]
+    return average_errors # TODO ["WQL_ZS", "MASE_ZS", "WQL_ID", "MASE_ID"]
 
 
 

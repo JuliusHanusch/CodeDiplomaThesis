@@ -66,7 +66,6 @@ def generate_sample_forecasts(
 @app.command()
 def main(
     config_path: Path,
-    metrics_path: Path,
     chronos_model_id: str = "amazon/chronos-t5-small",
     device: str = "cuda",
     torch_dtype: str = "bfloat16",
@@ -145,7 +144,7 @@ def main(
                 metric_name_norm = normalize_metric_name(metric_name=metric_name)
                 print(metric_name_norm)
                 print(value)
-                result_rows[metric_name_norm] = value / eval_ag(config_hashable=json.dumps(config, sort_keys=True), target=target, metric=metric_name_norm.upper())
+                results[metric_name_norm] = value / eval_ag(config_hashable=json.dumps(config, sort_keys=True), target=target, metric=metric_name_norm.upper())
 
             result_rows.append(
                 {"dataset": dataset_name, "model": chronos_model_id, **results}
