@@ -13,6 +13,7 @@ import tempfile
 import subprocess
 from ucimlrepo import DatasetNotFoundError
 from functools import cache
+from autogluon.timeseries import TimeSeriesDataFrame
 
 
 def make_dict_storable(advanced_dictionary: dict)->dict:
@@ -185,7 +186,8 @@ def load_from_link(url, filename, dataset_name):
 
 def load_val_data(
     config: dict,
-    target: str = "target"
+    target: str = "target",
+    autogluon_format: bool = False,
 ):
     print(f"\n=== Processing dataset: {config.get('name', config.get('id', 'unknown'))} ===")
     print(f"\nStarting processing: {config['name']}")
@@ -244,12 +246,21 @@ def load_val_data(
         }
 
     ds.set_format("numpy")
+    if autogluon_format:
+        df = ds.to_pandas()
+        df['item_id'] = df.index
+        df = df.explode(["timestamp", "target"]).reset_index(drop=True)
+        validation_data = TimeSeriesDataFrame(
+            data=df,
+            id_column="item_id",
+            timestamp_column="timestamp",
+        )
+    else:
+        gts_dataset = to_gluonts_univariate(ds)
 
-    gts_dataset = to_gluonts_univariate(ds)
-
-    # Split dataset for evaluation
-    _, test_template = split(gts_dataset, offset=offset)
-    validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
+        # Split dataset for evaluation
+        _, test_template = split(gts_dataset, offset=offset)
+        validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
     return validation_data
 
 

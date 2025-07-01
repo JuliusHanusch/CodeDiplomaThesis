@@ -22,3 +22,4 @@ chronos_pkg/*
 *ipynb_checkpoints/*
 chronos_models/*
 data/tmp/*
+AutogluonModels/*

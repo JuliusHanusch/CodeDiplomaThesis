@@ -24,8 +24,9 @@ from tqdm.auto import tqdm
 from functools import cache
 from autogluon.timeseries import TimeSeriesPredictor, TimeSeriesDataFrame
 from utils import load_val_data
-
+import json
 from chronos import ChronosPipeline
+import re
 
 app = typer.Typer(pretty_exceptions_enable=False)
 
@@ -92,7 +93,8 @@ def main(
 
     result_rows = []
     for config in backtest_configs:
-        for target in config.get("targets", ["target"]):
+        targets = config.pop("targets", ["target"])
+        for target in targets:
             dataset_name = config["name"]
             prediction_length = config["prediction_length"]
 
@@ -131,27 +133,27 @@ def main(
                 .to_dict(orient="records")
             )
 
-            # TODO Get Baseline for Normaliasation & Comparability
+            logger.info(f"Metrics:\n{metrics}") 
+            print(f"Metrics:\n{metrics}") 
+            # logger.error(f"Metrics:\n{metrics}") 
+
+            # Get Baseline for Normaliasation & Comparability
+            metrics = metrics[0]
+            results = {}
+            for metric_name, value in metrics.items():
+                print(metric_name)
+                metric_name_norm = normalize_metric_name(metric_name=metric_name)
+                print(metric_name_norm)
+                print(value)
+                result_rows[metric_name_norm] = value / eval_ag(config_hashable=json.dumps(config, sort_keys=True), target=target, metric=metric_name_norm.upper())
 
             result_rows.append(
-                {"dataset": dataset_name, "model": chronos_model_id, **metrics[0]}
+                {"dataset": dataset_name, "model": chronos_model_id, **results}
             )
 
     # Save results to a CSV file
     results_df = (
-        pd.DataFrame(result_rows)
-        .rename(
-            {
-                "MASE[0.5]": "MASE",
-                "mean_weighted_sum_quantile_loss": "WQL",
-                "MAE[0.5]": "MAE",
-                "NRMSE[mean]": "NRMSE",
-
-
-            },
-            axis="columns",
-        )
-        .sort_values(by="dataset")
+        pd.DataFrame(result_rows).sort_values(by="dataset")
     )
     #results_df.to_csv(metrics_path, index=False)
     return results_df
@@ -159,13 +161,15 @@ def main(
 
 @cache
 def eval_ag(
-        test_data_path: str, # we need a string to be hashable and cashable 
-        config: dict,
+        config_hashable: str,
         target: str,
         metric: str
 ):
+    config = json.loads(config_hashable)
+    # Note Use double caching (outer cache avoids read from CSV, inner cache avoids retraining for each metric)
     cache_path = Path("./cache/AG_Scores.csv")
     dataset_name = config["name"]
+    prediction_length = config["prediction_length"]
     
     # Check Cache
     if cache_path.exists():
@@ -173,48 +177,97 @@ def eval_ag(
         relevant_scores = cached_scores[cached_scores[["ds_name", "target", "metric"]] == (dataset_name, target, metric)]
         if len(relevant_scores) > 0:
             return relevant_scores["value"][0]
+    else:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
         
     # TODO load data
-    test_data = load_val_data(config=config, target=target)
-    # TODO Train AG 
-    # TODO Eval AG
-    # TODO Write ALL metrics to tall table
-    # TODO Return Value only for selected metric though
+    test_data = load_val_data(config=config, target=target, autogluon_format=True)
+    test_data['target'] = pd.to_numeric(test_data['target'], errors='coerce')
+    def chop_tail(df, pred_len):
+        return df.groupby("item_id").apply(lambda g: g.iloc[:-pred_len]).reset_index(drop=True)
 
-    # TODO
-    # Setup predictor
-    dataset_name = config["name"]
-    prediction_length = config["prediction_length"]
-    hf_repo = config["hf_repo"]
-    trust_remote_code = True if hf_repo == "autogluon/chronos_datasets_extra" else False
-
-
-    train_data = datasets.load_dataset(
-        hf_repo, dataset_name, split="train", trust_remote_code=trust_remote_code
-    )
-
-    test_data = datasets.load_dataset(
-        hf_repo, dataset_name, split="test", trust_remote_code=trust_remote_code
-    )
-
-
+    train_like = chop_tail(test_data.reset_index(drop=False), pred_len=prediction_length)
+    train_like = TimeSeriesDataFrame(
+            data=train_like,
+            id_column="item_id",
+            timestamp_column="timestamp",
+        )
+    
+    # Train AG (Note: Does not need to be perfect, indication how diff to predict a given target suffices)
     predictor = TimeSeriesPredictor(
-        prediction_length=prediction_length,
-        path=f"autogluon-predictor-{dataset_name}",
         target="target",
-        eval_metric="MASE"
-    )    
-
-    predictor.fit(
-        train_data,
-        presets="medium_quality",
-        time_limit=300
+        prediction_length=prediction_length,
+        eval_metric="MASE",
     )
 
-    # Evaluate on all metrics
-    # (Cache)
-    # return all metrics
-    pass # Return MASE, WQL, NRMSE
+    # Train Ensemble of Zeroshot and Statisitical Models they require less train data and are robust to test set leakage due to overlap btwn samples
+    predictor.fit(
+        train_data=train_like,
+        presets="best_quality",
+        time_limit=600,
+        hyperparameters={
+            "Naive": {},
+            "SeasonalNaive": {},
+            "ETS": {},
+            "Theta": {},
+            # "RecursiveTabular": {},
+            # "DirectTabular": {},
+            # "TemporalFusionTransformer": {},
+            "Chronos": [
+                {"model_path": "bolt_small", "fine_tune": False},
+                {"model_path": "tiny", "fine_tune": False},
+            ],
+        }
+    )
+    # Eval AG
+    scores: dict = predictor.evaluate(
+        test_data,
+        metrics=["SQL", "WQL", "MAE", "MASE", "WAPE", "MSE", "RMSE", "RMSLE", "RMSSE", "MAPE", "SMAPE"],
+        use_cache=False
+        )
+    
+    # Write ALL metrics to tall table
+    results = []
+    for my_metric in scores.keys():
+        results.append({
+            "ds_name": dataset_name, 
+            "target": target, 
+            "metric": my_metric, 
+            "value": -1*scores[my_metric], # AG inverts all metrics s.t. larger is better we don't
+        })
+    results = pd.DataFrame(results)
+    if cache_path.exists():
+        cached_scores = pd.read_csv(cache_path)
+        results = pd.concat([cached_scores, results])
+    results.to_csv(cache_path, index=False)
+
+    # Return Value only for selected metric though
+    return scores[metric]
+
+
+def normalize_metric_name(metric_name) -> str:
+    """
+    Convert convoluted metric name into simple standardized format
+    """
+    name_map = {
+        "mean_weighted_sum_quantile_loss": "WQL",
+        "weighted_sum_quantile_loss": "SQL",
+        "MASE": "MASE",
+        "MAE": "MAE",
+        "NRMSE": "RMSE",  # Assuming this is what you mean
+        "WAPE": "WAPE",
+        "MSE": "MSE",
+        "RMSLE": "RMSLE",
+        "RMSSE": "RMSSE",
+        "MAPE": "MAPE",
+        "SMAPE": "SMAPE",
+    }
+
+    base = re.split(r"[\[\]_]", metric_name)[0]  # remove brackets and suffixes
+    for name in name_map:
+        if base in name or name in base:
+            return name_map[name]
+
 
 
 if __name__ == "__main__":
