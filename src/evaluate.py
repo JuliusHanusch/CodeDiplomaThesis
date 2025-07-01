@@ -161,7 +161,26 @@ def main(
 def eval_ag(
         test_data_path: str, # we need a string to be hashable and cashable 
         config: dict,
+        target: str,
+        metric: str
 ):
+    cache_path = Path("./cache/AG_Scores.csv")
+    dataset_name = config["name"]
+    
+    # Check Cache
+    if cache_path.exists():
+        cached_scores = pd.read_csv(cache_path)
+        relevant_scores = cached_scores[cached_scores[["ds_name", "target", "metric"]] == (dataset_name, target, metric)]
+        if len(relevant_scores) > 0:
+            return relevant_scores["value"][0]
+        
+    # TODO load data
+    test_data = load_val_data(config=config, target=target)
+    # TODO Train AG 
+    # TODO Eval AG
+    # TODO Write ALL metrics to tall table
+    # TODO Return Value only for selected metric though
+
     # TODO
     # Setup predictor
     dataset_name = config["name"]

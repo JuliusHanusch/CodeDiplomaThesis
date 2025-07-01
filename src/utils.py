@@ -203,13 +203,6 @@ def load_val_data(
             hf_repo, name, split="train", trust_remote_code=trust_remote_code
         )
 
-        ds.set_format("numpy")
-
-        gts_dataset = to_gluonts_univariate(ds)
-
-        # Split dataset for evaluation
-        _, test_template = split(gts_dataset, offset=offset)
-        validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
 
     else:
         try:
@@ -244,20 +237,19 @@ def load_val_data(
             'target': Sequence(Value('float64'))  # 2D array: rows of values per sub-df
         })
 
-        dataset = Dataset.from_pandas(data, features=features)
-        dataset.set_format("numpy") # Convert lists into np arrays
-        dataset._info.splits = {
-            "train": SplitInfo(name="train", num_examples=len(dataset)),
+        ds = Dataset.from_pandas(data, features=features)
+        ds._info.splits = {
+            "train": SplitInfo(name="train", num_examples=len(ds)),
             "test": SplitInfo(name="test", num_examples=0)
         }
-        dataset = to_gluonts_univariate(dataset)
 
-        _, test_template = split(dataset, offset=offset)
-        validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
+    ds.set_format("numpy")
 
+    gts_dataset = to_gluonts_univariate(ds)
 
-        print("Finished dataset")
-
+    # Split dataset for evaluation
+    _, test_template = split(gts_dataset, offset=offset)
+    validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
     return validation_data
 
 

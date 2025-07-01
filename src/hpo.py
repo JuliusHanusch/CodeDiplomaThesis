@@ -174,6 +174,7 @@ def train(
     d_ff = 2 ** config.pop("d_ff", 12)
     print(f"Tokenizer Kwargs: {tokenizer_kwargs}")
     config.pop("batch_size_expo")
+    config.pop("max_per_device_train_batch_size")
     config["per_device_train_batch_size"] = config_dict["per_device_train_batch_size"]
     config["gradient_accumulation_steps"] = config_dict["gradient_accumulation_steps"]
 
