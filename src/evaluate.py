@@ -133,18 +133,15 @@ def main(
             )
 
             logger.info(f"Metrics:\n{metrics}") 
-            print(f"Metrics:\n{metrics}") 
-            # logger.error(f"Metrics:\n{metrics}") 
 
             # Get Baseline for Normaliasation & Comparability
             metrics = metrics[0]
             results = {}
             for metric_name, value in metrics.items():
-                print(metric_name)
                 metric_name_norm = normalize_metric_name(metric_name=metric_name)
-                print(metric_name_norm)
-                print(value)
-                results[metric_name_norm] = value / eval_ag(config_hashable=json.dumps(config, sort_keys=True), target=target, metric=metric_name_norm.upper())
+                baseline_score = eval_ag(config_hashable=json.dumps(config, sort_keys=True), target=target, metric=metric_name_norm.upper())
+                results[metric_name_norm] = value / baseline_score
+                logger.info(f"Metric: {metric_name} -> {metric_name_norm}\nOriginal: {value}\nBaseline: {baseline_score}\nNew: {results[metric_name_norm]}")
 
             result_rows.append(
                 {"dataset": dataset_name, "model": chronos_model_id, **results}
@@ -163,7 +160,7 @@ def eval_ag(
         config_hashable: str,
         target: str,
         metric: str
-):
+) -> float:
     config = json.loads(config_hashable)
     # Note Use double caching (outer cache avoids read from CSV, inner cache avoids retraining for each metric)
     cache_path = Path("./cache/AG_Scores.csv")
@@ -173,13 +170,17 @@ def eval_ag(
     # Check Cache
     if cache_path.exists():
         cached_scores = pd.read_csv(cache_path)
-        relevant_scores = cached_scores[cached_scores[["ds_name", "target", "metric"]] == (dataset_name, target, metric)]
+        relevant_scores = cached_scores[
+            (cached_scores["ds_name"] == dataset_name) &
+            (cached_scores["target"] == target) &
+            (cached_scores["metric"] == metric)
+        ]
         if len(relevant_scores) > 0:
-            return relevant_scores["value"][0]
+            return relevant_scores["value"].iloc[0]
     else:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         
-    # TODO load data
+    # load data
     test_data = load_val_data(config=config, target=target, autogluon_format=True)
     test_data['target'] = pd.to_numeric(test_data['target'], errors='coerce')
     def chop_tail(df, pred_len):
@@ -209,9 +210,6 @@ def eval_ag(
             "SeasonalNaive": {},
             "ETS": {},
             "Theta": {},
-            # "RecursiveTabular": {},
-            # "DirectTabular": {},
-            # "TemporalFusionTransformer": {},
             "Chronos": [
                 {"model_path": "bolt_small", "fine_tune": False},
                 {"model_path": "tiny", "fine_tune": False},
@@ -237,11 +235,12 @@ def eval_ag(
     results = pd.DataFrame(results)
     if cache_path.exists():
         cached_scores = pd.read_csv(cache_path)
-        results = pd.concat([cached_scores, results])
+        results = pd.concat([cached_scores, results], ignore_index=True)
+    print(results)
     results.to_csv(cache_path, index=False)
 
-    # Return Value only for selected metric though
-    return scores[metric]
+    # Call again now that entry exists
+    return eval_ag(config_hashable, target=target, metric=metric)
 
 
 def normalize_metric_name(metric_name) -> str:
