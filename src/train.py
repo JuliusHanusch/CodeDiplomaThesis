@@ -712,6 +712,8 @@ def main(
         mode="training",
     ).shuffle(shuffle_buffer_length=shuffle_buffer_length)
 
+    print("Steps:", max_steps)
+
     # Define training args
     training_args = TrainingArguments(
         output_dir=str(output_dir),
@@ -734,6 +736,11 @@ def main(
         ddp_find_unused_parameters=False,
         remove_unused_columns=False,
     )
+    if "min_lr" in lr_scheduler_type:
+        training_args.lr_scheduler_kwargs = {
+            "min_lr": learning_rate/10 # According to Hoffman best choice  
+        }
+
 
     # Create Trainer instance
     trainer = Trainer(

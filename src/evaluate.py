@@ -9,14 +9,13 @@ sys.path.append(str(root_dir.resolve()))
 sys.path.append(str((root_dir/"code").resolve()))  
 sys.path.append(str((Path(__file__).parent.parent / "chronos_pkg/src").resolve()))
 
-import datasets
 import numpy as np
 import pandas as pd
 import torch
 import typer
 import yaml
 from gluonts.dataset.split import split
-from gluonts.ev.metrics import MASE, MeanWeightedSumQuantileLoss, RMSE, MAE, NRMSE
+from gluonts.ev.metrics import MASE, MeanWeightedSumQuantileLoss, RMSE, MAE, NRMSE, SumQuantileLoss, MSE, MAPE, SMAPE
 from gluonts.itertools import batcher
 from gluonts.model.evaluation import evaluate_forecasts
 from gluonts.model.forecast import SampleForecast
@@ -27,6 +26,7 @@ from utils import load_val_data
 import json
 from chronos import ChronosPipeline
 import re
+from math import log
 
 app = typer.Typer(pretty_exceptions_enable=False)
 
@@ -124,7 +124,11 @@ def main(
                         MASE(),
                         MeanWeightedSumQuantileLoss(np.arange(0.1, 1.0, 0.1)),
                         MAE(),
-                        NRMSE()
+                        NRMSE(),
+                        RMSE(),
+                        MSE(), 
+                        MAPE(), 
+                        SMAPE()
                     ],
                     batch_size=5000,
                 )
@@ -140,8 +144,8 @@ def main(
             for metric_name, value in metrics.items():
                 metric_name_norm = normalize_metric_name(metric_name=metric_name)
                 baseline_score = eval_ag(config_hashable=json.dumps(config, sort_keys=True), target=target, metric=metric_name_norm.upper())
-                results[metric_name_norm] = value / baseline_score
-                logger.info(f"Metric: {metric_name} -> {metric_name_norm}\nOriginal: {value}\nBaseline: {baseline_score}\nNew: {results[metric_name_norm]}")
+                results[metric_name_norm] = log(value / baseline_score)
+                logger.info(f"\nMetric: {metric_name} -> {metric_name_norm}\nOriginal: {value}\nBaseline: {baseline_score}\nNew: {results[metric_name_norm]}")
 
             result_rows.append(
                 {"dataset": dataset_name, "model": chronos_model_id, **results}
@@ -159,7 +163,8 @@ def main(
 def eval_ag(
         config_hashable: str,
         target: str,
-        metric: str
+        metric: str,
+        force_return: bool = False, # Returns 1 if not found (for metrics not supported by AG)
 ) -> float:
     config = json.loads(config_hashable)
     # Note Use double caching (outer cache avoids read from CSV, inner cache avoids retraining for each metric)
@@ -177,6 +182,20 @@ def eval_ag(
         ]
         if len(relevant_scores) > 0:
             return relevant_scores["value"].iloc[0]
+        elif force_return: # Return default if metric not supported
+            logger.warning(f"Metric {metric} not found for {dataset_name} and {target} AG might not support the metric. Return 1 due to force_return")
+            # Cache Default
+            if cache_path.exists():
+                cached_scores = pd.read_csv(cache_path)
+                def_row = pd.DataFrame([{
+                    "ds_name": dataset_name, 
+                    "target": target, 
+                    "metric": metric, 
+                    "value": 1.0, # AG inverts all metrics s.t. larger is better we don't
+                }])
+                results = pd.concat([cached_scores, def_row], ignore_index=True)
+            results.to_csv(cache_path, index=False)
+            return 1.0
     else:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -239,20 +258,22 @@ def eval_ag(
     print(results)
     results.to_csv(cache_path, index=False)
 
-    # Call again now that entry exists
-    return eval_ag(config_hashable, target=target, metric=metric)
+    # Call again now that entry exists (if still not exists return 1)
+    return eval_ag(config_hashable, target=target, metric=metric, force_return=True)
 
 
+@cache
 def normalize_metric_name(metric_name) -> str:
     """
     Convert convoluted metric name into simple standardized format
     """
     name_map = {
-        "mean_weighted_sum_quantile_loss": "WQL",
-        "weighted_sum_quantile_loss": "SQL",
+        "MEAN_WEIGHTED_SUM_QUANTILE_LOSS": "WQL",
+        "WQL": "WQL",
         "MASE": "MASE",
         "MAE": "MAE",
-        "NRMSE": "RMSE",  # Assuming this is what you mean
+        "RMSE": "RMSE",  
+        "NRMSE": "NRMSE",  
         "WAPE": "WAPE",
         "MSE": "MSE",
         "RMSLE": "RMSLE",
@@ -261,10 +282,14 @@ def normalize_metric_name(metric_name) -> str:
         "SMAPE": "SMAPE",
     }
 
-    base = re.split(r"[\[\]_]", metric_name)[0]  # remove brackets and suffixes
-    for name in name_map:
-        if base in name or name in base:
-            return name_map[name]
+    base = re.split(r"[\[\]]", metric_name)[0].upper()  # remove brackets and suffixes
+    if base in name_map:
+        return name_map[base]
+    elif metric_name in name_map:
+        return name_map[metric_name]
+    else:
+        raise Exception(f"Metric {metric_name} not found!")
+        return metric_name
 
 
 
