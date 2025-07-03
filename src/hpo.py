@@ -29,9 +29,15 @@ import torch
 import pandas as pd
 import socket
 import random
+from smac.runhistory.runhistory import RunHistory
+import sqlite3
+import json
+import time
 
 BASE_OUTPATH = Path("./chronos_models")
 BAD_NODES_TRACKER = Path("./cache/broken_nodes.txt") # HPC isn't perfect some nodes are flawed and everything goes OOM on them -> Track & avoid
+DB_PATH = Path(__file__).parent.parent / "AION.db"
+OBJECTIVES = ["RMSE", "MASE", "WQL"]
 
 app = Typer()
 
@@ -68,7 +74,7 @@ def main(
         # n_workers=8, not by cluster jobs
         seed=seed,
         use_default_config=True,
-        objectives=["RMSE", "MASE", "WQL"],  
+        objectives=OBJECTIVES,  
     )
 
     if BAD_NODES_TRACKER.exists():
@@ -130,22 +136,42 @@ def main(
         ),
     )
 
-    sleep(35)
+    # Checkpointing from previous Searches
+    if DB_PATH.is_file():
+        conn = sqlite3.connect(DB_PATH)
+        df = pd.read_sql("SELECT * FROM Results", conn)
+        for _, row in df.iterrows():
+            config: dict = json.loads(row["config"])
+            config = {key: config[key] for key in configs_space.keys()}
+            smac._runhistory.add(
+                config=Configuration(
+                    configuration_space=configs_space,
+                    values=config
+                    ),
+                cost=[row[metric] for metric in OBJECTIVES],
+                time=row["duration"],
+                cpu_time=row["duration"]*row["cpu_count"],
+                budget=row["budget"],
+                seed=row["seed"],
+            )
+
+    sleep(35) # Wait to get Scheduled
 
     # Let's optimize
+    print(f"History: {smac.runhistory.get_configs("cost")}")
     incumbents = smac.optimize()
     print(f"Incumbents: {incumbents}")
-    print(f"History: {smac.runhistory}")
+    print(f"History: {smac.runhistory.get_configs("cost")}")
 
 
     for incumbent in incumbents:
         print(f"Best configuration: {incumbent}")
-        cost = smac.validate(incumbent)
-        print("---", cost)
+        # cost = smac.validate(incumbent)
+        # print("---", cost)
 
     client.close()
     cluster.close()
-    print("All Done!!!")
+    print(f"All Done!!! {len(smac.runhistory.get_configs("cost"))} Evaluated")
 
 
 
@@ -155,6 +181,7 @@ def train(
     seed: int = 0, 
     budget: int = 1
     ):
+    start_time = time.time()
     if torch.cuda.is_available():
         device = torch.cuda.current_device()
         total = torch.cuda.get_device_properties(device).total_memory
@@ -167,8 +194,6 @@ def train(
         print(f"Allocated: {allocated / 1e9:.2f} GB")
         print(f"Free (inside reserved): {free / 1e9:.2f} GB")
     try:
-        metrics_to_optimize = ["RMSE", "MASE", "WQL"]
-
         # Hash Config to get exactly one model per config
         config_dict = dict(config)
         config_dict["seed"] = seed
@@ -259,6 +284,7 @@ def train(
         import pandas as pd
         pd.options.display.max_columns = None
         print(f"Results:\n {results}")
+        duration = time.time() - start_time
 
         # ! Save Meta Data To DB
 
@@ -266,16 +292,24 @@ def train(
 
         config_simple = make_dict_storable(config_dict)
         # in_domain_mase, in_domain_wql, in_domain_mae, in_domain_nrmse, zero_shot_mase, zero_shot_wql, zero_shot_mae, zero_shot_nrmse = results_to_metrics(results)
-        insertTable("Results", {"config_hash":config_hash, "config":config_simple, "ModelPath":output_path, **average_errors})
-                                # "in_domain_mase":in_domain_mase, "in_domain_wql":in_domain_wql, "in_domain_mae":in_domain_mae, "in_domain_nrmse":in_domain_nrmse,
-                                # "zero_shot_mase":zero_shot_mase,"zero_shot_wql":zero_shot_wql,"zero_shot_mae":zero_shot_mae,"zero_shot_nrmse":zero_shot_nrmse })
+        insertTable("Results", {
+            "config_hash":config_hash, 
+            "config":config_simple, 
+            "ModelPath":output_path, 
+            "budget": budget, 
+            "seed": seed, 
+            "duration": duration, 
+            "cpu_count": os.cpu_count(),
+            "gpu_count": torch.cuda.device_count(),
+            **average_errors}, 
+            db_path=DB_PATH)
         if BAD_NODES_TRACKER.exists():
             node_name = socket.gethostname() # Node worked at least ones -> Should not be broken
             lines = BAD_NODES_TRACKER.read_text().splitlines()
             lines = [line for line in lines if line.strip() != node_name]
             BAD_NODES_TRACKER.write_text("\n".join(lines) + "\n" if lines else "")
         # ! Return Costs
-        return {key: average_errors[key] for key in metrics_to_optimize} #(average_errors["RMSE"], average_errors["MASE"], average_errors["WQL"])
+        return {key: average_errors[key] for key in OBJECTIVES} #(average_errors["RMSE"], average_errors["MASE"], average_errors["WQL"])
     except RuntimeError as e: # Catch OOM Error seems to be a HW problem (they appear in swarms on the same device - Unlikely Config Specific)
         if "out of memory" in str(e):
             # Get Broken Node
