@@ -20,3 +20,5 @@ smac
 dask
 dask-jobqueue
 autogluon
+ucimlrepo
+deepspeed

@@ -5,5 +5,6 @@ source ~/.bashrc
 exec bash
 
 #reload venv
+# source hpc/modules.sh
+# pip install smac
 
-pip install smac
