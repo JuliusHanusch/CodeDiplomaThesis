@@ -32,10 +32,11 @@ def get_config_space(model_id = "google/t5-efficient-tiny", max_batch_size=32) -
         #"gradient_accumulation_steps": gradient_accumulation_steps,
         "model_id": model_id,
         "model_type": "seq2seq",
+        "fp16":True,
         "random_init": True,
         "tf32": True,
         "torch_compile": True,
-        "dataloader_num_workers": 1,
+        "dataloader_num_workers": 0,
         "use_eos_token": True,
     }
 
@@ -66,7 +67,7 @@ def get_config_space(model_id = "google/t5-efficient-tiny", max_batch_size=32) -
     cs.add(UniformFloatHyperparameter("max_missing_prop", lower=0.8, upper=1.0, log = True, default_value=0.9))
     #cs.add(CategoricalHyperparameter("tokenizer_class", ["MeanScaleUniformBins", "MeanScaleQuantileBins"], default_value="MeanScaleUniformBins"))
     # TODO Must be as long as there a Corpora cs.add(CategoricalHyperparameter("probability", [probability_options]))
-    cs.add(CategoricalHyperparameter("lr_scheduler_type", ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau","cosine_with_min_lr", "warmup_stable_decay"],default_value="linear"))
+    cs.add(CategoricalHyperparameter("lr_scheduler_type", ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau","cosine_with_min_lr"],default_value="linear"))
     cs.add(UniformFloatHyperparameter("tokenizer_limit", lower=5.0, upper=50, log=False, default_value=15))
 
     return cs

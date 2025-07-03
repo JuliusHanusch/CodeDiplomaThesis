@@ -27,8 +27,11 @@ import uuid
 from ast import literal_eval
 import torch
 import pandas as pd
+import socket
+import random
 
 BASE_OUTPATH = Path("./chronos_models")
+BAD_NODES_TRACKER = Path("./cache/broken_nodes.txt") # HPC isn't perfect some nodes are flawed and everything goes OOM on them -> Track & avoid
 
 app = Typer()
 
@@ -68,12 +71,22 @@ def main(
         objectives=["RMSE", "MASE", "WQL"],  
     )
 
+    if BAD_NODES_TRACKER.exists():
+        with BAD_NODES_TRACKER.open() as f:
+            bad_nodes = [line.strip() for line in f if line.strip()]
+            if len(bad_nodes) > 10: # Some OOMs might be legit - test them again ever so often
+                bad_nodes = random.sample(bad_nodes, len(bad_nodes)//2) # The more often OOM hapens the more likely one will be sampled
+            bad_nodes = ",".join(sorted(set(bad_nodes)))
+    else:
+        bad_nodes = ""
+
     # TODO
     cluster = SLURMCluster(
-        cores=4, #TODO Can we increase to 4
+        job_cpu=4, #TODO Can we increase to 4
+        cores=1,
         memory=memory,
         walltime=worker_walltime,
-        job_extra_directives=literal_eval(job_extra_directives),
+        job_extra_directives=literal_eval(job_extra_directives)+[(f"--exclude={bad_nodes}" if bad_nodes else "")],
         account=account if account.lower() != "none" else None,
         job_name="chronos_hpo",
         local_directory=str((root_dir / "hpc/logs/dask").resolve()),
@@ -83,8 +96,12 @@ def main(
         job_script_prologue=[
             f"cd {root_dir.resolve()}",
             "pwd",
+            "nvidia-smi",
             "source ./hpc/modules.sh",
+            "which python",
+            "python --version",
         ],
+        death_timeout=300
     )
 
     print(cluster.job_script())
@@ -138,6 +155,17 @@ def train(
     seed: int = 0, 
     budget: int = 1
     ):
+    if torch.cuda.is_available():
+        device = torch.cuda.current_device()
+        total = torch.cuda.get_device_properties(device).total_memory
+        reserved = torch.cuda.memory_reserved(device)
+        allocated = torch.cuda.memory_allocated(device)
+        free = reserved - allocated
+
+        print(f"Total: {total / 1e9:.2f} GB")
+        print(f"Reserved: {reserved / 1e9:.2f} GB")
+        print(f"Allocated: {allocated / 1e9:.2f} GB")
+        print(f"Free (inside reserved): {free / 1e9:.2f} GB")
     try:
         metrics_to_optimize = ["RMSE", "MASE", "WQL"]
 
@@ -241,17 +269,21 @@ def train(
         insertTable("Results", {"config_hash":config_hash, "config":config_simple, "ModelPath":output_path, **average_errors})
                                 # "in_domain_mase":in_domain_mase, "in_domain_wql":in_domain_wql, "in_domain_mae":in_domain_mae, "in_domain_nrmse":in_domain_nrmse,
                                 # "zero_shot_mase":zero_shot_mase,"zero_shot_wql":zero_shot_wql,"zero_shot_mae":zero_shot_mae,"zero_shot_nrmse":zero_shot_nrmse })
-
+        if BAD_NODES_TRACKER.exists():
+            node_name = socket.gethostname() # Node worked at least ones -> Should not be broken
+            lines = BAD_NODES_TRACKER.read_text().splitlines()
+            lines = [line for line in lines if line.strip() != node_name]
+            BAD_NODES_TRACKER.write_text("\n".join(lines) + "\n" if lines else "")
         # ! Return Costs
         return {key: average_errors[key] for key in metrics_to_optimize} #(average_errors["RMSE"], average_errors["MASE"], average_errors["WQL"])
-    except Exception as e: # Catch OOM Error seems to be a HW problem (they appear in swarms)
-        print("Broken Config:", config)
-        sleep(5)
-        raise
-        if "CUDA out of memory" in str(e):
-            print("OOM error caught")
+    except RuntimeError as e: # Catch OOM Error seems to be a HW problem (they appear in swarms on the same device - Unlikely Config Specific)
+        if "out of memory" in str(e):
+            # Get Broken Node
+            node_name = socket.gethostname()
+            print(f"OOM error caught on {node_name}")
+            with BAD_NODES_TRACKER.open("a") as f:
+                f.write(f"{node_name}\n")
             torch.cuda.empty_cache()
-            # handle fallback or cleanup
         else:
             raise
 
@@ -268,7 +300,7 @@ if __name__ == "__main__":
         seed=0,
         model_id="google/t5-efficient-tiny",
         trial_walltime_limit=-1,
-        number_trials=3,
+        number_trials=6,
         min_budget=512,
         max_budget=2024,
         eta=3,
@@ -276,7 +308,7 @@ if __name__ == "__main__":
         worker_walltime="02:00:00",
         account="p_automl",
         job_extra_directives="['--gres=gpu:1']",
-        worker_count=2,
+        worker_count=4,
         max_batch_size=1
     )
     #app()

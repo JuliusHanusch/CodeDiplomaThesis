@@ -124,10 +124,10 @@ def main(
                         MASE(),
                         MeanWeightedSumQuantileLoss(np.arange(0.1, 1.0, 0.1)),
                         MAE(),
-                        NRMSE(),
+                        #NRMSE(),
                         RMSE(),
-                        MSE(), 
-                        MAPE(), 
+                        #MSE(), 
+                        #MAPE(), 
                         SMAPE()
                     ],
                     batch_size=5000,

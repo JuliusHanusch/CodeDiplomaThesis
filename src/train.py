@@ -57,8 +57,8 @@ from utils import make_dict_storable
 
 
 from chronos import ChronosConfig, ChronosTokenizer
-import torch._dynamo
-torch._dynamo.config.suppress_errors = True
+# import torch._dynamo
+# torch._dynamo.config.suppress_errors = True
 
 
 app = typer.Typer(pretty_exceptions_enable=False)
@@ -586,6 +586,7 @@ def main(
     top_k: int = 50,
     top_p: float = 1.0,
     seed: Optional[int] = None,
+    fp16: bool = False
 ):
     if tf32 and not (
         torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
@@ -679,6 +680,7 @@ def main(
         d_ff = d_ff,
         d_kv = d_kv,
     )
+    print("Number Params: ", sum(p.numel() for p in model.parameters()))
 
     chronos_config = ChronosConfig(
         tokenizer_class=tokenizer_class,
@@ -732,6 +734,7 @@ def main(
         gradient_accumulation_steps=gradient_accumulation_steps,
         dataloader_num_workers=dataloader_num_workers,
         tf32=tf32,  # remove this if not using Ampere GPUs (e.g., A100)
+        fp16=fp16,
         torch_compile=torch_compile,
         ddp_find_unused_parameters=False,
         remove_unused_columns=False,
@@ -748,7 +751,8 @@ def main(
         args=training_args,
         train_dataset=shuffled_train_dataset,
     )
-    log_on_main("Training", logger)
+    log_on_main(f"Training with {trainer.args.n_gpu} GPU(s)", logger)
+    print(f"Training with {trainer.args.n_gpu} GPU(s)")
 
     trainer.train()
 
