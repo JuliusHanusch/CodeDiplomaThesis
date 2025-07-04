@@ -38,6 +38,7 @@ def get_config_space(model_id = "google/t5-efficient-tiny", max_batch_size=32) -
         "torch_compile": True,
         "dataloader_num_workers": 0,
         "use_eos_token": True,
+        "bolt": False,
     }
 
 

@@ -586,7 +586,8 @@ def main(
     top_k: int = 50,
     top_p: float = 1.0,
     seed: Optional[int] = None,
-    fp16: bool = False
+    fp16: bool = False,
+    bolt: bool = False,
 ):
     if tf32 and not (
         torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8

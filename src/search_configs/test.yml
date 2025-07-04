@@ -1,0 +1,13 @@
+seed: 42
+model_id: "google/t5-efficient-tiny"
+trial_walltime_limit: 3600
+number_trials: 100
+min_budget: 960000
+max_budget: 2880000
+eta: 3
+memory: "160G"
+worker_walltime: "10:00:00"
+account: "p_automl"
+job_extra_directives: "['--gres=gpu:1']"
+worker_count: 4
+max_batch_size: 32

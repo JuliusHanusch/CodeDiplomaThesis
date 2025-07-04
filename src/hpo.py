@@ -34,8 +34,8 @@ import sqlite3
 import json
 import time
 
-BASE_OUTPATH = Path("./chronos_models")
-BAD_NODES_TRACKER = Path("./cache/broken_nodes.txt") # HPC isn't perfect some nodes are flawed and everything goes OOM on them -> Track & avoid
+BASE_OUTPATH = Path(__file__).parent.parent / "chronos_models"
+BAD_NODES_TRACKER = Path(__file__).parent.parent / "cache/broken_nodes.txt" # HPC isn't perfect some nodes are flawed and everything goes OOM on them -> Track & avoid
 DB_PATH = Path(__file__).parent.parent / "AION.db"
 OBJECTIVES = ["RMSE", "MASE", "WQL"]
 
@@ -80,13 +80,14 @@ def main(
     if BAD_NODES_TRACKER.exists():
         with BAD_NODES_TRACKER.open() as f:
             bad_nodes = [line.strip() for line in f if line.strip()]
-            if len(bad_nodes) > 10: # Some OOMs might be legit - test them again ever so often
-                bad_nodes = random.sample(bad_nodes, len(bad_nodes)//2) # The more often OOM hapens the more likely one will be sampled
+            # if len(set(bad_nodes)) > 10: # Some OOMs might be legit - test them again ever so often
+            #     bad_nodes = random.sample(bad_nodes, len(bad_nodes)//2) # The more often OOM hapens the more likely one will be sampled
             bad_nodes = ",".join(sorted(set(bad_nodes)))
     else:
         bad_nodes = ""
 
     # TODO
+    print(bad_nodes)
     cluster = SLURMCluster(
         job_cpu=4, #TODO Can we increase to 4
         cores=1,
@@ -327,22 +328,24 @@ if __name__ == "__main__":
     # Go to current file directory
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
+    app()
 
-    # TODO
-    main(
-        config={}, # TODO Add Config
-        seed=0,
-        model_id="google/t5-efficient-tiny",
-        trial_walltime_limit=-1,
-        number_trials=6,
-        min_budget=512,
-        max_budget=2024,
-        eta=3,
-        memory="160G",
-        worker_walltime="02:00:00",
-        account="p_automl",
-        job_extra_directives="['--gres=gpu:1']",
-        worker_count=4,
-        max_batch_size=1
-    )
-    #app()
+
+    # # TODO
+    # main(
+    #     config={}, # TODO Add Config
+    #     seed=0,
+    #     model_id="google/t5-efficient-tiny",
+    #     trial_walltime_limit=-1,
+    #     number_trials=6,
+    #     min_budget=512,
+    #     max_budget=2024,
+    #     eta=3,
+    #     memory="160G",
+    #     worker_walltime="02:00:00",
+    #     account="p_automl",
+    #     job_extra_directives="['--gres=gpu:1']",
+    #     worker_count=4,
+    #     max_batch_size=1
+    # )
+    # #app()

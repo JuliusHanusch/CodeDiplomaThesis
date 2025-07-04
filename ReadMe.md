@@ -44,3 +44,5 @@ Note: This corpora will be huge, so make sure you have enough disk space availab
 
 1. Install CPU Venv via running `hpc/venvs/setup_cpu_venv.sh`
 2. Donload Data This Might Take a day or two 'sbatch ./hpc/download.sh'
+
+Note: We use SLURM and always track nodes where (many) configs fails to avoid them later you might want to delete the `broken_nodes.txt` file to reset this tracking ever so often else it might hapen that you wont get scheduled anymore as all nodes get avoided.
