@@ -236,6 +236,7 @@ def train(
         prediction_length = 2 ** config.pop("prediction_length", 6)
         d_model = 2 ** config.pop("d_model", 9)
         n_tokens = 2 ** config.pop("n_tokens", 9)
+        bolt = True if config.pop("bolt", 0) else False
         print(f"Tokenizer Kwargs: {tokenizer_kwargs}")
         config.pop("batch_size_expo")
         config.pop("max_per_device_train_batch_size")
@@ -254,6 +255,7 @@ def train(
             prediction_length=prediction_length,
             d_model=d_model,
             n_tokens=n_tokens,
+            bolt=bolt,
             **config, 
         )
 
@@ -276,6 +278,7 @@ def train(
                 temperature=1.0,
                 top_k=50,
                 top_p=1.0,
+                bolt=bolt,
             )
             # Aggregate Results
             numeric_cols = results[val_config.stem].select_dtypes(include='number').columns
@@ -312,10 +315,10 @@ def train(
         # ! Return Costs
         return {key: average_errors[key] for key in OBJECTIVES} #(average_errors["RMSE"], average_errors["MASE"], average_errors["WQL"])
     except RuntimeError as e: # Catch OOM Error seems to be a HW problem (they appear in swarms on the same device - Unlikely Config Specific)
-        if "out of memory" in str(e):
+        if "out of memory" in str(e) or "uncorrectable ECC error encountered" in str(e):
             # Get Broken Node
             node_name = socket.gethostname()
-            print(f"OOM error caught on {node_name}")
+            print(f"OOM or ECC error caught on {node_name}: {str(e)}")
             with BAD_NODES_TRACKER.open("a") as f:
                 f.write(f"{node_name}\n")
             torch.cuda.empty_cache()
@@ -348,4 +351,4 @@ if __name__ == "__main__":
     #     worker_count=4,
     #     max_batch_size=1
     # )
-    # #app()
+    #app()

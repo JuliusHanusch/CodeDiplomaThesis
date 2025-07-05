@@ -14,6 +14,7 @@ import subprocess
 from ucimlrepo import DatasetNotFoundError
 from functools import cache
 from autogluon.timeseries import TimeSeriesDataFrame
+import numpy as np
 
 
 def make_dict_storable(advanced_dictionary: dict)->dict:
@@ -39,7 +40,12 @@ def make_dict_storable(advanced_dictionary: dict)->dict:
             value = value.strftime("%d-%m-%Y %H:%M:%S")
         elif isinstance(value, dict):
             value = json.dumps(value)
-        #elif isinstance(value, str):
+        elif isinstance(value, (np.bool_)):
+            value = 1 if value else 0
+        elif isinstance(value, (np.int64, np.int32, np.int16, np.int8)):
+            value = int(value)
+        elif isinstance(value, (np.float64, np.float32, np.float16)):
+            value = float(value)
         else:
             raise NotImplementedError(f"dtype {type(value)} is currently not storable, but can likely be easily added in make_dict_storable()")
         simple_dict[key] = value

@@ -25,6 +25,7 @@ from autogluon.timeseries import TimeSeriesPredictor, TimeSeriesDataFrame
 from utils import load_val_data
 import json
 from chronos import ChronosPipeline
+from chronos_pkg.src.chronos.chronos_bolt import ChronosBoltPipeline
 import re
 from math import log
 
@@ -35,7 +36,7 @@ def generate_sample_forecasts(
     pipeline: ChronosPipeline,
     prediction_length: int,
     batch_size: int,
-    num_samples: int,
+    #num_samples: int,
     **predict_kwargs,
 ):
     # Generate forecast samples
@@ -46,7 +47,7 @@ def generate_sample_forecasts(
             pipeline.predict(
                 context,
                 prediction_length=prediction_length,
-                num_samples=num_samples,
+                #num_samples=num_samples,
                 **predict_kwargs,
             ).numpy()
         )
@@ -74,13 +75,18 @@ def main(
     temperature: Optional[float] = None,
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
+    bolt: bool = False,
 ):
     if isinstance(torch_dtype, str):
         torch_dtype = getattr(torch, torch_dtype)
     assert isinstance(torch_dtype, torch.dtype)
 
+    if bolt:
+        PipelineClass = ChronosBoltPipeline
+    else:
+        PipelineClass = ChronosPipeline
     # Load Chronos
-    pipeline = ChronosPipeline.from_pretrained(
+    pipeline = PipelineClass.from_pretrained(
         chronos_model_id,
         device_map=device,
         torch_dtype=torch_dtype,
@@ -104,16 +110,28 @@ def main(
                 f"Generating forecasts for {dataset_name} "
                 f"({len(test_data.input)} time series)"
             )
-            sample_forecasts = generate_sample_forecasts(
-                test_data.input,
-                pipeline=pipeline,
-                prediction_length=prediction_length,
-                batch_size=batch_size,
-                num_samples=num_samples,
-                temperature=temperature,
-                top_k=top_k,
-                top_p=top_p,
-            )
+            if bolt: # TODO Fusion into one clean version
+                sample_forecasts = generate_sample_forecasts(
+                    test_data.input,
+                    pipeline=pipeline,
+                    prediction_length=prediction_length,
+                    batch_size=batch_size,
+                    #num_samples=num_samples,
+                    # temperature=temperature,
+                    # top_k=top_k,
+                    # top_p=top_p,
+                )
+            else:
+                sample_forecasts = generate_sample_forecasts(
+                    test_data.input,
+                    pipeline=pipeline,
+                    prediction_length=prediction_length,
+                    batch_size=batch_size,
+                    num_samples=num_samples,
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
+                )
 
             logger.info(f"Evaluating forecasts for {dataset_name}")
             metrics = (

@@ -57,6 +57,7 @@ from utils import make_dict_storable
 
 
 from chronos import ChronosConfig, ChronosTokenizer
+from chronos_pkg.src.chronos.chronos_bolt import ChronosBoltModelForForecasting, ChronosBoltConfig
 # import torch._dynamo
 # torch._dynamo.config.suppress_errors = True
 
@@ -170,7 +171,7 @@ def get_next_path(
 
 
 #modified load model fúnction to implement additional hyperparameter
-def load_model(
+def load_model( # TODO Check if same as originial 
     model_id="google/t5-efficient-tiny",
     model_type="seq2seq",
     random_init=False,
@@ -187,7 +188,7 @@ def load_model(
     num_heads = 8,
     d_ff = 2048,
     d_kv = 64,
-
+    bolt=False,
 ):
     """
     Load the specified HuggingFace model, adjusting the vocabulary
@@ -216,14 +217,15 @@ def load_model(
             # The default initializer_factor (1.0) in transformers is too large
             config.initializer_factor = 0.05
         config.tie_word_embeddings = tie_embeddings
+        if bolt:
+            return config
         model = AutoModelClass.from_config(config)
     else:
         log_on_main(f"Using pretrained initialization from {model_id}", logger)
         model = AutoModelClass.from_pretrained(model_id)
 
-    model.resize_token_embeddings(vocab_size)
-    model
 
+    model.resize_token_embeddings(vocab_size)
     model.config.pad_token_id = model.generation_config.pad_token_id = pad_token_id
     model.config.eos_token_id = model.generation_config.eos_token_id = eos_token_id
 
@@ -536,6 +538,13 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             for entry in itertools.chain(*iterators):
                 yield self.to_hf_format(entry)
 
+class BoltDataset(ChronosDataset):
+    def to_hf_format(self, entry: dict) -> dict:
+        return {
+            "context": torch.tensor(entry["past_target"]),
+            "target":  torch.tensor(entry["future_target"]),
+        }
+        
 
 #modified main fúnction to implement additional hyperparameter
 @app.command()
@@ -663,7 +672,9 @@ def main(
 
     log_on_main("Initializing model", logger)
 
-    model = load_model(
+
+
+    model_or_config = load_model( # TODO Go find a cleaner solution
         model_id=model_id,
         model_type=model_type,
         vocab_size=n_tokens,
@@ -680,33 +691,51 @@ def main(
         num_heads = num_heads,
         d_ff = d_ff,
         d_kv = d_kv,
+        bolt=bolt,
     )
+    if bolt: # Then it is a config and we still need to load the model 
+        chronos_bolt_config = ChronosBoltConfig(
+            context_length=context_length,
+            prediction_length=prediction_length,
+            input_patch_size=16, # todo add to search space
+            input_patch_stride=16, # TODO Add to search space
+            quantiles=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
+            use_reg_token=True,  # TODO Add to search space
+        )
+        model_or_config.chronos_config = chronos_bolt_config.__dict__
+        model = ChronosBoltModelForForecasting(model_or_config)
+    else:
+        chronos_config = ChronosConfig(
+            tokenizer_class=tokenizer_class,
+            tokenizer_kwargs=tokenizer_kwargs,
+            n_tokens=n_tokens,
+            n_special_tokens=n_special_tokens,
+            pad_token_id=pad_token_id,
+            eos_token_id=eos_token_id,
+            use_eos_token=use_eos_token,
+            model_type=model_type,
+            context_length=context_length,
+            prediction_length=prediction_length,
+            num_samples=num_samples,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+        )
+        model = model_or_config
+        # Add extra items to model config so that it's saved in the ckpt
+        model.config.chronos_config = chronos_config.__dict__
+    
     print("Number Params: ", sum(p.numel() for p in model.parameters()))
 
-    chronos_config = ChronosConfig(
-        tokenizer_class=tokenizer_class,
-        tokenizer_kwargs=tokenizer_kwargs,
-        n_tokens=n_tokens,
-        n_special_tokens=n_special_tokens,
-        pad_token_id=pad_token_id,
-        eos_token_id=eos_token_id,
-        use_eos_token=use_eos_token,
-        model_type=model_type,
-        context_length=context_length,
-        prediction_length=prediction_length,
-        num_samples=num_samples,
-        temperature=temperature,
-        top_k=top_k,
-        top_p=top_p,
-    )
+    if bolt:
+        DatasetClass = BoltDataset
+    else:
+        DatasetClass = ChronosDataset
 
-    # Add extra items to model config so that it's saved in the ckpt
-    model.config.chronos_config = chronos_config.__dict__
-
-    shuffled_train_dataset = ChronosDataset(
+    shuffled_train_dataset = DatasetClass(
         datasets=train_datasets,
         probabilities=probability,
-        tokenizer=chronos_config.create_tokenizer(),
+        tokenizer=None if bolt else chronos_config.create_tokenizer(),
         context_length=context_length,
         prediction_length=prediction_length,
         min_past=min_past,

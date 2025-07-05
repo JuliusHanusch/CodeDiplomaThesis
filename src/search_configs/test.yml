@@ -9,5 +9,5 @@ memory: "160G"
 worker_walltime: "10:00:00"
 account: "p_automl"
 job_extra_directives: "['--gres=gpu:1']"
-worker_count: 4
+worker_count: 10
 max_batch_size: 32

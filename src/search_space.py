@@ -38,7 +38,7 @@ def get_config_space(model_id = "google/t5-efficient-tiny", max_batch_size=32) -
         "torch_compile": True,
         "dataloader_num_workers": 0,
         "use_eos_token": True,
-        "bolt": False,
+        #"bolt": True,
     }
 
 
@@ -69,6 +69,7 @@ def get_config_space(model_id = "google/t5-efficient-tiny", max_batch_size=32) -
     #cs.add(CategoricalHyperparameter("tokenizer_class", ["MeanScaleUniformBins", "MeanScaleQuantileBins"], default_value="MeanScaleUniformBins"))
     # TODO Must be as long as there a Corpora cs.add(CategoricalHyperparameter("probability", [probability_options]))
     cs.add(CategoricalHyperparameter("lr_scheduler_type", ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau","cosine_with_min_lr"],default_value="linear"))
+    cs.add(CategoricalHyperparameter("bolt", [1, 0],default_value=0))
     cs.add(UniformFloatHyperparameter("tokenizer_limit", lower=5.0, upper=50, log=False, default_value=15))
 
     return cs
