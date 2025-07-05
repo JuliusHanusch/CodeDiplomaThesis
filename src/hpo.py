@@ -143,7 +143,7 @@ def main(
         df = pd.read_sql("SELECT * FROM Results", conn)
         for _, row in df.iterrows():
             config: dict = json.loads(row["config"])
-            config = {key: config[key] for key in configs_space.keys()}
+            config = {key: config[key] for key in configs_space.keys() if key in config}
             smac._runhistory.add(
                 config=Configuration(
                     configuration_space=configs_space,
@@ -335,24 +335,24 @@ if __name__ == "__main__":
     # Go to current file directory
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-    # app()
+    app()
 
 
     # # TODO
-    main(
-        config={}, # TODO Add Config
-        seed=0,
-        model_id="google/t5-efficient-tiny",
-        trial_walltime_limit=-1,
-        number_trials=6,
-        min_budget=512,
-        max_budget=2024,
-        eta=3,
-        memory="160G",
-        worker_walltime="02:00:00",
-        account="p_automl",
-        job_extra_directives="['--gres=gpu:1']",
-        worker_count=4,
-        max_batch_size=1
-    )
+    # main(
+    #     config={}, # TODO Add Config
+    #     seed=0,
+    #     model_id="google/t5-efficient-tiny",
+    #     trial_walltime_limit=-1,
+    #     number_trials=6,
+    #     min_budget=512,
+    #     max_budget=2024,
+    #     eta=3,
+    #     memory="160G",
+    #     worker_walltime="02:00:00",
+    #     account="p_automl",
+    #     job_extra_directives="['--gres=gpu:1']",
+    #     worker_count=1,
+    #     max_batch_size=1
+    # )
     #app()

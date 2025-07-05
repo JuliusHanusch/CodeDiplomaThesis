@@ -237,10 +237,11 @@ def eval_ag(
         eval_metric="MASE",
     )
 
-    # Train Ensemble of Zeroshot and Statisitical Models they require less train data and are robust to test set leakage due to overlap btwn samples
+    # Select and Train best Zeroshot and Statisitical Models they require less train data and are robust to test set leakage due to overlap btwn samples
     predictor.fit(
         train_data=train_like,
-        presets="best_quality",
+        presets="medium_quality",
+        enable_ensemble=False,
         time_limit=600,
         hyperparameters={
             "Naive": {},
@@ -268,6 +269,7 @@ def eval_ag(
             "target": target, 
             "metric": my_metric, 
             "value": -1*scores[my_metric], # AG inverts all metrics s.t. larger is better we don't
+            "model": predictor.model_best # if Chronos is best (we should be able to beat it) else it might be a weak point of the old chr 
         })
     results = pd.DataFrame(results)
     if cache_path.exists():
