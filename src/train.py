@@ -597,6 +597,9 @@ def main(
     seed: Optional[int] = None,
     fp16: bool = False,
     bolt: bool = False,
+    patch_size: int = 16,
+    patch_stride: int = 16,
+    use_reg_token: bool = True,
 ):
     if tf32 and not (
         torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
@@ -697,10 +700,10 @@ def main(
         chronos_bolt_config = ChronosBoltConfig(
             context_length=context_length,
             prediction_length=prediction_length,
-            input_patch_size=16, # todo add to search space
-            input_patch_stride=16, # TODO Add to search space
+            input_patch_size=patch_size,
+            input_patch_stride=patch_stride, 
             quantiles=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
-            use_reg_token=True,  # TODO Add to search space
+            use_reg_token=use_reg_token,  
         )
         model_or_config.chronos_config = chronos_bolt_config.__dict__
         model = ChronosBoltModelForForecasting(model_or_config)

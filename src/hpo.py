@@ -228,16 +228,22 @@ def train(
         evaluater.logger = logger
 
         # Special HPs
-        tokenizer_limit = config.pop("tokenizer_limit", 15)
-        tokenizer_kwargs = f"{{'low_limit': -{tokenizer_limit:.3f}, 'high_limit': {tokenizer_limit:.3f}}}"
         d_kv = 2 ** config.pop("d_kv", 6)
         d_ff = 2 ** config.pop("d_ff", 12)
         context_length = 2 ** config.pop("context_length", 9)
         prediction_length = 2 ** config.pop("prediction_length", 6)
         d_model = 2 ** config.pop("d_model", 9)
-        n_tokens = 2 ** config.pop("n_tokens", 9)
         bolt = True if config.pop("bolt", 0) else False
-        print(f"Tokenizer Kwargs: {tokenizer_kwargs}")
+        if bolt:
+            config["patch_stride"] = 2 ** config.pop("patch_stride_expo", 4)
+            config["patch_size"] = 2 ** config.pop("patch_size_expo", 4)
+            config["use_reg_token"] = True if config.pop("use_reg_token", 1) else False
+        else:
+            config["n_tokens"] = 2 ** config.pop("n_tokens", 9)
+            tokenizer_limit = config.pop("tokenizer_limit", 15)
+            config["tokenizer_kwargs"] = f"{{'low_limit': -{tokenizer_limit:.3f}, 'high_limit': {tokenizer_limit:.3f}}}"
+            print(f"Tokenizer Kwargs: {config["tokenizer_kwargs"]}")
+
         config.pop("batch_size_expo")
         config.pop("max_per_device_train_batch_size")
         config["per_device_train_batch_size"] = config_dict["per_device_train_batch_size"]
@@ -248,13 +254,11 @@ def train(
             output_dir=output_path,
             training_data_paths=training_data_paths,
             max_steps=training_steps,
-            tokenizer_kwargs=tokenizer_kwargs,
             d_kv=d_kv,
             d_ff=d_ff,
             context_length=context_length,
             prediction_length=prediction_length,
             d_model=d_model,
-            n_tokens=n_tokens,
             bolt=bolt,
             **config, 
         )
@@ -331,24 +335,24 @@ if __name__ == "__main__":
     # Go to current file directory
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-    app()
+    # app()
 
 
     # # TODO
-    # main(
-    #     config={}, # TODO Add Config
-    #     seed=0,
-    #     model_id="google/t5-efficient-tiny",
-    #     trial_walltime_limit=-1,
-    #     number_trials=6,
-    #     min_budget=512,
-    #     max_budget=2024,
-    #     eta=3,
-    #     memory="160G",
-    #     worker_walltime="02:00:00",
-    #     account="p_automl",
-    #     job_extra_directives="['--gres=gpu:1']",
-    #     worker_count=4,
-    #     max_batch_size=1
-    # )
+    main(
+        config={}, # TODO Add Config
+        seed=0,
+        model_id="google/t5-efficient-tiny",
+        trial_walltime_limit=-1,
+        number_trials=6,
+        min_budget=512,
+        max_budget=2024,
+        eta=3,
+        memory="160G",
+        worker_walltime="02:00:00",
+        account="p_automl",
+        job_extra_directives="['--gres=gpu:1']",
+        worker_count=4,
+        max_batch_size=1
+    )
     #app()

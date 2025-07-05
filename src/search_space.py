@@ -1,4 +1,4 @@
-from ConfigSpace import ConfigurationSpace, CategoricalHyperparameter, Constant, UniformIntegerHyperparameter, UniformFloatHyperparameter
+from ConfigSpace import ConfigurationSpace, Constant, Integer, Float, Categorical, EqualsCondition
 
 # TODO Update
 #training_data_paths = "['/data/horse/ws/jipo020b-aion/AION/data/testfiles/training_mix.arrow']"
@@ -29,7 +29,6 @@ def get_config_space(model_id = "google/t5-efficient-tiny", max_batch_size=32) -
         "log_steps": 500,
         "num_samples": 20,
         "shuffle_buffer_length": 100_000,
-        #"gradient_accumulation_steps": gradient_accumulation_steps,
         "model_id": model_id,
         "model_type": "seq2seq",
         "fp16":True,
@@ -50,27 +49,41 @@ def get_config_space(model_id = "google/t5-efficient-tiny", max_batch_size=32) -
             cs.add(Constant(key, value))
 
     # Add tunable hyperparameters
-    cs.add(UniformIntegerHyperparameter("n_tokens", lower= 8, upper = 14, log=False, default_value=12))
-    cs.add(UniformFloatHyperparameter("learning_rate", lower = 0.00005, upper = 0.01, log = True, default_value=0.001))
-    cs.add(UniformFloatHyperparameter("warmup_ratio",lower = 1e-7, upper = 0.1, log = True, default_value=1e-7))
-    cs.add(UniformFloatHyperparameter("dropout_rate", lower = 1e-7, upper = 0.2, log = True, default_value=1e-7)) 
-    cs.add(CategoricalHyperparameter("feed_forward_proj", ["relu", "gated-gelu", "gated-relu"], default_value="relu"))
-    cs.add(CategoricalHyperparameter("optim", ["adamw_torch_fused", "adafactor"], default_value="adamw_torch_fused"))
-    cs.add(UniformFloatHyperparameter("layer_norm_epsilon", lower = 1e-07, upper = 1e-03, log = True, default_value=1e-6))
-    cs.add(UniformIntegerHyperparameter("d_model", lower=6, upper=12, log = False, default_value=9))
-    cs.add(UniformIntegerHyperparameter("num_layers", lower = 1, upper = 12, log = False, default_value=6))
-    cs.add(UniformIntegerHyperparameter("num_heads", lower = 1, upper = 12, log = False, default_value=8))
-    cs.add(UniformIntegerHyperparameter("d_kv", lower = 3, upper = 10, log = False, default_value=6))
-    cs.add(UniformIntegerHyperparameter("d_ff", lower = 5, upper = 11, log = False, default_value=11))
-    cs.add(UniformIntegerHyperparameter("context_length", lower = 4, upper = 11, log = False, default_value=9))
-    cs.add(UniformIntegerHyperparameter("prediction_length", lower = 3, upper = 8, log = False, default_value=6))
-    cs.add(UniformIntegerHyperparameter("batch_size_expo", lower = 1, upper = 12, log = False, default_value=5))
-    cs.add(UniformFloatHyperparameter("max_missing_prop", lower=0.8, upper=1.0, log = True, default_value=0.9))
-    #cs.add(CategoricalHyperparameter("tokenizer_class", ["MeanScaleUniformBins", "MeanScaleQuantileBins"], default_value="MeanScaleUniformBins"))
-    # TODO Must be as long as there a Corpora cs.add(CategoricalHyperparameter("probability", [probability_options]))
-    cs.add(CategoricalHyperparameter("lr_scheduler_type", ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau","cosine_with_min_lr"],default_value="linear"))
-    cs.add(CategoricalHyperparameter("bolt", [1, 0],default_value=0))
-    cs.add(UniformFloatHyperparameter("tokenizer_limit", lower=5.0, upper=50, log=False, default_value=15))
+    cs.add(Float("learning_rate", (0.00005,  0.01), log = True, default=0.001))
+    cs.add(Float("warmup_ratio",(1e-7, 0.1), log = True, default=1e-7))
+    cs.add(Float("dropout_rate", (1e-7, 0.2), log = True, default=1e-7)) 
+    cs.add(Categorical("feed_forward_proj", ["relu", "gated-gelu", "gated-relu"], default="relu"))
+    cs.add(Categorical("optim", ["adamw_torch_fused", "adafactor"], default="adamw_torch_fused"))
+    cs.add(Float("layer_norm_epsilon", (1e-07, 1e-03), log = True, default=1e-6))
+    cs.add(Integer("d_model", (6, 12), log = False, default=9))
+    cs.add(Integer("num_layers", (1, 12), log = False, default=6))
+    cs.add(Integer("num_heads", (1, 12), log = False, default=8))
+    cs.add(Integer("d_kv", (3, 10), log = False, default=6))
+    cs.add(Integer("d_ff", (5, 12), log = False, default=11))
+    cs.add(Integer("context_length", (4, 12), log = False, default=9))
+    cs.add(Integer("prediction_length", (3, 7), log = False, default=6))
+    cs.add(Integer("batch_size_expo", (1, 11), log = False, default=5))
+    cs.add(Float("max_missing_prop", (0.8, 1.0), log = True, default=0.9))
+    #cs.add(Categorical("tokenizer_class", ["MeanScaleUniformBins", "MeanScaleQuantileBins"], default="MeanScaleUniformBins"))
+    # TODO Must be as long as there a Corpora cs.add(Categorical("probability", [probability_options]))
+    cs.add(Categorical("lr_scheduler_type", ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau","cosine_with_min_lr"],default="linear"))
+    cs.add(Integer("bolt", (0, 1),default=0))
+
+    # Base Chronos Only
+    cs.add(Float("tokenizer_limit", (5.0, 50), log=False, default=15))
+    cs.add(Integer("n_tokens", (8, 13), log=False, default=12))
+    cs.add(EqualsCondition(cs["tokenizer_limit"], cs["bolt"], 0))
+    cs.add(EqualsCondition(cs["n_tokens"], cs["bolt"], 0))
+
+    # Bolt Only Stuff
+    cs.add(Integer("patch_size_expo", (0, 6), log = False, default=4))
+    cs.add(Integer("patch_stride_expo", (0, 7), log = False, default=4)) #TODO how exxactlly does it work -> Adjust
+    cs.add(Integer("use_reg_token", (0, 1),default=1))
+    cs.add(EqualsCondition(cs["patch_size_expo"], cs["bolt"], 1))
+    cs.add(EqualsCondition(cs["patch_stride_expo"], cs["bolt"], 1))
+    cs.add(EqualsCondition(cs["use_reg_token"], cs["bolt"], 1))
+    # TODO Add Patch FFN HP
+
 
     return cs
 
