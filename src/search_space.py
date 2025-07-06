@@ -1,8 +1,10 @@
 from ConfigSpace import ConfigurationSpace, Constant, Integer, Float, Categorical, EqualsCondition
+from ast import literal_eval
+from pathlib import Path
 
 # TODO Update
 #training_data_paths = "['/data/horse/ws/jipo020b-aion/AION/data/testfiles/training_mix.arrow']"
-training_data_paths = "['/data/horse/ws/jipo020b-aion/AION/data/testfiles/training_mix.arrow']"
+
 
 
 probability_options = [
@@ -14,23 +16,18 @@ probability_options = [
 ]
 # define data splits
 
-def get_config_space(model_id = "google/t5-efficient-tiny", max_batch_size=32) -> ConfigurationSpace:
-    # TODO include batch_size into search space
+def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-efficient-tiny"]', max_batch_size=32) -> ConfigurationSpace:
     # Fixed parameters to be added as constants
     fixed_config = {
-        "training_data_paths": [ # TODO Update
-            "your/path/to/training_mix.arrow",
-            "your/path/tp/kernelsynth.arrow"
-            "your/path/to/realdata.arrow"
-        ],
+        "training_data_paths": training_data_paths,
         "max_per_device_train_batch_size": max_batch_size,
-        "min_past": 60,
+        #"min_past": 60,
         "save_steps": 200_000,
         "log_steps": 500,
         "num_samples": 20,
         "shuffle_buffer_length": 100_000,
-        "model_id": model_id,
-        "model_type": "seq2seq",
+        #"model_id": model_id,
+        #"model_type": "seq2seq",
         "fp16":True,
         "random_init": True,
         "tf32": True,
@@ -47,8 +44,16 @@ def get_config_space(model_id = "google/t5-efficient-tiny", max_batch_size=32) -
     for key, value in fixed_config.items():
         if isinstance(value, (int, float, str, bool)):
             cs.add(Constant(key, value))
+    
+    # Add A variable for every dataset
+    datasets = literal_eval(training_data_paths)
+    for ds_path in datasets:
+        ds_name =  Path(ds_path).stem
+        cs.add(Float(ds_name, (0, 1), default=1/len(datasets)))
 
     # Add tunable hyperparameters
+    model_ids = literal_eval(model_ids)
+    cs.add(Categorical("model_id", model_ids, default=model_ids[0]))
     cs.add(Float("learning_rate", (0.00005,  0.01), log = True, default=0.001))
     cs.add(Float("warmup_ratio",(1e-7, 0.1), log = True, default=1e-7))
     cs.add(Float("dropout_rate", (1e-7, 0.2), log = True, default=1e-7)) 
@@ -64,10 +69,12 @@ def get_config_space(model_id = "google/t5-efficient-tiny", max_batch_size=32) -
     cs.add(Integer("prediction_length", (3, 7), log = False, default=6))
     cs.add(Integer("batch_size_expo", (1, 11), log = False, default=5))
     cs.add(Float("max_missing_prop", (0.8, 1.0), log = True, default=0.9))
+    cs.add(Float("drop_prob", (0.0, 0.5), log = False, default=0.2))
     #cs.add(Categorical("tokenizer_class", ["MeanScaleUniformBins", "MeanScaleQuantileBins"], default="MeanScaleUniformBins"))
     # TODO Must be as long as there a Corpora cs.add(Categorical("probability", [probability_options]))
     cs.add(Categorical("lr_scheduler_type", ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau","cosine_with_min_lr"],default="linear"))
     cs.add(Integer("bolt", (0, 1),default=0))
+    cs.add(Integer("min_past_expo", (4, 10),default=6))
 
     # Base Chronos Only
     cs.add(Float("tokenizer_limit", (5.0, 50), log=False, default=15))

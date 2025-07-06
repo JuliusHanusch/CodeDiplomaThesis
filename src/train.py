@@ -552,6 +552,7 @@ class BoltDataset(ChronosDataset):
 def main(
     training_data_paths: str,
     probability: Optional[str] = None,
+    drop_prob: float = 0.2,
     context_length: int = 512,
     prediction_length: int = 64,
     min_past: int = 64,
@@ -735,9 +736,9 @@ def main(
     else:
         DatasetClass = ChronosDataset
 
-    shuffled_train_dataset = DatasetClass(
+    shuffled_train_dataset = DatasetClass( # TODO Add to Search Space
         datasets=train_datasets,
-        probabilities=probability,
+        probabilities=probability, # Todo
         tokenizer=None if bolt else chronos_config.create_tokenizer(),
         context_length=context_length,
         prediction_length=prediction_length,
@@ -745,6 +746,7 @@ def main(
         model_type=model_type,
         imputation_method=LastValueImputation() if model_type == "causal" else None,
         mode="training",
+        drop_prob=drop_prob,
     ).shuffle(shuffle_buffer_length=shuffle_buffer_length)
 
     print("Steps:", max_steps)

@@ -18,7 +18,7 @@ from smac import Scenario
 from smac.facade import AbstractFacade
 from smac.intensifier.hyperband import Hyperband
 from smac.intensifier.successive_halving import SuccessiveHalving
-from search_space import get_config_space, training_data_paths
+from search_space import get_config_space#, training_data_paths
 from smac import HyperparameterOptimizationFacade as HPOFacade
 from dask.distributed import Client
 from dask_jobqueue import SLURMCluster
@@ -33,6 +33,8 @@ from smac.runhistory.runhistory import RunHistory
 import sqlite3
 import json
 import time
+from datetime import datetime
+from typing import Optional
 
 BASE_OUTPATH = Path(__file__).parent.parent / "chronos_models"
 BAD_NODES_TRACKER = Path(__file__).parent.parent / "cache/broken_nodes.txt" # HPC isn't perfect some nodes are flawed and everything goes OOM on them -> Track & avoid
@@ -44,8 +46,9 @@ app = Typer()
 @app.command()
 @use_yaml_config(param_name="config")
 def main(
+    training_data_paths: str,
     seed: int = Option(0, help="Random seed for reproducibility."),
-    model_id: str = Option("google/t5-efficient-tiny", help="Which base model to use."),
+    model_ids: str = Option("['google/t5-efficient-tiny']", help="Which base model to use."),
     trial_walltime_limit: int = Option(300, help="How long until we stop a trial. (-1 ~ Unlimited)"),
     number_trials: int = Option(5, help="How many trials to run."),
     min_budget: int = Option(960_000, help="Minimum number of Training Samples"),
@@ -59,13 +62,13 @@ def main(
     max_batch_size: int = Option(32, help="How large is the max batch size per device. Note: Larger BS are simulated via Gradient Accumulation"),
 ):
 
-    configs_space = get_config_space(model_id=model_id, max_batch_size=max_batch_size)
+    configs_space = get_config_space(training_data_paths=training_data_paths, model_ids=model_ids, max_batch_size=max_batch_size)
 
 
     # Define our environment variables
     scenario = Scenario(
         configspace=configs_space,
-        name=f"{model_id.replace('/', '_')}_{uuid.uuid4()}",
+        name=f"{literal_eval(model_ids)[0].replace('/', '_')}_{uuid.uuid4()}",
         output_directory=root_dir / "hpc/logs/smac3_output",
         trial_walltime_limit=trial_walltime_limit if trial_walltime_limit > 0 else None,  
         n_trials=number_trials,  
@@ -144,17 +147,20 @@ def main(
         for _, row in df.iterrows():
             config: dict = json.loads(row["config"])
             config = {key: config[key] for key in configs_space.keys() if key in config}
-            smac._runhistory.add(
-                config=Configuration(
-                    configuration_space=configs_space,
-                    values=config
-                    ),
-                cost=[row[metric] for metric in OBJECTIVES],
-                time=row["duration"],
-                cpu_time=row["duration"]*row["cpu_count"],
-                budget=row["budget"],
-                seed=row["seed"],
-            )
+            try: # Search Spaces might differ over time - reuse only the currently relevant trials
+                smac._runhistory.add(
+                    config=Configuration(
+                        configuration_space=configs_space,
+                        values=config
+                        ),
+                    cost=[row[metric] for metric in OBJECTIVES],
+                    time=row["duration"],
+                    cpu_time=row["duration"]*row["cpu_count"],
+                    budget=row["budget"],
+                    seed=row["seed"],
+                )
+            except Exception as e:
+                print(f"Wasn't able to add Config:\n{config}\nbecause of: {str(e)}")
 
     sleep(35) # Wait to get Scheduled
 
@@ -233,7 +239,9 @@ def train(
         context_length = 2 ** config.pop("context_length", 9)
         prediction_length = 2 ** config.pop("prediction_length", 6)
         d_model = 2 ** config.pop("d_model", 9)
+        min_past = 2 ** config.pop("min_past_expo", 6)
         bolt = True if config.pop("bolt", 0) else False
+        model_type = "causal" if "gpt" in config["model_id"] else "seq2seq" # TODO expand
         if bolt:
             config["patch_stride"] = 2 ** config.pop("patch_stride_expo", 4)
             config["patch_size"] = 2 ** config.pop("patch_size_expo", 4)
@@ -249,10 +257,20 @@ def train(
         config["per_device_train_batch_size"] = config_dict["per_device_train_batch_size"]
         config["gradient_accumulation_steps"] = config_dict["gradient_accumulation_steps"]
 
+        # get ds probabilities in the according order
+        training_data_paths = config.pop("training_data_paths")
+        training_data_paths_list = literal_eval(training_data_paths)
+        probabilities = [config.pop(Path(p).stem) for p in training_data_paths_list]
+        # Normalize
+        total = sum(probabilities)
+        probabilities = [prob/total for prob in probabilities]
+
+
         # Train Chronos and Save to outpath
         model_path = trainer.main(
             output_dir=output_path,
             training_data_paths=training_data_paths,
+            probability=probabilities,
             max_steps=training_steps,
             d_kv=d_kv,
             d_ff=d_ff,
@@ -260,6 +278,8 @@ def train(
             prediction_length=prediction_length,
             d_model=d_model,
             bolt=bolt,
+            min_past=min_past,
+            model_type=model_type,
             **config, 
         )
 
@@ -301,6 +321,7 @@ def train(
         config_simple = make_dict_storable(config_dict)
         # in_domain_mase, in_domain_wql, in_domain_mae, in_domain_nrmse, zero_shot_mase, zero_shot_wql, zero_shot_mae, zero_shot_nrmse = results_to_metrics(results)
         insertTable("Results", {
+            "time_stamp": datetime.now().strftime("%Y-%m-%dT%H-%M-%S.%f"),
             "config_hash":config_hash, 
             "config":config_simple, 
             "ModelPath":output_path, 
@@ -341,8 +362,9 @@ if __name__ == "__main__":
     # # TODO
     # main(
     #     config={}, # TODO Add Config
+    #     training_data_paths = "['/data/horse/ws/jipo020b-aion/AION/data/testfiles/training_mix.arrow']",
     #     seed=0,
-    #     model_id="google/t5-efficient-tiny",
+    #     model_ids='["google/t5-efficient-tiny"]',
     #     trial_walltime_limit=-1,
     #     number_trials=6,
     #     min_budget=512,

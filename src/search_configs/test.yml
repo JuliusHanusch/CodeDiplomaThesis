@@ -1,5 +1,9 @@
+training_data_paths:
+- "/data/horse/ws/jipo020b-aion/AION/data/testfiles/training_mix.arrow"
 seed: 42
-model_id: "google/t5-efficient-tiny"
+model_ids: 
+- "google/t5-efficient-tiny"
+# - "openai-community/gpt2"
 trial_walltime_limit: 3600
 number_trials: 100
 min_budget: 960000
