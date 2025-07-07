@@ -236,11 +236,11 @@ def train(
         evaluater.logger = logger
 
         # Special HPs
-        d_kv = 2 ** config.pop("d_kv", 6)
-        d_ff = 2 ** config.pop("d_ff", 12)
-        context_length = 2 ** config.pop("context_length", 9)
-        prediction_length = 2 ** config.pop("prediction_length", 6)
-        d_model = 2 ** config.pop("d_model", 9)
+        d_kv = 2 ** config.pop("d_kv_expo", 6)
+        d_ff = 2 ** config.pop("d_ff_expo", 12)
+        context_length = 2 ** config.pop("context_length_expo", 9)
+        prediction_length = 2 ** config.pop("prediction_length_expo", 6)
+        d_model = 2 ** config.pop("d_model_expo", 9)
         min_past = 2 ** config.pop("min_past_expo", 6)
         bolt = True if config.pop("bolt", 0) else False
         model_type = "causal" if "gpt" in config["model_id"] else "seq2seq" # TODO expand
@@ -249,7 +249,7 @@ def train(
             config["patch_size"] = 2 ** config.pop("patch_size_expo", 4)
             config["use_reg_token"] = True if config.pop("use_reg_token", 1) else False
         else:
-            config["n_tokens"] = 2 ** config.pop("n_tokens", 9)
+            config["n_tokens"] = 2 ** config.pop("n_tokens_expo", 9)
             tokenizer_limit = config.pop("tokenizer_limit", 15)
             config["tokenizer_kwargs"] = f"{{'low_limit': -{tokenizer_limit:.3f}, 'high_limit': {tokenizer_limit:.3f}}}"
             print(f"Tokenizer Kwargs: {config["tokenizer_kwargs"]}")
