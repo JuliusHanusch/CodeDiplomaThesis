@@ -15,6 +15,8 @@ from ucimlrepo import DatasetNotFoundError
 from functools import cache
 from autogluon.timeseries import TimeSeriesDataFrame
 import numpy as np
+from transformers import AutoModel
+from torch import nn
 
 
 def make_dict_storable(advanced_dictionary: dict)->dict:
@@ -53,32 +55,39 @@ def make_dict_storable(advanced_dictionary: dict)->dict:
     return simple_dict
 
 
-def results_to_metrics(results_dict: dict):
+def get_expected_model_size(model_id: str):
     """
-    Takes in a dict containing the results of the pretraining with two Dataframes one for in-domain and one for zero shot evaluation, extracts the metrics,
-    returns all metrics as vaiables
+    Loads model from HF and returns its number of non-embedding HP
+    Most of the code Below is just caching to not download it over and over again
     """
-    metrics = ["MASE", "WQL", "MAE", "NRMSE[mean]"]
+    cache_path = Path("./cache/model_sizes.csv") # TODO Convert into decorator
+    if cache_path.exists():
+        cached_scores = pd.read_csv(cache_path)
+        relevant_scores = cached_scores[cached_scores["model_id"] == model_id]
+        if len(relevant_scores) > 0:
+            return relevant_scores["parameters"].iloc[0]
+
+    model = AutoModel.from_pretrained(model_id)
+    model_size = get_model_size(model=model)
+
+    results = pd.DataFrame([{"model_id": model_id, "parameters": model_size}])
+    if cache_path.exists():
+        cached_scores = pd.read_csv(cache_path)
+        results = pd.concat([cached_scores, results], ignore_index=True)
+    results.to_csv(cache_path, index=False)
+    return model_size
+
+
+def get_model_size(model: AutoModel):
+    """Returns number of Non Embedding Parameters"""
+    total = sum(p.numel() for p in model.parameters())
+    embedding = 0
+
+    for module in model.modules():
+        if isinstance(module, (nn.Embedding, nn.EmbeddingBag)):
+            embedding += sum(p.numel() for p in module.parameters())
     
-    # Ensure consistent keys
-    in_domain_df = results_dict.get("in-domain")
-    zero_shot_df = results_dict.get("zero-shot")
-
-    # Compute means for each metric
-    in_domain_means = {f"in_domain_{metric.lower()}": in_domain_df[metric].mean() for metric in metrics}
-    zero_shot_means = {f"zero_shot_{metric.lower()}": zero_shot_df[metric].mean() for metric in metrics}
-
-    # Combine and return as separate variables
-    return (
-        in_domain_means["in_domain_mase"],
-        in_domain_means["in_domain_wql"],
-        in_domain_means["in_domain_mae"],
-        in_domain_means["in_domain_nrmse"],
-        zero_shot_means["zero_shot_mase"],
-        zero_shot_means["zero_shot_wql"],
-        zero_shot_means["zero_shot_mae"],
-        zero_shot_means["zero_shot_nrmse"]
-    )
+    return total - embedding
 
 
 def to_gluonts_univariate(hf_dataset: datasets.Dataset):

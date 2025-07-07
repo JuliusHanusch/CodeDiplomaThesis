@@ -28,6 +28,7 @@ from chronos import ChronosPipeline
 from chronos_pkg.src.chronos.chronos_bolt import ChronosBoltPipeline
 import re
 from math import log
+from utils import get_model_size
 
 app = typer.Typer(pretty_exceptions_enable=False)
 
@@ -158,7 +159,7 @@ def main(
 
             # Get Baseline for Normaliasation & Comparability
             metrics = metrics[0]
-            results = {}
+            results = {"parameters": get_model_size(pipeline.model)}
             for metric_name, value in metrics.items():
                 metric_name_norm = normalize_metric_name(metric_name=metric_name)
                 baseline_score = eval_ag(config_hashable=json.dumps(config, sort_keys=True), target=target, metric=metric_name_norm.upper())

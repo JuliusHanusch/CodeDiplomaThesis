@@ -35,6 +35,8 @@ import json
 import time
 from datetime import datetime
 from typing import Optional
+import pandas as pd
+pd.options.display.max_columns = None
 
 BASE_OUTPATH = Path(__file__).parent.parent / "chronos_models"
 BAD_NODES_TRACKER = Path(__file__).parent.parent / "cache/broken_nodes.txt" # HPC isn't perfect some nodes are flawed and everything goes OOM on them -> Track & avoid
@@ -162,13 +164,13 @@ def main(
             except Exception as e:
                 print(f"Wasn't able to add Config:\n{config}\nbecause of: {str(e)}")
 
-    sleep(35) # Wait to get Scheduled
+    client.wait_for_workers(1) # Wait to get Scheduled
 
     # Let's optimize
-    print(f"History: {smac.runhistory.get_configs("cost")}")
+    # print(f"History: {smac.runhistory.get_configs("cost")}")
     incumbents = smac.optimize()
     print(f"Incumbents: {incumbents}")
-    print(f"History: {smac.runhistory.get_configs("cost")}")
+    # print(f"History: {smac.runhistory.get_configs("cost")}")
 
 
     for incumbent in incumbents:
@@ -223,7 +225,7 @@ def train(
 
         # Import Train Function
         #from code.evaluate import main as eval_chronos
-        from src.utils import make_dict_storable, results_to_metrics
+        from src.utils import make_dict_storable
         import src.train as trainer
         import src.evaluate as evaluater
         # Set Missing Global Variables
@@ -267,51 +269,57 @@ def train(
 
 
         # Train Chronos and Save to outpath
-        model_path = trainer.main(
-            output_dir=output_path,
-            training_data_paths=training_data_paths,
-            probability=probabilities,
-            max_steps=training_steps,
-            d_kv=d_kv,
-            d_ff=d_ff,
-            context_length=context_length,
-            prediction_length=prediction_length,
-            d_model=d_model,
-            bolt=bolt,
-            min_past=min_past,
-            model_type=model_type,
-            **config, 
-        )
-
-
-        # ! Eval Chronos
-        val_configs = (
-            Path("./data/eval_configs/eval_config.yml").resolve(), # TODO Path to Zero-Shot Val Config
-        )
-        results = {}
-
-        print(f"Start Evaluating {model_path} on {val_configs}")
-        for val_config in val_configs: # TODO support multiple val configs
-            results[val_config.stem]: pd.DataFrame = evaluater.main(
-                config_path=val_config,
-                chronos_model_id = model_path,
-                device="cuda",
-                torch_dtype="bfloat16",
-                batch_size=32,
-                num_samples=20,
-                temperature=1.0,
-                top_k=50,
-                top_p=1.0,
+        try:
+            model_path = trainer.main(
+                output_dir=output_path,
+                training_data_paths=training_data_paths,
+                probability=probabilities,
+                max_steps=training_steps,
+                d_kv=d_kv,
+                d_ff=d_ff,
+                context_length=context_length,
+                prediction_length=prediction_length,
+                d_model=d_model,
                 bolt=bolt,
+                min_past=min_past,
+                model_type=model_type,
+                **config, 
             )
-            # Aggregate Results
-            numeric_cols = results[val_config.stem].select_dtypes(include='number').columns
-            average_errors = results[val_config.stem][numeric_cols].mean(numeric_only=True).to_dict()
+
+
+            # ! Eval Chronos
+            val_configs = (
+                Path("./data/eval_configs/eval_config.yml").resolve(), # TODO Path to Zero-Shot Val Config
+            )
+            results = {}
+
+            print(f"Start Evaluating {model_path} on {val_configs}")
+            for val_config in val_configs: # TODO support multiple val configs
+                results[val_config.stem]: pd.DataFrame = evaluater.main(
+                    config_path=val_config,
+                    chronos_model_id = model_path,
+                    device="cuda",
+                    torch_dtype="bfloat16",
+                    batch_size=32,
+                    num_samples=20,
+                    temperature=1.0,
+                    top_k=50,
+                    top_p=1.0,
+                    bolt=bolt,
+                )
+                # Aggregate Results
+                numeric_cols = results[val_config.stem].select_dtypes(include='number').columns
+                average_errors = results[val_config.stem][numeric_cols].mean(numeric_only=True).to_dict()
+            print(f"Results:\n {results}")
+        except Exception as e:
+            if "ModelTooBig" in str(e) and DB_PATH.exists(): # Dont make Inf first entry that gets messy
+                # Note Which models were too big to not sample them over and over
+                average_errors = {metric: float('inf') for metric in OBJECTIVES}
+                print(str(e))
+            else: 
+                raise
 
         # TODO Check that all metrics are near 0-1 range (e.g. NRMSE)
-        import pandas as pd
-        pd.options.display.max_columns = None
-        print(f"Results:\n {results}")
         duration = time.time() - start_time
 
         # ! Save Meta Data To DB

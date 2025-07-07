@@ -53,7 +53,7 @@ from gluonts.transform import (
     LeavesMissingValues,
     LastValueImputation,
 )
-from utils import make_dict_storable
+from utils import make_dict_storable, get_expected_model_size, get_model_size
 
 
 from chronos import ChronosConfig, ChronosTokenizer
@@ -729,7 +729,15 @@ def main(
         # Add extra items to model config so that it's saved in the ckpt
         model.config.chronos_config = chronos_config.__dict__
     
-    print("Number Params: ", sum(p.numel() for p in model.parameters()))
+    model_size = get_model_size(model)
+    print("Number Non-Embedding Params: ", model_size)
+    expected_model_size = get_expected_model_size(model_id=model_id)
+    if model_size > expected_model_size * 1.1:
+        raise Exception(
+            f"""ModelTooBig 
+            The model may only be 10% larger than the config allows else it's not an instance of {model_id} anymore
+            But: {model_size} >> {expected_model_size}
+            """)
 
     if bolt:
         DatasetClass = BoltDataset
@@ -778,6 +786,8 @@ def main(
         training_args.lr_scheduler_kwargs = {
             "min_lr": learning_rate/10 # According to Hoffman best choice  
         }
+    if "reduce_lr_on_plateau" == lr_scheduler_type:
+        training_args.eval_strategy = "steps"
 
 
     # Create Trainer instance
