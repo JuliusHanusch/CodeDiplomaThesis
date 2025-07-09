@@ -51,6 +51,7 @@ def main(
     training_data_paths: str,
     seed: int = Option(0, help="Random seed for reproducibility."),
     model_ids: str = Option("['google/t5-efficient-tiny']", help="Which base model to use."),
+    limit_model_size: int = Option(1, "Whether to limit model to about the size proposed by model_id or to let it grow indefinetly"),
     trial_walltime_limit: int = Option(300, help="How long until we stop a trial. (-1 ~ Unlimited)"),
     number_trials: int = Option(5, help="How many trials to run."),
     min_budget: int = Option(960_000, help="Minimum number of Training Samples"),
@@ -64,7 +65,7 @@ def main(
     max_batch_size: int = Option(32, help="How large is the max batch size per device. Note: Larger BS are simulated via Gradient Accumulation"),
 ):
 
-    configs_space = get_config_space(training_data_paths=training_data_paths, model_ids=model_ids, max_batch_size=max_batch_size)
+    configs_space = get_config_space(training_data_paths=training_data_paths, model_ids=model_ids, max_batch_size=max_batch_size, limit_model_size=limit_model_size)
 
 
     # Define our environment variables
@@ -244,6 +245,7 @@ def train(
         min_past = 2 ** config.pop("min_past_expo", 6)
         bolt = True if config.pop("bolt", 0) else False
         model_type = "causal" if "gpt" in config["model_id"] else "seq2seq" # TODO expand
+        limit_model_size = bool(config.pop("limit_model_size", 1))
         if bolt:
             config["patch_stride"] = 2 ** config.pop("patch_stride_expo", 4)
             config["patch_size"] = 2 ** config.pop("patch_size_expo", 4)
@@ -283,6 +285,7 @@ def train(
                 bolt=bolt,
                 min_past=min_past,
                 model_type=model_type,
+                limit_model_size=limit_model_size,
                 **config, 
             )
 

@@ -16,7 +16,7 @@ probability_options = [
 ]
 # define data splits
 
-def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-efficient-tiny"]', max_batch_size=32) -> ConfigurationSpace:
+def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-efficient-tiny"]', max_batch_size=32, limit_model_size=1) -> ConfigurationSpace:
     # Fixed parameters to be added as constants
     fixed_config = {
         "training_data_paths": training_data_paths,
@@ -34,6 +34,7 @@ def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-eff
         "torch_compile": True,
         "dataloader_num_workers": 0,
         "use_eos_token": True,
+        "limit_model_size": limit_model_size,
         #"bolt": True,
     }
 

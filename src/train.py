@@ -601,6 +601,7 @@ def main(
     patch_size: int = 16,
     patch_stride: int = 16,
     use_reg_token: bool = True,
+    limit_model_size: bool = True, # Breaks when model size > 110% of original model size defined by model_id - Goal: Not improve perf simply by scaling
 ):
     if tf32 and not (
         torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
@@ -732,7 +733,7 @@ def main(
     model_size = get_model_size(model)
     print("Number Non-Embedding Params: ", model_size)
     expected_model_size = get_expected_model_size(model_id=model_id)
-    if model_size > expected_model_size * 1.1:
+    if model_size > expected_model_size * 1.1 and limit_model_size:
         raise Exception(
             f"""ModelTooBig 
             The model may only be 10% larger than the config allows else it's not an instance of {model_id} anymore
