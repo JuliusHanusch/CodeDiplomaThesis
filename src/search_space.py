@@ -79,7 +79,7 @@ def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-eff
 
     # Base Chronos Only
     cs.add(Float("tokenizer_limit", (5.0, 50), log=False, default=15))
-    cs.add(Integer("n_tokens", (8, 13), log=False, default=12))
+    cs.add(Integer("n_tokens_expo", (8, 13), log=False, default=12))
     cs.add(EqualsCondition(cs["tokenizer_limit"], cs["bolt"], 0))
     cs.add(EqualsCondition(cs["n_tokens_expo"], cs["bolt"], 0))
 

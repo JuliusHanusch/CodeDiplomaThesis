@@ -7,6 +7,7 @@ sys.path.append(str(root_dir.resolve()))
 sys.path.append(str((root_dir/"code").resolve()))  
 sys.path.append(str((Path(__file__).parent.parent / "chronos_pkg/src").resolve()))
 from ConfigSpace import Configuration, ConfigurationSpace
+from ConfigSpace.exceptions import IllegalValueError
 from functools import partial
 from pathlib import Path
 from typer import Typer, Option
@@ -162,7 +163,7 @@ def main(
                     budget=row["budget"],
                     seed=row["seed"],
                 )
-            except Exception as e:
+            except IllegalValueError as e:
                 print(f"Wasn't able to add Config:\n{config}\nbecause of: {str(e)}")
 
     client.wait_for_workers(1) # Wait to get Scheduled
@@ -322,7 +323,6 @@ def train(
             else: 
                 raise
 
-        # TODO Check that all metrics are near 0-1 range (e.g. NRMSE)
         duration = time.time() - start_time
 
         # ! Save Meta Data To DB
