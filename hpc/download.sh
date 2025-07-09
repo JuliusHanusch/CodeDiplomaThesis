@@ -15,7 +15,12 @@ source ./hpc/modules_cpu.sh
 case $SLURM_ARRAY_TASK_ID in
   0) corpus="kaggle" ;;
   1) corpus="chronos" ;;
-  2) corpus="lotsa" ;;
+  2)
+    corpus="lotsa"
+    cd data || exit 1
+    huggingface-cli download Salesforce/lotsa_data --repo-type=dataset --local-dir data_sets_raw/Lotsa_Corpus
+    cd ..
+    ;;
   3) corpus="uci" ;;
 esac
   

@@ -67,11 +67,18 @@ def download_uci_corpus(test_set_names):
 
 def download_chronos_corpus(test_set_names):
     for super_dataset in ["autogluon/chronos_datasets", "autogluon/chronos_datasets_extra"]:
-        subdataset_names = ds.get_dataset_config_names(super_dataset, trust_remote_code=True)
+        if "extra" in super_dataset: # Needs to be set manually 
+            subdataset_names = ["ETTh", "ETTm", "spanish_energy_and_weather", "brazilian_cities_temperature"]
+        else:
+            subdataset_names = ds.get_dataset_config_names(super_dataset, trust_remote_code=True)
         for subdataset_name in subdataset_names:
             sub_ds = ds.load_dataset(super_dataset, subdataset_name, trust_remote_code=True, cache_dir=cache_path)
             if subdataset_name in test_set_names:
                 sub_ds.save_to_disk(output_path/f"Chronos_Corpus_ZEROSHOT/{subdataset_name}")
+            elif "kernel_synth" in subdataset_name: # Make it Kernel Synth Extra Corpus
+                sub_ds.save_to_disk(output_path/f"Chronos_Corpus_Kernel_Synth/{subdataset_name}")
+            elif "tsmixup" in subdataset_name: # Remove TS MIxup because already augmented
+                pass
             else:
                 sub_ds.save_to_disk(output_path/f"Chronos_Corpus/{subdataset_name}")
 
@@ -81,12 +88,14 @@ def download_lotsa_corpus(test_set_names):
     local_dir = str(output_path/"Lotsa_Corpus")
 
     # Download dataset
-    subprocess.run([
-        "huggingface-cli", "download", repo,
-        "--repo-type=dataset",
-        "--local-dir", local_dir
-    ], check=True)
-
+    try:
+        subprocess.run([
+            "huggingface-cli", "download", repo,
+            "--repo-type=dataset",
+            "--local-dir", local_dir
+        ], check=True)
+    except:
+        print("Download Broke but maybe CLI Download Succeded?!")
     # Delete all DS in the test set from it 
     # loop over all ds in folder
     local_dir = Path(local_dir)
@@ -95,6 +104,7 @@ def download_lotsa_corpus(test_set_names):
         if is_in_collection(dataset_name, test_set_names):
             # deleted dataset again to not accidentally train on test set
             rmtree(dataset_folder)
+            print(f"Removed {dataset_folder}")
 
     
 

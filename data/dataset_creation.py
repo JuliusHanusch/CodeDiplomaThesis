@@ -105,6 +105,8 @@ class SplitDataSet(DatasetAdapter):
     Dataset for corpora where each split (or subfolder) is a DS with each row being a TS of this
     """
     def __init__(self, dataset, target_column: str = "target", deduplication: bool = True):
+        if "train" in dataset:
+            dataset = dataset["train"]
         self.target_column = target_column
 
         if isinstance(dataset[0][self.target_column][0], list):
