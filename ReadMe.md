@@ -6,6 +6,7 @@
 git clone https://github.com/JP-SystemsX/AION.git
 cd AION
 git submodule update --init --recursive
+Change Branch # TODO Make Main
 ```
 2. Setup a venv for the Preprocessing
 ```bash
@@ -20,6 +21,15 @@ python generate_credentials_file.py
 sbatch ./hpc/download.sh
 ```
 _Note: This takes a while and might get you temporarily banned from kaggle -- you might need to rerun it after 24h to get the entire Kaggle Corpus_
+
+If the LOTSA Corpus fails downloading go into the data folder and download it manually, then repeat:
+```bash
+cd data
+huggingface-cli download Salesforce/lotsa_data --repo-type=dataset --local-dir data_sets_raw/Lotsa_Corpus
+cd .. 
+sbatch ./hpc/download.sh
+```
+
 4. Our own 2 Corpora require some additional data cleaning steps
 ```bash
 sbatch ./hpc/preprocess.sh
@@ -34,7 +44,7 @@ python ./data/dataset_creation.py --config "path/to/your/config.yml" --output-di
 python ./data/create_data_configs.py --count 50 # Optional as we published our 50 configs which we get overwritten
 sbatch mixup.sh
 ```
-Note: This corpora will be huge, so make sure you have enough disk space available (~1TB each) and adjust the output directory in the ``mixup.sh`` file.
+Note: This corpora will be huge, so make sure you have enough disk space available (~50GB each) and adjust the output directory in the ``mixup.sh`` file.
 
 
 
