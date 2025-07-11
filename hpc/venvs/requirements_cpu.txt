@@ -18,3 +18,4 @@ kaggle
 pyarrow
 ConfigSpace
 normality
+openpyxl

@@ -11,7 +11,7 @@ from normality import normalize
 from shutil import rmtree
 from functools import cache
 
-app = Typer()
+app = Typer(pretty_exceptions_enable=False)
 
 
 @app.command()
@@ -109,7 +109,6 @@ def download_lotsa_corpus(test_set_names):
     
 
 # Utils #
-
 
 def char_bigrams(s: str) -> Set[str]:
     """Return the set of character bigrams for string s."""

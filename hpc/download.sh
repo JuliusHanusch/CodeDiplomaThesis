@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --cpus-per-task=4 # CPU Count
 #SBATCH --nodes=1
-#SBATCH --mem=320G # Working Memory
+#SBATCH --mem=800G # Working Memory
 #SBATCH --time=12:00:00  # Runtime HH:MM:SS
 #SBATCH --account=p_automl  
 #SBATCH --job-name=download_data
