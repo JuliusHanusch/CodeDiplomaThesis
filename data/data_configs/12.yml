@@ -1,7 +1,8 @@
-alpha: 16.9084131939917
+alpha: 0.1858394135807
 corpora:
 - Lotsa_Corpus
-deduplication: 0.0
-k: 6.0
-length: 256.0
-small_ts_share: 0.3950548906368
+- Chronos_Corpus_Kernel_Synth
+deduplication: 1.0
+k: 5.0
+length: 128.0
+small_ts_share: 0.3375374009191

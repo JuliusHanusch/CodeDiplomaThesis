@@ -22,6 +22,7 @@ def build_search_space(seed: Optional[int] = None) -> ConfigurationSpace:
         "UCI_Corpus_Processed",
         "Lotsa_Corpus",
         "Chronos_Corpus",
+        "Chronos_Corpus_Kernel_Synth",
     ]
     corpora = all_subsets(corpora)
     corpora = [corpus for corpus in corpora if corpus] # Remove empty list
@@ -34,7 +35,7 @@ def build_search_space(seed: Optional[int] = None) -> ConfigurationSpace:
         )
     )
     cs.add(Integer("k", (1, 6), default=3))
-    cs.add(Categorical("length", [64, 128, 256, 512, 1024, 2048], default=512))
+    cs.add(Integer("length_expo", (6, 12), default=9))
     cs.add(Float("alpha", (1e-3, 25.0), log=True, default=1))
     cs.add(Float("small_ts_share", (0.05, 0.5), default=0.1))
     cs.add(Categorical("deduplication", [1, 0], default=0))
@@ -55,6 +56,7 @@ def main(
     
     print(configs)
     for i, config in enumerate(configs):
+        config["length"] = 2 ** config.pop("length_expo")
         config = {key: val if not isinstance(val, numbers.Number) else float(val) for key, val in config.items()}
         with open(f"./data/data_configs/{i}.yml", "w") as file:
             yaml.safe_dump(config, file)
