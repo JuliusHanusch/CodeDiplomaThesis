@@ -1,7 +1,7 @@
-alpha: 0.6941912730503
+alpha: 0.1569655490485
 corpora:
-- Time_Corpus_Processed
+- Chronos_Corpus_Kernel_Synth
 deduplication: 1.0
 k: 2.0
-length: 1024.0
-small_ts_share: 0.0798587754058
+length: 512.0
+small_ts_share: 0.0906107484127

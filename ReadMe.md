@@ -21,14 +21,12 @@ python generate_credentials_file.py
 sbatch ./hpc/download.sh
 ```
 _Note: This takes a while and might get you temporarily banned from kaggle -- you might need to rerun it after 24h to get the entire Kaggle Corpus_
-
-If the LOTSA Corpus fails downloading go into the data folder and download it manually, then repeat:
+_Note: The creation of the UCI Corpus Requires much RAM ~800GB_
+To Verify that everything was Successful run the `unit_tests_for_corpora.py` script, it will alarm you should anything be out of the ordinary:
 ```bash
-cd data
-huggingface-cli download Salesforce/lotsa_data --repo-type=dataset --local-dir data_sets_raw/Lotsa_Corpus
-cd .. 
-sbatch ./hpc/download.sh
+python ./data/unit_tests_for_corpora.py
 ```
+_Note: Our two Corpora might change over time as they pull the data from UCI and Kaggle on the fly and changes to them might Reflect in the 2 Corpora
 
 4. Our own 2 Corpora require some additional data cleaning steps
 ```bash

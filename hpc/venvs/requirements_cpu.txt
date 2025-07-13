@@ -21,3 +21,4 @@ normality
 altair
 vl-convert-python
 kaleido
+openpyxl

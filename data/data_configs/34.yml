@@ -1,8 +1,8 @@
-alpha: 0.0019416888362
+alpha: 5.3079792085988
 corpora:
-- Time_Corpus_Processed
 - UCI_Corpus_Processed
-deduplication: 0.0
-k: 3.0
-length: 1024.0
-small_ts_share: 0.4273428225729
+- Lotsa_Corpus
+deduplication: 1.0
+k: 2.0
+length: 4096.0
+small_ts_share: 0.2396308449292
