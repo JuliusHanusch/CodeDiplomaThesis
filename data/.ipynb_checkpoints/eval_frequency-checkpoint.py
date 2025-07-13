@@ -1,7 +1,6 @@
 import pandas as pd
 from dateutil.relativedelta import *
 from datetime import timedelta
-import numpy as np
 
 def relative_delta_to_time_delta(relative_delta: relativedelta) -> timedelta:
     return timedelta(
@@ -22,17 +21,13 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
     date_time = df['datetime']
     if (len(date_time) < 2):
         return True
-    date_time: pd.Series = sorted(date_time)
-    date_time = np.array(date_time, dtype='datetime64[ms]')
-
+    date_time = sorted(date_time)
 
     # ensure a sufficient share of time points is equally spaced
     ## count the number of occurrences of each time difference
     time_diff_dict: dict = {}
     for x in range(len(date_time)-1):
-        dt1 = date_time[x].astype('M8[ms]').astype('O')  # object = datetime.datetime
-        dt2 = date_time[x+1].astype('M8[ms]').astype('O')
-        relative_delta = relativedelta(dt2, dt1)
+        relative_delta = relativedelta(date_time[x+1], date_time[x])
         time_diff_dict[relative_delta] = time_diff_dict.get(relative_delta, 0) + 1
 
     time_diff_dict = dict(sorted(time_diff_dict.items(), key=lambda item: item[1], reverse=True))
@@ -53,13 +48,8 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
         average_time_diff_per_data_point = (last_time.to_pydatetime() - first_time.to_pydatetime()) / max(len(date_time) - 1, 1)
     else:
         average_time_diff_per_data_point = (last_time - first_time) / max(len(date_time) - 1, 1)
-    
-    average_time_diff_per_data_point = max(
-        np.timedelta64(1, 'ms'),
-        average_time_diff_per_data_point
-    )
 
-    time_diff_ratio = relative_delta_to_time_delta(most_common_time_diff) / average_time_diff_per_data_point.astype('O')
+    time_diff_ratio = relative_delta_to_time_delta(most_common_time_diff) / average_time_diff_per_data_point
 
     if debug:
         print(">>> eval_frequency DEBUG OUTPUT")
