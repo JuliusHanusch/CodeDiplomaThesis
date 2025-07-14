@@ -3,6 +3,7 @@ from dateutil.relativedelta import *
 from datetime import timedelta
 import numpy as np
 
+
 def relative_delta_to_time_delta(relative_delta: relativedelta) -> timedelta:
     return timedelta(
         # months are approximated as an average of 30d10h
@@ -29,7 +30,8 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
     # ensure a sufficient share of time points is equally spaced
     ## count the number of occurrences of each time difference
     time_diff_dict: dict = {}
-    for x in range(len(date_time)-1):
+    sample_count = min(len(date_time)-1, 10_000) # if it is not clear after 10k we wont know it after 50k, 100k, ...
+    for x in range(sample_count): 
         dt1 = date_time[x].astype('M8[ms]').astype('O')  # object = datetime.datetime
         dt2 = date_time[x+1].astype('M8[ms]').astype('O')
         relative_delta = relativedelta(dt2, dt1)
@@ -37,7 +39,7 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
 
     time_diff_dict = dict(sorted(time_diff_dict.items(), key=lambda item: item[1], reverse=True))
     most_common_time_diff = list(time_diff_dict.keys())[0]
-    amount_share = time_diff_dict[most_common_time_diff] / max(len(date_time) - 1, 1)
+    amount_share = time_diff_dict[most_common_time_diff] / max(sample_count, 1)
 
 
     # ensure we don't have too many gaps in the data
@@ -50,9 +52,9 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
         #raise Exception("Dataset malformed")
 
     if isinstance(first_time, pd.Timestamp):
-        average_time_diff_per_data_point = (last_time.to_pydatetime() - first_time.to_pydatetime()) / max(len(date_time) - 1, 1)
+        average_time_diff_per_data_point = (last_time.to_pydatetime() - first_time.to_pydatetime()) / max(sample_count, 1)
     else:
-        average_time_diff_per_data_point = (last_time - first_time) / max(len(date_time) - 1, 1)
+        average_time_diff_per_data_point = (last_time - first_time) / max(sample_count, 1)
     
     average_time_diff_per_data_point = max(
         np.timedelta64(1, 'ms'),

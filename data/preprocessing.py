@@ -13,11 +13,22 @@ from warnings import warn
 
 import cProfile
 import pstats
+import sys
 
-app = Typer()
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Dict, List
+import pandas as pd
+from tqdm import tqdm
+from tqdm.auto import tqdm as tqdma
+from multiprocessing import cpu_count
+
+app = Typer(pretty_exceptions_enable=False)
+t_min_allowed = pd.Timestamp.min + pd.to_timedelta('1s')
+t_max_allowed = pd.Timestamp.max - pd.to_timedelta('1s')
 
 
 def resample_by_freq(df: pd.DataFrame, time_col: str, freq: str = '1s') -> pd.DataFrame:
+    print(f"Resample to: {freq}")
     df = df.copy()
     df[time_col] = pd.to_datetime(df[time_col])
     df = df.sort_values(time_col)
@@ -25,14 +36,16 @@ def resample_by_freq(df: pd.DataFrame, time_col: str, freq: str = '1s') -> pd.Da
     # Compute maximum safe timestamp
     offset = to_offset(freq)
     try:
-        delta = offset.delta  # for fixed frequencies like '1D'
-    except AttributeError:
-        delta = pd.Timedelta('0s')  # non-fixed (e.g. 'M', 'W') are handled differently
+        delta = pd.to_timedelta(str(offset))
+    except (ValueError, TypeError, AttributeError):
+        delta = pd.Timedelta('1D')  # non-fixed (e.g. 'M', 'W') are handled differently
 
+    # Resetting Freq. Might introduce values Out Of Bouns thanks to rounding - Lets try to avoid that
     max_allowed = pd.Timestamp.max - delta
+    min_allowed = pd.Timestamp.min + delta
 
     # Drop any value that would overflow when rounded up
-    df = df[df[time_col] <= max_allowed]
+    df = df[(df[time_col] >= min_allowed) & (df[time_col] <= max_allowed)]
 
     df.set_index(time_col, inplace=True)
 
@@ -64,7 +77,8 @@ def to_datetime(df: pd.DataFrame, time_column) -> pd.DataFrame:
 
 def get_next_coarser_freq(series: pd.Series) -> str:
     # Ensure datetime
-    series = pd.to_datetime(series).dropna().sort_values()
+    # Drop Duplicates else some TS have median dist 0 and an endless loop will happen agg to seconds over and over 
+    series = pd.to_datetime(series).dropna().drop_duplicates().sort_values() 
     diffs = series.diff().dropna()
 
     # Get median delta
@@ -82,15 +96,15 @@ def get_next_coarser_freq(series: pd.Series) -> str:
 
     # Coarsening logic
     if median_delta < one_sec:
-        return 's'
+        return '1s'
     elif median_delta < one_min:
-        return 'T'  # minute
+        return '1min'  # minute
     elif median_delta < one_hour:
-        return 'H'
+        return '1h'
     elif median_delta < one_day:
-        return 'D'
+        return '1D'
     elif median_delta < one_week:
-        return 'W'
+        return '1W'
     elif median_delta < one_month:
         return 'ME' # Month End
     elif median_delta < one_quarter:
@@ -98,7 +112,7 @@ def get_next_coarser_freq(series: pd.Series) -> str:
     elif median_delta < one_year:
         return 'YE'
     else:
-        return '10Y'  # catch-all for very sparse data
+        return '10YE'  # catch-all for very sparse data
 
 
 def equidise(df: pd.DataFrame, min_ts_length, time_column, downsample_freq=None):
@@ -120,22 +134,18 @@ def equidise(df: pd.DataFrame, min_ts_length, time_column, downsample_freq=None)
         return equidise(df, min_ts_length, time_column=time_column, downsample_freq=next_coarser_freq)
 
 
-def make_univar(name: str, df: pd.DataFrame, col: str) -> ds.Dataset:
-    ident = f"{name}_{col}" if col != "value" else name
+def make_univar(name: str, df: pd.DataFrame, cols: list[str]) -> ds.Dataset:
     return ds.Dataset.from_dict(
         {
-            "identifier": [ident],
-            "datetime": [df["datetime"].dt.strftime("%Y-%m-%dT%H:%M:%S.%f").tolist()],
-            "value": [df[col].astype(float).tolist()],  # or .astype(str) if needed
+            "identifier": [(f"{name}_{col}" if col != "value" else name) for col in cols],
+            "datetime": [df["datetime"].dt.strftime("%Y-%m-%dT%H:%M:%S.%f").tolist()]*len(cols),
+            "value": [df[col].astype(float).tolist() for col in cols],  # or .astype(str) if needed
         }
     )
 
 
 def shift_df_into_datetime_bounds(df: pd.DataFrame, time_col: str) -> tuple[pd.DataFrame, float, pd.Timestamp]:
-    warn("Check Shift")
     t_min, t_max = df[time_col].min().to_pydatetime(), df[time_col].max().to_pydatetime()
-    t_min_allowed = pd.Timestamp.min + pd.to_timedelta('1s')
-    t_max_allowed = pd.Timestamp.max - pd.to_timedelta('1s')
 
     if t_min > t_min_allowed and t_max < t_max_allowed:
         return df, 1.0, pd.Timestamp(0)  # no scaling needed
@@ -159,9 +169,9 @@ def shift_df_into_datetime_bounds(df: pd.DataFrame, time_col: str) -> tuple[pd.D
     def scale_ts(ts):
         seconds = int((ts - t_min).total_seconds() * factor) 
         # pd.Timestamp.min + pd.to_timedelta(seconds, unit='s') ~ But timedelta is signed -> range is halved 
-        d = t_min_allowed
-        for i in range(2): # We add twice half of the total we aim to add (-1ns)
-            d += pd.to_timedelta(seconds.total_seconds()*0.5-0.000001, unit='s', errors="coerce")
+        delta_time = pd.to_timedelta(seconds.total_seconds()*0.5-0.000001, unit='s', errors="coerce")
+        # We add twice half of the total we aim to add (-1ns)
+        d = (t_min_allowed + delta_time) + delta_time
         return d
 
     df[time_col] = df[time_col].apply(scale_ts)
@@ -174,6 +184,41 @@ def shift_df_into_datetime_bounds(df: pd.DataFrame, time_col: str) -> tuple[pd.D
 
 
 
+
+def process_record(rec, min_ts_length):
+    if not rec["value"]:
+        return {"issue": ("EmptyValueColumn", rec["name"])}
+
+    try:
+        df = pd.DataFrame(
+            {"datetime": eval(rec["date"]),
+             **{f"value_{i}": v for i, v in enumerate(rec["value"])}}
+        )
+
+        df = df[~df.astype(str).apply(
+            lambda r: r.str.contains("0000-01-01 00:00:00", na=False)).any(axis=1)]
+        df = to_datetime(df, "datetime").sort_values("datetime")
+
+        if df["datetime"].isna().any():
+            return {"issue": ("MalformedTimeColumn", rec["name"])}
+
+        df = df.dropna(subset=["datetime"])
+        # TODO Remove df, _, _ = shift_df_into_datetime_bounds(df, "datetime")
+        # Drop Duplicates
+        df = df.groupby("datetime", as_index=False).median(numeric_only=True)
+        df = equidise(df, min_ts_length, time_column="datetime")
+
+        if len(df) > min_ts_length:
+            val_cols = df.columns.difference(["datetime"])
+            datasets = make_univar(rec["name"], df, [c for c in val_cols if len(df[c]) >= min_ts_length])
+            return {"equi": len(datasets), "datasets": datasets}
+        else:
+            return {"nonequi": 1}
+
+    except Exception as e:
+        return {"issue": ("ProcessingError", f"{rec['name']}: {e}")}
+
+
 @app.command()
 def preprocessing(min_ts_length: int = 64, RAW_DIR: str = "./data/data_sets_raw/Time_Corpus") -> None:
     assert min_ts_length > 0, "min_ts_length must be a positive integer"
@@ -181,42 +226,30 @@ def preprocessing(min_ts_length: int = 64, RAW_DIR: str = "./data/data_sets_raw/
     RAW_DIR = Path(RAW_DIR)
 
 
+    stats = {"equi": 0, "nonequi": 0}
+    issues: Dict[str, List[str]] = {"EmptyValueColumn": [], "MalformedTimeColumn": [], "ProcessingError": []}
+    processed: List[ds.Dataset] = []
+    
     src = ds.load_from_disk(RAW_DIR)["train"]
     total = len(src)
 
-    stats = {"equi": 0, "nonequi": 0}
-    issues: Dict[str, List[str]] = {"EmptyValueColumn": [], "MalformedTimeColumn": []}
-    processed: List[ds.Dataset] = []
-
-    for rec in tqdm(src, desc="processing"):
-        if not rec["value"]:
-            issues["EmptyValueColumn"].append(rec["name"])
-            continue
-
-        df = pd.DataFrame(
-            {"datetime": eval(rec["date"]),
-             **{f"value_{i}": v for i, v in enumerate(rec["value"])}}
-        )
-
-        # drop sentinel rows & parse datetimes
-        df = df[~df.astype(str).apply(
-            lambda r: r.str.contains("0000-01-01 00:00:00", na=False)).any(axis=1)]
-        df = to_datetime(df, "datetime")
-        if df["datetime"].isna().any():
-            issues["MalformedTimeColumn"].append(rec["name"])
-            continue
-
-        df = df.dropna(subset=["datetime"])
-        # if df["datetime"].max() > pd.Timestamp.max - pd.to_timedelta('1s'): # Check if out of bounds
-        df, _, _ = shift_df_into_datetime_bounds(df, "datetime") # Use entire possible intervall
-
-        df = equidise(df, min_ts_length, time_column="datetime", downsample_freq=None)
-        if len(df) > min_ts_length:
-            stats["equi"] += 1
-            val_cols = df.columns.difference(["datetime"])
-            processed += [make_univar(rec["name"], df, c) for c in val_cols if len(df[c]) >= min_ts_length]
-        else:
-            stats["nonequi"] += 1
+    worker_count = 8
+    batch_size = 4 * worker_count
+    # Execute in Parallel CPU Count // 2 because of large Memory Load
+    for i in tqdma(range((len(src)+batch_size-1)//batch_size)):
+        indices = list(range(i*batch_size, min(len(src), (i+1)*batch_size)))
+        batch = src.select(indices)
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            futures = [executor.submit(process_record, rec, min_ts_length) for rec in batch]
+            for future in tqdm(as_completed(futures), total=len(futures), desc="processing"):
+                result = future.result()
+                if "issue" in result:
+                    issues[result["issue"][0]].append(result["issue"][1])
+                elif "equi" in result:
+                    stats["equi"] += result["equi"]
+                    processed.append(result["datasets"])
+                elif "nonequi" in result:
+                    stats["nonequi"] += result["nonequi"]
 
     ds.DatasetDict(train=ds.concatenate_datasets(processed)).save_to_disk(PROCESSED_DIR)
 
@@ -230,8 +263,8 @@ if __name__ == "__main__":
         with cProfile.Profile() as pr:
             app()
         stats = pstats.Stats(pr)
-        stats.dump_stats("./hpc/logs/profile.prof")
+        stats.dump_stats(f"./hpc/logs/profile-{sys.argv[2].split("/")[-1]}.prof")
     except Exception as E:
         stats = pstats.Stats(pr)
-        stats.dump_stats("./hpc/logs/profile.prof")
+        stats.dump_stats(f"./hpc/logs/profile-{sys.argv[2].split("/")[-1]}.prof")
         raise
