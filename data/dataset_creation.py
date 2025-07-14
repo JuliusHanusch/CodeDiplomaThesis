@@ -64,7 +64,7 @@ class RowDataSet(DatasetAdapter):
     """
     Dataset for corpora where each row is an DS
     """
-    def __init__(self, dataset, target_column: str = "value", deduplication: bool = True):
+    def __init__(self, dataset, target_column: str = "target", deduplication: bool = True):
         super().__init__(dataset)
         self.target_column = target_column
         # Remember used startpoints to keep Birthday Problem from breaking the infinite Data Regiment
@@ -165,7 +165,7 @@ def load_folder(folder: Path, min_length = 128, deduplication = True):
         data = ds.load_from_disk(folder)
             # Filter out the too short ones
         data = data.map(trim_nans) # remove trivials (only long enough because of NaNs) TODO Maybe ok at beginning??
-        data = data.filter(lambda x: len(x["value"])>=min_length)
+        data = data.filter(lambda x: len(x["target"])>=min_length)
         data = data["train"] if "train" in data else data  # unnest 
         for dataset in data:
             corpus.append(RowDataSet(dataset, deduplication=deduplication))
@@ -189,14 +189,14 @@ def load_datasets(data_path: Path, corpora: Union[List[str], str], min_length=12
     return corpus
 
 def trim_nans(dataset):
-    arr = np.array(dataset["value"])
+    arr = np.array(dataset["target"])
     mask = ~np.isnan(arr)
     if not mask.any():
         return []
     start_point = mask.argmax()
     endpoint = len(mask) - mask[::-1].argmax()
-    dataset["value"] = dataset["value"][start_point:endpoint]
-    dataset["datetime"] = dataset["datetime"][start_point:endpoint]
+    dataset["target"] = dataset["target"][start_point:endpoint]
+    dataset["timestamp"] = dataset["timestamp"][start_point:endpoint]
     return dataset
 
 

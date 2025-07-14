@@ -21,6 +21,7 @@ import pandas as pd
 from tqdm import tqdm
 from tqdm.auto import tqdm as tqdma
 from multiprocessing import cpu_count
+import numpy as np 
 
 app = Typer(pretty_exceptions_enable=False)
 t_min_allowed = pd.Timestamp.min + pd.to_timedelta('1s')
@@ -125,7 +126,7 @@ def equidise(df: pd.DataFrame, min_ts_length, time_column, downsample_freq=None)
 
     if len(df_) < min_ts_length:
         return pd.DataFrame([]) # Too Short return empty
-    if eval_frequency(df_): # If equidistant return
+    if eval_frequency(df_, time_column="datetime"): # If equidistant return
         return df_
     else: # If not aggregate to next Coarser Freq and check again
         # Identify next coarser frequency to test
@@ -137,9 +138,9 @@ def equidise(df: pd.DataFrame, min_ts_length, time_column, downsample_freq=None)
 def make_univar(name: str, df: pd.DataFrame, cols: list[str]) -> ds.Dataset:
     return ds.Dataset.from_dict(
         {
-            "identifier": [(f"{name}_{col}" if col != "value" else name) for col in cols],
-            "datetime": [df["datetime"].dt.strftime("%Y-%m-%dT%H:%M:%S.%f").tolist()]*len(cols),
-            "value": [df[col].astype(float).tolist() for col in cols],  # or .astype(str) if needed
+            "id": [(f"{name}_{col}" if col != "value" else name) for col in cols],
+            "timestamp": [df["datetime"].dt.strftime("%Y-%m-%dT%H:%M:%S.%f").tolist()]*len(cols),
+            "target": [df[col].astype(float).tolist() for col in cols],  # or .astype(str) if needed
         }
     )
 
@@ -210,7 +211,12 @@ def process_record(rec, min_ts_length):
 
         if len(df) > min_ts_length:
             val_cols = df.columns.difference(["datetime"])
-            datasets = make_univar(rec["name"], df, [c for c in val_cols if len(df[c]) >= min_ts_length])
+            datasets = make_univar(
+                rec["name"], 
+                df, 
+                # Only the columns of a certain length (without counting nans) that also aren't constant
+                cols = [c for c in val_cols if (np.count_nonzero(~np.isnan(df[c])) >= min_ts_length) and (np.nanvar(df[c]) > 0)] 
+                )
             return {"equi": len(datasets), "datasets": datasets}
         else:
             return {"nonequi": 1}
@@ -243,7 +249,7 @@ def preprocessing(min_ts_length: int = 64, RAW_DIR: str = "./data/data_sets_raw/
             futures = [executor.submit(process_record, rec, min_ts_length) for rec in batch]
             for future in tqdm(as_completed(futures), total=len(futures), desc="processing"):
                 result = future.result()
-                if "issue" in result:
+                if "issue" in result:   
                     issues[result["issue"][0]].append(result["issue"][1])
                 elif "equi" in result:
                     stats["equi"] += result["equi"]
@@ -259,12 +265,6 @@ def preprocessing(min_ts_length: int = 64, RAW_DIR: str = "./data/data_sets_raw/
 
 
 if __name__ == "__main__":
-    try:
-        with cProfile.Profile() as pr:
-            app()
-        stats = pstats.Stats(pr)
-        stats.dump_stats(f"./hpc/logs/profile-{sys.argv[2].split("/")[-1]}.prof")
-    except Exception as E:
-        stats = pstats.Stats(pr)
-        stats.dump_stats(f"./hpc/logs/profile-{sys.argv[2].split("/")[-1]}.prof")
-        raise
+    app()
+
+

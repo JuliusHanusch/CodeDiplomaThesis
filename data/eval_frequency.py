@@ -16,11 +16,11 @@ def relative_delta_to_time_delta(relative_delta: relativedelta) -> timedelta:
     )
 
 # returns true if temporal points can be considered to be equidistant (adjust thresholds as needed)
-def eval_frequency(df: pd.DataFrame, debug=False) -> bool:
+def eval_frequency(df: pd.DataFrame, time_column='datetime', debug=False) -> bool:
     amount_threshold = 0.9 # minimal share of precisely equidistant time data points
     total_time_ratio_threshold = 0.9 # ratio of most common time difference to average time difference
 
-    date_time = df['datetime']
+    date_time = df[time_column]
     if (len(date_time) < 2):
         return True
     date_time: pd.Series = sorted(date_time)

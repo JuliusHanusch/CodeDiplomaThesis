@@ -32,6 +32,12 @@ _Note: Our two Corpora might change over time as they pull the data from UCI and
 ```bash
 sbatch ./hpc/preprocess.sh
 ```
+To verify that everything is still in order you can run the `unit_test_preprocessed_corpora.py` script:
+```bash
+python ./data/unit_test_preprocessed_corpora.py
+```
+_Note Again: Our two corpora are subject to changes on the according plattforms and might change over time, so results of the unit tests have to be taken with a grain of salt_
+
 5. Next we need to prepare all copora for training (data augmentation and converting it into a unified format)
 5.1. Option 1: Create a specific HP-config for this step like in `data/data_configs/`
 ```bash
