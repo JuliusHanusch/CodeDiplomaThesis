@@ -45,7 +45,7 @@ python ./data/dataset_creation.py --config "path/to/your/config.yml" --output-di
 ```
 5.2. Option 2: Create Several HP-Configs and create one corpus for each (i.e. simple HP Tuning)
 ```bash
-python ./data/create_data_configs.py --count 50 # Optional as we published our 50 configs which we get overwritten
+python ./data/create_data_configs.py --count 50 # Optional as we published our 50 configs which would get overwritten
 sbatch mixup.sh
 ```
 Note: This corpora will be huge, so make sure you have enough disk space available (~50GB each) and adjust the output directory in the ``mixup.sh`` file.

@@ -86,6 +86,9 @@ def get_next_coarser_freq(series: pd.Series) -> str:
     median_delta = diffs.median()
 
     # Thresholds in timedelta
+    one_ms = pd.Timedelta('1ms')
+    ten_ms = pd.Timedelta('10ms')
+    hundred_ms = pd.Timedelta('100ms')
     one_sec = pd.Timedelta('1s')
     one_min = pd.Timedelta('1min')
     one_hour = pd.Timedelta('1h')
@@ -96,7 +99,13 @@ def get_next_coarser_freq(series: pd.Series) -> str:
     one_year = pd.Timedelta('365D')  # approx
 
     # Coarsening logic
-    if median_delta < one_sec:
+    if median_delta < one_ms:
+        return '1ms'
+    elif median_delta < ten_ms:
+        return '10ms'
+    elif median_delta < hundred_ms:
+        return '100ms'
+    elif median_delta < one_sec:
         return '1s'
     elif median_delta < one_min:
         return '1min'  # minute
@@ -205,7 +214,7 @@ def process_record(rec, min_ts_length):
 
         df = df.dropna(subset=["datetime"])
         # TODO Remove df, _, _ = shift_df_into_datetime_bounds(df, "datetime")
-        # Drop Duplicates
+        # Drop Duplicates (Here UCI loses MANY values - UCI contains many event based DS several events can happen at the same time)
         df = df.groupby("datetime", as_index=False).median(numeric_only=True)
         df = equidise(df, min_ts_length, time_column="datetime")
 
