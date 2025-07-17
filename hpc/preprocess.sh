@@ -17,4 +17,5 @@ case $SLURM_ARRAY_TASK_ID in
   1) corpus="./data/data_sets_raw/UCI_Corpus" ;;
 esac
   
-srun python ./data/preprocessing.py --raw-dir "$corpus"
+# TODO Allow For Splitting with min length 128 dont allow 
+srun python ./data/preprocessing.py --raw-dir "$corpus" --min-ts-length 128

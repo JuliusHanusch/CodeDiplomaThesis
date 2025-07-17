@@ -125,7 +125,7 @@ def get_next_coarser_freq(series: pd.Series) -> str:
         return '10YE'  # catch-all for very sparse data
 
 
-def equidise(df: pd.DataFrame, min_ts_length, time_column, downsample_freq=None):
+def equidise(df: pd.DataFrame, min_ts_length, time_column, downsample_freq=None) -> list[pd.DataFrame]:
     """Takes in a TS DF and aggregates its entrys until it either becomes equidistant or it becomes to short"""
     if downsample_freq is not None:# Decrease Frequency 
         # (Done like that To Fix Median of Medians through true recursiveness)
@@ -134,9 +134,12 @@ def equidise(df: pd.DataFrame, min_ts_length, time_column, downsample_freq=None)
         df_ = df.copy()
 
     if len(df_) < min_ts_length:
-        return pd.DataFrame([]) # Too Short return empty
-    if eval_frequency(df_, time_column="datetime"): # If equidistant return
-        return df_
+        return [pd.DataFrame([])] # Too Short return empty
+    equi, snippets = eval_frequency(df_, time_column="datetime", min_df_len=min_ts_length)
+    if equi: # If equidistant return
+        return [df_]
+    elif len(snippets) > 0: # We found parts in the TS that seems to be equidistant
+        return snippets
     else: # If not aggregate to next Coarser Freq and check again
         # Identify next coarser frequency to test
         next_coarser_freq = get_next_coarser_freq(df_[time_column])
@@ -152,46 +155,6 @@ def make_univar(name: str, df: pd.DataFrame, cols: list[str]) -> ds.Dataset:
             "target": [df[col].astype(float).tolist() for col in cols],  # or .astype(str) if needed
         }
     )
-
-
-def shift_df_into_datetime_bounds(df: pd.DataFrame, time_col: str) -> tuple[pd.DataFrame, float, pd.Timestamp]:
-    t_min, t_max = df[time_col].min().to_pydatetime(), df[time_col].max().to_pydatetime()
-
-    if t_min > t_min_allowed and t_max < t_max_allowed:
-        return df, 1.0, pd.Timestamp(0)  # no scaling needed
-    
-    warn(f"Time Series out of bounds with StartTime {t_min} and EndTime {t_max} going to min max scale it into viable range")
-
-    df = df.copy()
-    df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
-    df = df[df[time_col].notna()]
-
-    # Min Max Scaling (When Dresired Range != 0-1 and we are mem bound)
-    # Total original duration (Actual Range)
-    duration = (t_max - t_min).total_seconds()
-
-    # Max representable duration in pandas (Desired Range)
-    safe_duration = (t_max_allowed.to_pydatetime() - t_min_allowed.to_pydatetime()).total_seconds()
-
-    # Compute scaling factor
-    factor = safe_duration / duration
-
-    def scale_ts(ts):
-        seconds = int((ts - t_min).total_seconds() * factor) 
-        # pd.Timestamp.min + pd.to_timedelta(seconds, unit='s') ~ But timedelta is signed -> range is halved 
-        delta_time = pd.to_timedelta(seconds.total_seconds()*0.5-0.000001, unit='s', errors="coerce")
-        # We add twice half of the total we aim to add (-1ns)
-        d = (t_min_allowed + delta_time) + delta_time
-        return d
-
-    df[time_col] = df[time_col].apply(scale_ts)
-    df = df.dropna(subset=[time_col])
-
-    t_min, t_max = df[time_col].min().to_pydatetime(), df[time_col].max().to_pydatetime()
-    assert t_min >= t_min_allowed and t_max <= t_max_allowed
-
-    return df, factor, t_min
-
 
 
 
@@ -213,20 +176,26 @@ def process_record(rec, min_ts_length):
             return {"issue": ("MalformedTimeColumn", rec["name"])}
 
         df = df.dropna(subset=["datetime"])
-        # TODO Remove df, _, _ = shift_df_into_datetime_bounds(df, "datetime")
         # Drop Duplicates (Here UCI loses MANY values - UCI contains many event based DS several events can happen at the same time)
         df = df.groupby("datetime", as_index=False).median(numeric_only=True)
-        df = equidise(df, min_ts_length, time_column="datetime")
+        # Make the DF Equidistant (By cutting into equi parts or aggregating)
+        dfs = equidise(df, min_ts_length, time_column="datetime") 
 
-        if len(df) > min_ts_length:
-            val_cols = df.columns.difference(["datetime"])
-            datasets = make_univar(
-                rec["name"], 
-                df, 
-                # Only the columns of a certain length (without counting nans) that also aren't constant
-                cols = [c for c in val_cols if (np.count_nonzero(~np.isnan(df[c])) >= min_ts_length) and (np.nanvar(df[c]) > 0)] 
-                )
-            return {"equi": len(datasets), "datasets": datasets}
+        datasets_collection = []
+        ds_counter = 0
+        for df in dfs:
+            if len(df) > min_ts_length:
+                val_cols = df.columns.difference(["datetime"])
+                datasets = make_univar(
+                    rec["name"], 
+                    df, 
+                    # Only the columns of a certain length (without counting nans) that also aren't constant
+                    cols = [c for c in val_cols if (np.count_nonzero(~np.isnan(df[c])) >= min_ts_length) and (np.nanvar(df[c]) > 0)] 
+                    )
+                datasets_collection.append(datasets)
+                ds_counter += len(datasets)
+        if len(datasets_collection) > 0:
+            return {"equi": ds_counter, "datasets": datasets_collection}
         else:
             return {"nonequi": 1}
 
@@ -262,7 +231,7 @@ def preprocessing(min_ts_length: int = 64, RAW_DIR: str = "./data/data_sets_raw/
                     issues[result["issue"][0]].append(result["issue"][1])
                 elif "equi" in result:
                     stats["equi"] += result["equi"]
-                    processed.append(result["datasets"])
+                    processed.extend(result["datasets"])
                 elif "nonequi" in result:
                     stats["nonequi"] += result["nonequi"]
 

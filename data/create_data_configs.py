@@ -35,7 +35,7 @@ def build_search_space(seed: Optional[int] = None) -> ConfigurationSpace:
         )
     )
     cs.add(Integer("k", (1, 6), default=3))
-    cs.add(Integer("length_expo", (6, 12), default=9))
+    cs.add(Integer("length_expo", (7, 12), default=9))
     cs.add(Float("alpha", (1e-3, 25.0), log=True, default=1))
     cs.add(Float("small_ts_share", (0.05, 0.5), default=0.1))
     cs.add(Categorical("deduplication", [1, 0], default=0))
