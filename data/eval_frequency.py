@@ -15,6 +15,7 @@ def relative_delta_to_time_delta(relative_delta: relativedelta) -> timedelta:
         microseconds=relative_delta.microseconds % 1000,
     )
 
+
 def make_equidistant_with_nans(df: pd.DataFrame, time_column: str, freq: str) -> pd.DataFrame:
     df_ = df.copy()
     df_[time_column] = pd.to_datetime(df_[time_column])
@@ -26,14 +27,28 @@ def make_equidistant_with_nans(df: pd.DataFrame, time_column: str, freq: str) ->
     
     return df_.set_index(time_column).reindex(full_index).rename_axis(time_column).reset_index()
 
+
 # returns true if temporal points can be considered to be equidistant (adjust thresholds as needed)
-def eval_frequency(df: pd.DataFrame, time_column='datetime', min_df_len=64, debug=False) -> bool:
-    amount_threshold = 0.8 # minimal share of precisely equidistant time data points
-    total_time_ratio_threshold = 0.8 # ratio of most common time difference to average time difference
-    amount_threshold_fixable = 0.60 # If below 60% Restorable -> Try luck with equidisation instead
-    max_sample_count = 50_000
+def eval_frequency(df: pd.DataFrame, time_column='datetime', min_df_len=128, fix=False, debug=False)-> (bool, list):
+    """
+    Checks if the given DF is equidistant
+    If fix is true then it also checks whether snippets can be found inside that are equidistant 
+    If some of sufficient length are found returns a list of those equidistant dfs   
+
+    """
+    if fix:
+        amount_threshold_fixable = 0.50 # If below 50% are Restorable -> Try luck with aggregation instead
+        amount_threshold = 0.9 # minimal share of precisely equidistant time data points
+        total_time_ratio_threshold = 0.9 # ratio of most common time difference to average time difference
+    else:
+        amount_threshold_fixable = 2# Disabke 0.99 # Don't restore except in exceptions where there is 1 large gap or so
+        # We are a bit more forgiving when we cant fix
+        total_time_ratio_threshold = 0.90 # ratio of most common time difference to average time difference 
+        amount_threshold = 0.90 # minimal share of precisely equidistant time data points
 
     date_time = df[time_column]
+    max_sample_count = len(date_time) # TODO Remove (Currently it just deactivates max_sample limit)
+
     if (len(date_time) < 2):
         return True, []
     date_time: pd.Series = sorted(date_time)
@@ -111,7 +126,7 @@ def eval_frequency(df: pd.DataFrame, time_column='datetime', min_df_len=64, debu
     # but total time doesnt match (and ts is shorter as max_sample_count to avoid cutting already cutted TS)
     if (amount_share > amount_threshold_fixable
             and (time_diff_ratio < total_time_ratio_threshold or 1/max(time_diff_ratio,1E-5) < total_time_ratio_threshold))\
-            and (time_diff_ratio != 0.0) and len(date_time-1) < max_sample_count:
+            and (time_diff_ratio != 0.0) and len(date_time) - 1  < max_sample_count:
         # attempting fix
         print("Fixable?")
         split_series = []

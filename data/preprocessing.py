@@ -84,6 +84,15 @@ def get_next_coarser_freq(series: pd.Series) -> str:
 
     # Get median delta
     median_delta = diffs.median()
+    min_delta = diffs.min()
+
+    def is_below_thr(val_med, val_min, thr) -> bool:
+        """
+        Checks whether median diff <= thr 
+        to prevent endless loops with == checks (e.g. med diff is 1s we aggregate to 1s and are still 1s)
+        we demand that the min diff is smaller s.t. it is somewhat coarser when aggregating those
+        """
+        return val_med < thr or (val_med == thr and val_min < thr)
 
     # Thresholds in timedelta
     one_ms = pd.Timedelta('1ms')
@@ -98,34 +107,37 @@ def get_next_coarser_freq(series: pd.Series) -> str:
     one_quarter = pd.Timedelta('90D')
     one_year = pd.Timedelta('365D')  # approx
 
-    # Coarsening logic
-    if median_delta < one_ms:
+    # Coarsening logic #TODO If min delta is smaller allow median to be equal 
+    if is_below_thr(median_delta, min_delta, one_ms):
         return '1ms'
-    elif median_delta < ten_ms:
+    elif is_below_thr(median_delta, min_delta, ten_ms):
         return '10ms'
-    elif median_delta < hundred_ms:
+    elif is_below_thr(median_delta, min_delta, hundred_ms):
         return '100ms'
-    elif median_delta < one_sec:
+    elif is_below_thr(median_delta, min_delta, one_sec):
         return '1s'
-    elif median_delta < one_min:
+    elif is_below_thr(median_delta, min_delta, one_min):
         return '1min'  # minute
-    elif median_delta < one_hour:
+    elif is_below_thr(median_delta, min_delta, one_hour):
         return '1h'
-    elif median_delta < one_day:
+    elif is_below_thr(median_delta, min_delta, one_day):
         return '1D'
-    elif median_delta < one_week:
+    elif is_below_thr(median_delta, min_delta, one_week):
         return '1W'
-    elif median_delta < one_month:
+    elif is_below_thr(median_delta, min_delta, one_month):
         return 'ME' # Month End
-    elif median_delta < one_quarter:
+    elif is_below_thr(median_delta, min_delta, one_quarter):
         return 'QE'
-    elif median_delta < one_year:
+    elif is_below_thr(median_delta, min_delta, one_year):
         return 'YE'
     else:
         return '10YE'  # catch-all for very sparse data
 
+def minimize_df(df: pd.DataFrame, time_col: str):
+    """Returns a df with only the measured values (i.e. if there was no measurement at all at a point in time there is no row)"""
+    return df.dropna(subset=[col for col in df.columns if col != time_col], how='all')
 
-def equidise(df: pd.DataFrame, min_ts_length, time_column, downsample_freq=None) -> list[pd.DataFrame]:
+def equidise(df: pd.DataFrame, min_ts_length, time_column, split_ts=False, downsample_freq=None) -> list[pd.DataFrame]:
     """Takes in a TS DF and aggregates its entrys until it either becomes equidistant or it becomes to short"""
     if downsample_freq is not None:# Decrease Frequency 
         # (Done like that To Fix Median of Medians through true recursiveness)
@@ -135,16 +147,16 @@ def equidise(df: pd.DataFrame, min_ts_length, time_column, downsample_freq=None)
 
     if len(df_) < min_ts_length:
         return [pd.DataFrame([])] # Too Short return empty
-    equi, snippets = eval_frequency(df_, time_column="datetime", min_df_len=min_ts_length)
+    equi, snippets = eval_frequency(minimize_df(df_, time_column), time_column=time_column, min_df_len=min_ts_length, fix=split_ts)
     if equi: # If equidistant return
         return [df_]
     elif len(snippets) > 0: # We found parts in the TS that seems to be equidistant
         return snippets
     else: # If not aggregate to next Coarser Freq and check again
-        # Identify next coarser frequency to test
-        next_coarser_freq = get_next_coarser_freq(df_[time_column])
+        # Identify next coarser frequency to test (only consider actual measurements)
+        next_coarser_freq = get_next_coarser_freq(minimize_df(df_, time_column)[time_column])
         del df_ # Free Up Mem Again
-        return equidise(df, min_ts_length, time_column=time_column, downsample_freq=next_coarser_freq)
+        return equidise(df, min_ts_length, time_column=time_column, downsample_freq=next_coarser_freq, split_ts=split_ts)
 
 
 def make_univar(name: str, df: pd.DataFrame, cols: list[str]) -> ds.Dataset:
@@ -158,7 +170,7 @@ def make_univar(name: str, df: pd.DataFrame, cols: list[str]) -> ds.Dataset:
 
 
 
-def process_record(rec, min_ts_length):
+def process_record(rec, min_ts_length, split_ts):
     if not rec["value"]:
         return {"issue": ("EmptyValueColumn", rec["name"])}
 
@@ -179,7 +191,7 @@ def process_record(rec, min_ts_length):
         # Drop Duplicates (Here UCI loses MANY values - UCI contains many event based DS several events can happen at the same time)
         df = df.groupby("datetime", as_index=False).median(numeric_only=True)
         # Make the DF Equidistant (By cutting into equi parts or aggregating)
-        dfs = equidise(df, min_ts_length, time_column="datetime") 
+        dfs = equidise(df, min_ts_length, time_column="datetime", split_ts=split_ts) 
 
         datasets_collection = []
         ds_counter = 0
@@ -204,9 +216,10 @@ def process_record(rec, min_ts_length):
 
 
 @app.command()
-def preprocessing(min_ts_length: int = 64, RAW_DIR: str = "./data/data_sets_raw/Time_Corpus") -> None:
+def preprocessing(min_ts_length: int = 64, split_ts: int = 0, RAW_DIR: str = "./data/data_sets_raw/Time_Corpus") -> None:
     assert min_ts_length > 0, "min_ts_length must be a positive integer"
-    PROCESSED_DIR = Path(RAW_DIR+"_Processed")
+    split_ts = bool(split_ts)
+    PROCESSED_DIR = Path(RAW_DIR+"_Processed"+("_Split" if split_ts else ""))
     RAW_DIR = Path(RAW_DIR)
 
 
@@ -224,7 +237,7 @@ def preprocessing(min_ts_length: int = 64, RAW_DIR: str = "./data/data_sets_raw/
         indices = list(range(i*batch_size, min(len(src), (i+1)*batch_size)))
         batch = src.select(indices)
         with ProcessPoolExecutor(max_workers=worker_count) as executor:
-            futures = [executor.submit(process_record, rec, min_ts_length) for rec in batch]
+            futures = [executor.submit(process_record, rec, min_ts_length, split_ts) for rec in batch]
             for future in tqdm(as_completed(futures), total=len(futures), desc="processing"):
                 result = future.result()
                 if "issue" in result:   
