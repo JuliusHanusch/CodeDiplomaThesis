@@ -15,6 +15,33 @@ import numpy as np
 data_directory = Path("./data_sets_raw")
 min_length = 128
 
+expected_values = {
+    "Kaggle" : {
+        "number_ts": 29_032,
+        "number_data_points": 284_501_006,
+        "avg_ts_length": 9_800,
+        "avg_var": 1.7e31,
+    },
+    "Kaggle Split" : {
+        "number_ts": 50_632,
+        "number_data_points": 304_762_984,
+        "avg_ts_length": 6_019,
+        "avg_var": 3.5e32,
+    },
+    "UCI" : {
+        "number_ts": 1_876,
+        "number_data_points": 68_821_322,
+        "avg_ts_length": 36_685,
+        "avg_var": 9.5e7,
+    },
+    "UCI Split" : {
+        "number_ts": 648,
+        "number_data_points": 51_464_042,
+        "avg_ts_length": 79_419,
+        "avg_var": 3.5e7,
+    },
+}
+
 if __name__ == "__main__":
     os.chdir(Path(__file__).parent)
 
@@ -41,7 +68,9 @@ if __name__ == "__main__":
         assert "id" in cols 
         assert "timestamp" in cols
         assert "target" in cols
-    print("Both Corpora Have All Expected Columns")
+        exp_num_rows = expected_values[name]["number_ts"]
+        assert exp_num_rows * 1.05 > len(corpus) > exp_num_rows * 0.95, f"Only {len(corpus)} of {exp_num_rows} original TS in Time Corpus {name} some seem to have gone missing, small changes are expected though as data is not completly stable"
+    print("All Corpora Have the Expected Columns and number of Rows")
 
 
     # Check That both Corporas are Univariate and not lists of lists
@@ -65,11 +94,13 @@ if __name__ == "__main__":
         total_length_wo_nan = sum(lengths_wo_nan)
         print(f"Total Length: {total_length}")
         print(f"Total Length without NaNs: {total_length_wo_nan}")
-        # TODO assert (total_length > 25.5e6) if name == "Kaggle" else (total_length > 4.3e6) # 25_749_461 (Kaggle), 4_368_400 (UCI) (by 80% equi thr 27_968_115 & 4_689_403)
+        exp_length = expected_values[name]["number_data_points"]
+        assert (total_length > exp_length * 0.95)
         assert total_length_wo_nan/total_length > 0.95, f"More than 5% are missing values in {name}"
         avg_length = total_length / len(lengths)
         print(f"Avg Length: {avg_length}")
-        # TODO assert (avg_length > 1200) if name == "Kaggle" else (avg_length > 2200 )
+        exp_avg_length = expected_values[name]["avg_ts_length"]
+        assert avg_length > exp_avg_length * 0.95
     print("All TS Reach Minimum Desired Length")
 
     for name, corpus in corpora:
@@ -83,6 +114,8 @@ if __name__ == "__main__":
                 strikes += 1
             vars.append(var)
         avg_var = sum(vars) / len(vars)
+        exp_avg_var = expected_values[name]["avg_var"]
+        assert exp_avg_var * 0.95 < avg_var < exp_avg_var * 1.05
         print(f"Average Variance: {avg_var}")
         print(f"Count Constant TS: {strikes}")
         assert strikes == 0  

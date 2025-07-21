@@ -109,6 +109,23 @@ class SplitDataSet(DatasetAdapter):
             dataset = dataset["train"]
         self.target_column = target_column
 
+        if not self.target_column in dataset.features: # If target exists use else target all columns
+            # Identify all columns that could be target columns
+            columns_to_exclude = {"timestamp", "id", "category"}
+            columns = set(dataset.column_names)
+            columns = list(columns - columns_to_exclude)
+            # Create Multivariate Target Column by Concat all possible targets (gets exploded in the next step)
+            def concat_lists(example):
+                example[self.target_column] = [
+                    example[col] 
+                    for col in columns
+                    if isinstance(example[col], list)
+                ]
+                return example
+            
+            dataset = dataset.map(concat_lists)
+            
+
         if isinstance(dataset[0][self.target_column][0], list):
             # flatten Multivariate to multiple univariates
             dataset = dataset.map(
@@ -212,7 +229,16 @@ def get_top_contributors(values, thr=0.3):
 
 def explode_batch(batch, target_column):
     out = {"item_id": [], "start": [], "freq": [], "target": []}
-    for iid, st, fq, targets in zip(batch["item_id"], batch["start"], batch["freq"], batch[target_column]):
+    id_cols = list({"item_id", "id", "name"}.intersection(batch.keys()))
+    print(id_cols)
+    batch_len = len(batch[target_column])
+    # Either take official id or assign to each var its own
+    ids = batch[id_cols[0]] if len(id_cols) > 0 else list(range(batch_len))
+    timestamps = [pd.to_datetime(batch["timestamp"][i]) for i in range(batch_len)] if "timestamp" in batch else []
+    starts = batch["start"] if "start" in batch else [timestamps[i].min() for i in range(batch_len)]
+    freqs = batch["freq"] if "freq" in batch else [pd.infer_freq(timestamps[i]) for i in range(batch_len)]
+
+    for iid, st, fq, targets in zip(ids, starts, freqs, batch[target_column]):
         for tgt in targets:
             out["item_id"].append(iid)
             out["start"].append(st)
