@@ -6,6 +6,7 @@ import sys
 import os  
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.resolve()))  
+from src.utils import group_similar_words
 
 import datasets as ds
 import numpy as np
@@ -29,6 +30,7 @@ from functools import partial
 from copy import deepcopy
 from src.db import insertTable, hash_dict
 from time import sleep
+from collections import Counter
 
 CACHE = Path("./cache/data")
 CACHE.mkdir(parents=True, exist_ok=True)
@@ -65,7 +67,7 @@ class DatasetAdapter(ABC):
     def get_random_snippet(self, length: int):
         pass
 
-
+# ! Obsolete
 class RowDataSet(DatasetAdapter):
     """
     Dataset for corpora where each row is an DS
@@ -120,67 +122,71 @@ class SplitDataSet(DatasetAdapter):
     """
     Dataset for corpora where each split (or subfolder) is a DS with each row being a TS of this
     """
-    def __init__(self, dataset_path: Path, target_column: str = "target", deduplication: bool = True):
+    def __init__(self, dataset_path: Path | ds.Dataset, target_column: str = "target", deduplication: bool = True):
         self.target_column = target_column
         # Remember used ts to keep Birthday Problem from breaking the infinite Data Regiment
         self.unused_ts = np.array([])
         self.deduplication = deduplication
         self.in_use = False # lock to avoid race conditions
 
-        cache_adr = CACHE / dataset_path.name
-        if cache_adr.exists():
-            dataset = ds.load_from_disk(cache_adr)
-        else:
-            dataset = ds.load_from_disk(dataset_path)
+        if isinstance(dataset_path, (Path, str)):
+            cache_adr = CACHE / dataset_path.name
+            if cache_adr.exists():
+                dataset = ds.load_from_disk(cache_adr)
+            else:
+                dataset = ds.load_from_disk(dataset_path)
 
-            if "train" in dataset:
-                dataset = dataset["train"]
+                if "train" in dataset:
+                    dataset = dataset["train"]
 
-            # Identify all columns that could be target columns
-            columns_to_exclude = {"timestamp", "id", "item_id", "start", "freq"}
-            # Drop all columns with only a single value (else we check them a few million times if they are still single val)
-            cols_to_keep = set(get_cols_with_lists(dataset))
-            cols_to_keep = cols_to_keep.union(columns_to_exclude)
-            dataset = dataset.remove_columns([col for col in dataset.column_names if col not in cols_to_keep])
+                # Identify all columns that could be target columns
+                columns_to_exclude = {"timestamp", "id", "item_id", "start", "freq"}
+                # Drop all columns with only a single value (else we check them a few million times if they are still single val)
+                cols_to_keep = set(get_cols_with_lists(dataset))
+                cols_to_keep = cols_to_keep.union(columns_to_exclude)
+                dataset = dataset.remove_columns([col for col in dataset.column_names if col not in cols_to_keep])
 
-            columns = set(dataset.column_names)
-            columns = list(columns - columns_to_exclude)
-            print("Columns:", columns)
-            print("Rows:", len(dataset))
+                columns = set(dataset.column_names)
+                columns = list(columns - columns_to_exclude)
+                print("Columns:", columns)
+                print("Rows:", len(dataset))
 
-            if len(columns) > 1:
-                # Create Multivariate Target Column by Concat all possible targets (gets exploded in the next step)
-                def concat_lists(example):
-                    targets = []
-                    for col in columns:
-                        if isinstance(example[col], list):
-                            if isinstance(example[col][0], list): # List of lists
-                                targets += [
-                                    example[col][i] 
-                                    for i in range(len(example[col]))
-                                    if isinstance(example[col][i], list) and len(set(example[col][i])) > 1 # Check that not constant
-                                ]
-                            elif len(set(example[col])) > 1: # Check that not constant
-                                targets.append(example[col])
-                    example[self.target_column] = targets
-                    return example
-                
-                if self.target_column in dataset.column_names: # When overwritting target column we better rename to avoid conflicts
-                    dataset = dataset.rename_column(self.target_column, self.target_column + '_old')
-                    columns = [(self.target_column + '_old' if col == self.target_column else col) for col in columns] # update target col name
-                dataset = dataset.map(concat_lists, load_from_cache_file=True)
-            elif columns[0] != target_column:
-                dataset = dataset.rename_column(columns[0], target_column)
-                
+                if len(columns) > 1:
+                    # Create Multivariate Target Column by Concat all possible targets (gets exploded in the next step)
+                    def concat_lists(example):
+                        targets = []
+                        for col in columns:
+                            if isinstance(example[col], list):
+                                if isinstance(example[col][0], list): # List of lists
+                                    targets += [
+                                        example[col][i] 
+                                        for i in range(len(example[col]))
+                                        if isinstance(example[col][i], list) and len(set(example[col][i])) > 1 # Check that not constant
+                                    ]
+                                elif len(set(example[col])) > 1: # Check that not constant
+                                    targets.append(example[col])
+                        example[self.target_column] = targets
+                        return example
+                    
+                    if self.target_column in dataset.column_names: # When overwritting target column we better rename to avoid conflicts
+                        dataset = dataset.rename_column(self.target_column, self.target_column + '_old')
+                        columns = [(self.target_column + '_old' if col == self.target_column else col) for col in columns] # update target col name
+                    dataset = dataset.map(concat_lists, load_from_cache_file=True)
+                elif columns[0] != target_column:
+                    dataset = dataset.rename_column(columns[0], target_column)
+                    
 
-            if isinstance(dataset[0][self.target_column][0], list):
-                # flatten Multivariate to multiple univariates
-                dataset = dataset.map(
-                    partial(explode_batch, target_column=target_column),
-                    batched=True,
-                    remove_columns=[c for c in dataset.column_names if c not in ("item_id","start","freq")],
-                )
-            dataset.save_to_disk(cache_adr)
+                if isinstance(dataset[0][self.target_column][0], list):
+                    # flatten Multivariate to multiple univariates
+                    dataset = dataset.map(
+                        partial(explode_batch, target_column=target_column),
+                        batched=True,
+                        remove_columns=[c for c in dataset.column_names if c not in ("item_id","start","freq")],
+                    )
+                dataset.save_to_disk(cache_adr)
+
+        elif isinstance(dataset_path, ds.Dataset):
+            dataset = dataset_path
 
         super().__init__(dataset)
 
@@ -207,7 +213,7 @@ class SplitDataSet(DatasetAdapter):
 
             self.in_use = False
         else:
-            ts_id = np.random.randint(len(self.dataset) - length + 1)
+            ts_id = np.random.randint(len(self.dataset))
 
         ts = self.dataset[int(ts_id)][self.target_column]
         start_point = np.random.randint(len(ts) - length + 1)
@@ -228,10 +234,46 @@ def load_folder(folder: Path, min_length = 128, deduplication = True):
         data = ds.load_from_disk(folder)
         # Filter out the too short ones
         data = data.map(trim_nans) # remove trivials (only long enough because of NaNs) TODO Maybe ok at beginning??
-        data = data.filter(lambda x: len(x["target"])>=min_length)
+        data = data.filter((lambda x: len(x["target"])>=min_length), num_proc=8)
         data = data["train"] if "train" in data else data  # unnest 
-        for dataset in data:
+
+        # Group all the TS from the same DS together # 
+        id_col = "id" if "id" in data.column_names else "item_id"
+        # get all the names
+        ds_names = data[id_col]
+        ds_groups = group_similar_words(set(ds_names))
+        # sort groups by size to speed up filtering
+        ds_name_counter = Counter(ds_names)
+        ds_groups = sorted(ds_groups, key=lambda group: sum([ds_name_counter[ds_name] for ds_name in group]), reverse=True)
+        group_sizes = []
+        for group in ds_groups:
+            sizes = [ds_name_counter[ds_name] for ds_name in group]
+            group_sizes.append(sum(sizes))
+            print(sum(sizes), sizes, group)
+        print("Dataset Type: ", data.format['type'])
+        datasets = []
+        unassigned = set(range(len(data)))
+        row_ds = []
+        for group, size in tqdm(zip(ds_groups, group_sizes), total=sum(x > 5 for x in group_sizes), desc="Splitting Complex Dataset into Subsets"):
+            if size <= 5: # All groups consist only of a few ts --> Row DS (Idea: harmless to treat 5 TS as diff DS other than treating 100 TS as diff DS)
+                row_ds = data.select(unassigned)
+                unassigned = []
+                break
+            group_set = set(group)
+    
+            # Build index list from unassigned items only
+            assigned = [i for i in unassigned if data[i][id_col] in group_set]
+            
+            if assigned:
+                datasets.append(data.select(assigned))
+                unassigned -= set(assigned)
+        assert len(unassigned) == 0
+
+        for dataset in datasets:
+            corpus.append(SplitDataSet(dataset, deduplication=deduplication))
+        for dataset in row_ds:
             corpus.append(RowDataSet(dataset, deduplication=deduplication))
+            
     except FileNotFoundError as e:
         print(e, str(folder))
         subfolders = [f for f in folder.iterdir() if not f.name.startswith('.') and f.is_dir()] # filter out hidden folders like .cache and files like .md
@@ -351,7 +393,7 @@ def create_dataset(
     def create_augmented_snippet(_):
         augmented_chunk = []
         while len(augmented_chunk) < CHUNK_SIZE:
-            datasets_ids = np.random.choice(ds_count, size=k, replace=False, p=ds_probability)
+            datasets_ids = np.random.choice(ds_count, size=k, replace=False, p=ds_probability) # TODO Replace true??
             snippets = []
             for ds_id in datasets_ids:
                 dataset = corpus[int(ds_id)]
@@ -374,10 +416,13 @@ def create_dataset(
                 corpus_augmented.extend(f.result())
             except Exception as e:
                 logging.error(f"Worker failed: {e}")
+                raise e
 
     # Convert to final format -> save to disk
     output_dir.mkdir(parents=True, exist_ok=True)
     convert_to_arrow(output_adr, corpus_augmented[:samples])
+    print("All Done!")
+
 
 
 if __name__ == "__main__":

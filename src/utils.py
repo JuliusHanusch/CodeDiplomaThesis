@@ -17,6 +17,8 @@ from autogluon.timeseries import TimeSeriesDataFrame
 import numpy as np
 from transformers import AutoModel
 from torch import nn
+from typing import Set
+from normality import normalize
 
 
 def make_dict_storable(advanced_dictionary: dict)->dict:
@@ -278,6 +280,58 @@ def load_val_data(
         validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
     return validation_data
 
+
+# Utils #
+
+def char_bigrams(s: str) -> Set[str]:
+    """Return the set of character bigrams for string s."""
+    return {s[i : i + 2] for i in range(len(s) - 1)} if len(s) > 1 else set()
+
+def bigram_similarity(s1: str, s2: str) -> float:
+    """
+    Compute Jaccard similarity between two strings based on character bigrams.
+    Returns 1.0 if both strings yield no bigrams.
+    """
+    b1, b2 = char_bigrams(f" {s1} "), char_bigrams(f" {s2} ")
+    if not b1 and not b2:
+        return 1.0
+    inter = b1 & b2
+    union = len(b1) + len(b2)
+    return len(inter) * 2 / union
+
+@cache
+def my_normalize(text: str|list[str]):
+    if isinstance(text, str):
+        return normalize(text, latinize=True, ascii=True)
+    elif isinstance(text, (list, tuple)):
+        return [my_normalize(word) for word in text]
+    else:
+        raise Exception(f"Text has unsupported dtype {type(text)}")
+
+def is_in_collection(orig: str, collection: list[str]):
+    """Returns True if orig is similar enough to any of the words in the collection"""
+    orig = my_normalize(orig)
+    collection = my_normalize(tuple(collection)) # to tuple for caching
+    for word in collection:
+        score = bigram_similarity(orig, word)
+        if score >= 0.8:
+            print(f"{orig} matches {word}!")
+            return True
+    return False
+
+
+def group_similar_words(words: list[str]) -> list[list[str]]:
+    groups = []
+    for word in words:
+        placed = False
+        for group in groups:
+            if is_in_collection(word, group[0]):
+                group.append(word)
+                placed = True
+                break
+        if not placed:
+            groups.append([word])
+    return groups
 
 # Taken from pandas._libs.tslibs.dtypes.OFFSET_TO_PERIOD_FREQSTR
 offset_alias_to_period_alias = {
