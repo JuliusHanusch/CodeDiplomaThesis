@@ -93,10 +93,10 @@ def main(
     else:
         bad_nodes = ""
 
-    # TODO
+
     print(bad_nodes)
     cluster = SLURMCluster(
-        job_cpu=4, #TODO Can we increase to 4
+        job_cpu=4, 
         cores=1,
         memory=memory,
         walltime=worker_walltime,
@@ -220,7 +220,7 @@ def train(
 
         if output_path.exists():
             raise NotImplementedError(f"Model already trained for config {config_hash}.")
-            # TODO Load Config Results from DB and return
+            # TODO Load Config Results from DB and return (If already exists it should be in DB already so maybe todo?)
             return
         
         config: dict = dict(config)
@@ -293,7 +293,7 @@ def train(
 
             # ! Eval Chronos
             val_configs = (
-                Path("./data/eval_configs/eval_config.yml").resolve(), # TODO Path to Zero-Shot Val Config
+                Path("./data/eval_configs/eval_config.yml").resolve(), 
             )
             results = {}
 

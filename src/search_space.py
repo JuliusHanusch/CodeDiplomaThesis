@@ -50,7 +50,7 @@ def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-eff
     datasets = literal_eval(training_data_paths)
     for ds_path in datasets:
         ds_name =  Path(ds_path).stem
-        cs.add(Float(ds_name, (0, 1), default=1/len(datasets)))
+        cs.add(Integer(ds_name, (0, 1), default=1)) # Binary Decision: include or not
 
     # Add tunable hyperparameters
     model_ids = literal_eval(model_ids)
@@ -72,7 +72,6 @@ def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-eff
     cs.add(Float("max_missing_prop", (0.8, 1.0), log = True, default=0.9))
     cs.add(Float("drop_prob", (0.0, 0.5), log = False, default=0.2))
     #cs.add(Categorical("tokenizer_class", ["MeanScaleUniformBins", "MeanScaleQuantileBins"], default="MeanScaleUniformBins"))
-    # TODO Must be as long as there a Corpora cs.add(Categorical("probability", [probability_options]))
     cs.add(Categorical("lr_scheduler_type", ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau","cosine_with_min_lr"],default="linear"))
     cs.add(Integer("bolt", (0, 1),default=0))
     cs.add(Integer("min_past_expo", (4, 10),default=6))
@@ -85,12 +84,12 @@ def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-eff
 
     # Bolt Only Stuff
     cs.add(Integer("patch_size_expo", (0, 6), log = False, default=4))
-    cs.add(Integer("patch_stride_expo", (0, 7), log = False, default=4)) #TODO how exxactlly does it work -> Adjust
+    cs.add(Integer("patch_stride_expo", (0, 7), log = False, default=4)) 
     cs.add(Integer("use_reg_token", (0, 1),default=1))
     cs.add(EqualsCondition(cs["patch_size_expo"], cs["bolt"], 1))
     cs.add(EqualsCondition(cs["patch_stride_expo"], cs["bolt"], 1))
     cs.add(EqualsCondition(cs["use_reg_token"], cs["bolt"], 1))
-    # TODO Add Patch FFN HP
+    # TODO Add Patch use_layer_norm HP 
 
 
     return cs

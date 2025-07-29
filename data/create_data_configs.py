@@ -17,9 +17,13 @@ def all_subsets(collection: list):
 def build_search_space(seed: Optional[int] = None) -> ConfigurationSpace:
     cs = ConfigurationSpace(seed=seed)
 
-    corpora = [ # TODO Add cut and uncut ones
+    corpora = [ 
+        # Our Corpora
         "Time_Corpus_Processed",
+        "Time_Corpus_Processed_Split",
         "UCI_Corpus_Processed",
+        "UCI_Corpus_Processed_Split",
+        # Old Corpora
         "Lotsa_Corpus",
         "Chronos_Corpus",
         "Chronos_Corpus_Kernel_Synth",

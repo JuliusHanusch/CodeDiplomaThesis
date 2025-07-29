@@ -51,7 +51,7 @@ if __name__ == "__main__":
     overlap = set(chr_train).intersection(test_set_names)
     assert len(overlap) == 0, f"Test Set leaked into train data, {overlap} is/are in train corpora"
 
-    # TODO Each ds can be loaded and has over 100 rows
+    # Each ds can be loaded and has over 100 rows
     for p in dataset_paths:
         dataset = ds.load_from_disk(p)["train"]
         if p.stem in ("ercot", "exchange_rate", "monash_pedestrian_counts", "monash_cif_2016", "monash_australian_electricity", "brazilian_cities_temperature"):
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     # LOTSA Corpus #
     # ============ # 
 
-    # TODO As long as specified in the paper
+    # As long as specified in the paper
     lotsa_folder = data_directory / "Lotsa_Corpus"
     subfolders = [f for f in lotsa_folder.iterdir() if not f.name.startswith('.') and f.is_dir()]
     print(len(subfolders))
@@ -171,5 +171,5 @@ if __name__ == "__main__":
         repo_id="ddrg/time-series-datasets",
         data_dir=data_directory,
         token=credentials["HUGGINGFACE"]["HF_TOKEN"],
-        allowed_missing_pct=0.023 # TODO Set Allowed Missing Pct
+        allowed_missing_pct=0.023 
     )

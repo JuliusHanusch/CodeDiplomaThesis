@@ -1,4 +1,7 @@
 # Add parent directory to share global utils with different experiments
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
+
 import sys  
 import os  
 from pathlib import Path
@@ -14,7 +17,6 @@ from pathlib import Path
 from typing import List, Union
 from concurrent.futures import ProcessPoolExecutor
 from itertools import repeat
-from tqdm import tqdm
 
 from gluonts.dataset.arrow import ArrowWriter
 from ts_mixup import ts_mixup
@@ -28,8 +30,12 @@ from copy import deepcopy
 from src.db import insertTable, hash_dict
 from time import sleep
 
+CACHE = Path("./cache/data")
+CACHE.mkdir(parents=True, exist_ok=True)
+
 # --- Config ---
 logging.basicConfig(level=logging.INFO)
+print(f"PYTHON_PID={os.getpid()}", flush=True)
 CHUNK_SIZE = 100
 
 app = Typer()
@@ -76,7 +82,7 @@ class RowDataSet(DatasetAdapter):
     def __len__(self):
         return len(self.dataset[self.target_column]) 
 
-    def get_random_snippet(self, length: int, exp_count: int = 1, **kwargs): # TODO Cut out length instead of just the start point
+    def get_random_snippet(self, length: int, exp_count: int = 1, **kwargs): 
         if self.deduplication:
             # Avoid Race Conditions during deduplication
             while self.in_use: 
@@ -99,46 +105,84 @@ class RowDataSet(DatasetAdapter):
             start_point = np.random.randint(len(self) - length + 1)
         return self.dataset[self.target_column][start_point:start_point + length]
 
+def get_cols_with_lists(data: ds.Dataset):
+    """Returns the names of all columns that contain lists or lists of lists instead of scalar values"""
+    list_cols = []
+    for col in data.column_names:
+        feature = data.features.get(col)
+        if isinstance(feature, ds.Sequence):
+            list_cols.append(col)
+        elif feature is None and isinstance(data[0][col], (list, tuple)):
+            list_cols.append(col)
+    return list_cols
 
 class SplitDataSet(DatasetAdapter):
     """
     Dataset for corpora where each split (or subfolder) is a DS with each row being a TS of this
     """
-    def __init__(self, dataset, target_column: str = "target", deduplication: bool = True):
-        if "train" in dataset:
-            dataset = dataset["train"]
+    def __init__(self, dataset_path: Path, target_column: str = "target", deduplication: bool = True):
         self.target_column = target_column
-
-        if not self.target_column in dataset.features: # If target exists use else target all columns
-            # Identify all columns that could be target columns
-            columns_to_exclude = {"timestamp", "id", "category"}
-            columns = set(dataset.column_names)
-            columns = list(columns - columns_to_exclude)
-            # Create Multivariate Target Column by Concat all possible targets (gets exploded in the next step)
-            def concat_lists(example):
-                example[self.target_column] = [
-                    example[col] 
-                    for col in columns
-                    if isinstance(example[col], list)
-                ]
-                return example
-            
-            dataset = dataset.map(concat_lists)
-            
-
-        if isinstance(dataset[0][self.target_column][0], list):
-            # flatten Multivariate to multiple univariates
-            dataset = dataset.map(
-                partial(explode_batch, target_column=target_column),
-                batched=True,
-                remove_columns=[c for c in dataset.column_names if c not in ("item_id","start","freq")],
-            )
-
-        super().__init__(dataset)
         # Remember used ts to keep Birthday Problem from breaking the infinite Data Regiment
         self.unused_ts = np.array([])
         self.deduplication = deduplication
         self.in_use = False # lock to avoid race conditions
+
+        cache_adr = CACHE / dataset_path.name
+        if cache_adr.exists():
+            dataset = ds.load_from_disk(cache_adr)
+        else:
+            dataset = ds.load_from_disk(dataset_path)
+
+            if "train" in dataset:
+                dataset = dataset["train"]
+
+            # Identify all columns that could be target columns
+            columns_to_exclude = {"timestamp", "id", "item_id", "start", "freq"}
+            # Drop all columns with only a single value (else we check them a few million times if they are still single val)
+            cols_to_keep = set(get_cols_with_lists(dataset))
+            cols_to_keep = cols_to_keep.union(columns_to_exclude)
+            dataset = dataset.remove_columns([col for col in dataset.column_names if col not in cols_to_keep])
+
+            columns = set(dataset.column_names)
+            columns = list(columns - columns_to_exclude)
+            print("Columns:", columns)
+            print("Rows:", len(dataset))
+
+            if len(columns) > 1:
+                # Create Multivariate Target Column by Concat all possible targets (gets exploded in the next step)
+                def concat_lists(example):
+                    targets = []
+                    for col in columns:
+                        if isinstance(example[col], list):
+                            if isinstance(example[col][0], list): # List of lists
+                                targets += [
+                                    example[col][i] 
+                                    for i in range(len(example[col]))
+                                    if isinstance(example[col][i], list) and len(set(example[col][i])) > 1 # Check that not constant
+                                ]
+                            elif len(set(example[col])) > 1: # Check that not constant
+                                targets.append(example[col])
+                    example[self.target_column] = targets
+                    return example
+                
+                if self.target_column in dataset.column_names: # When overwritting target column we better rename to avoid conflicts
+                    dataset = dataset.rename_column(self.target_column, self.target_column + '_old')
+                    columns = [(self.target_column + '_old' if col == self.target_column else col) for col in columns] # update target col name
+                dataset = dataset.map(concat_lists, load_from_cache_file=True)
+            elif columns[0] != target_column:
+                dataset = dataset.rename_column(columns[0], target_column)
+                
+
+            if isinstance(dataset[0][self.target_column][0], list):
+                # flatten Multivariate to multiple univariates
+                dataset = dataset.map(
+                    partial(explode_batch, target_column=target_column),
+                    batched=True,
+                    remove_columns=[c for c in dataset.column_names if c not in ("item_id","start","freq")],
+                )
+            dataset.save_to_disk(cache_adr)
+
+        super().__init__(dataset)
 
         assert not isinstance(dataset[0][self.target_column][0], list), "Multivariate DS aren't supported yet"
 
@@ -149,6 +193,7 @@ class SplitDataSet(DatasetAdapter):
         if self.deduplication:
             # Avoid Race Conditions during deduplication
             while self.in_use: 
+                print("Waiting for lock to be released...")
                 sleep(0.01)
             self.in_use = True
 
@@ -177,20 +222,24 @@ def convert_to_arrow(path: Union[str, Path], time_series: List[np.ndarray], comp
 
 
 def load_folder(folder: Path, min_length = 128, deduplication = True):
+    print(f"Loading Folder: {folder}")
     corpus = []
     try:
         data = ds.load_from_disk(folder)
-            # Filter out the too short ones
+        # Filter out the too short ones
         data = data.map(trim_nans) # remove trivials (only long enough because of NaNs) TODO Maybe ok at beginning??
         data = data.filter(lambda x: len(x["target"])>=min_length)
         data = data["train"] if "train" in data else data  # unnest 
         for dataset in data:
             corpus.append(RowDataSet(dataset, deduplication=deduplication))
-    except:
+    except FileNotFoundError as e:
+        print(e, str(folder))
         subfolders = [f for f in folder.iterdir() if not f.name.startswith('.') and f.is_dir()] # filter out hidden folders like .cache and files like .md
-        for subfolder in tqdm(subfolders, desc="Loading datasets"):
-            data = ds.load_from_disk(subfolder)
-            corpus.append(SplitDataSet(data, deduplication=deduplication))
+        random.shuffle(subfolders) # Shuffle to use Caching (later) as parallelization
+        print(subfolders)
+        for subfolder in tqdm(subfolders, desc=f"Loading datasets in {folder.name}"):
+            print(f"Loading Folder: {subfolder.name}")
+            corpus.append(SplitDataSet(subfolder, deduplication=deduplication))
     return corpus
 
 
@@ -198,9 +247,8 @@ def load_datasets(data_path: Path, corpora: Union[List[str], str], min_length=12
     corpus = []
     for folder in tqdm(list(data_path.iterdir()), desc="Loading datasets"):
         if ("all" in corpora and folder.name != "Time_Corpus") or (isinstance(corpora, list) and folder.name in corpora):
+            print(f"Loading {folder.name}")
             corpus += load_folder(folder, min_length=min_length, deduplication=deduplication)
-        # elif isinstance(corpora, list) and folder.name in corpora:
-        #     corpus += load_folder(folder, min_length=min_length)
     if not corpus:
         raise ValueError("No matching datasets found.")
     return corpus
@@ -260,7 +308,7 @@ def create_dataset(
     deduplication: bool = True,
     workers: int = 4,
     data_path: str = "./data/data_sets_raw",
-    output_dir: str = "data/train"
+    output_dir: str = "./data/train"
 ):
     hp = dict(deepcopy(locals()))
     hp_hash = hash_dict(hp)
@@ -277,10 +325,13 @@ def create_dataset(
     )
     logging.info(f"Loading datasets from {data_path.resolve()}")
     corpus = load_datasets(data_path, corpora, min_length=length, deduplication=deduplication)
+    print(f"Loaded {len(corpus)} datasets from {data_path.resolve()}")
 
     ds_lengths = [len(record) for record in corpus]
     corpus_length = sum(ds_lengths)
+    print(f"Corpus Size: {corpus_length}")
     ds_count = len(ds_lengths)
+    print(f"Number DS: {ds_count}")
     assert np.all(np.array(ds_lengths) >= length)
     min_probability = small_ts_share / ds_count # 20% of the corpus are reserved for the smallest DS
 
@@ -293,6 +344,7 @@ def create_dataset(
     ds_probability[big_ones] -= total_raise / len(big_ones)  # the top 1% subsidies the smallest ones (hehehe)
     assert 1 - min_probability < sum(ds_probability) < 1 + min_probability, "Probabilities do not sum to near 1, something went wrong."
     assert np.all((0 < ds_probability) & (ds_probability < 1))
+    print("Probability of sampling from the largest Contributors: ", ds_probability[big_ones])
     # assert np.all(np.array(ds_probability) >= min_probability), "Some probabilities are below the minimum probability threshold."
 
     logging.info("Creating snippets")
@@ -313,13 +365,16 @@ def create_dataset(
         return augmented_chunk
     
     chunk_count = (samples+(CHUNK_SIZE-1))//CHUNK_SIZE
-    with ThreadPoolExecutor(workers) as executor:
-        corpus_augmented = list(tqdm(executor.map(create_augmented_snippet, range(chunk_count)),
-                                    total=chunk_count,
-                                    desc="Creating augmented snippets"))
+    corpus_augmented = []
 
-    # Flatten the list of lists
-    corpus_augmented = [snippet for chunk in corpus_augmented for snippet in chunk]
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(create_augmented_snippet, i) for i in range(chunk_count)]
+        for f in tqdm(as_completed(futures), total=chunk_count, desc="Creating augmented snippets"):
+            try:
+                corpus_augmented.extend(f.result())
+            except Exception as e:
+                logging.error(f"Worker failed: {e}")
+
     # Convert to final format -> save to disk
     output_dir.mkdir(parents=True, exist_ok=True)
     convert_to_arrow(output_adr, corpus_augmented[:samples])

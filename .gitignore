@@ -25,3 +25,6 @@ data/tmp/*
 AutogluonModels/*
 !AG_Scores.csv
 cache/broken_nodes.txt
+cache/*
+data/AutogluonModels/*
+*/.ipynb_checkpoints/*
