@@ -54,8 +54,8 @@ class DatasetAdapter(ABC):
     Allows to translate rules according to the shape of each DS 
     """
     # Init
-    def __init__(self, dataset):
-        self.dataset = dataset
+    def __init__(self, dataset, target_column):
+        self.target = dataset[target_column] # Drop everything except target column to speed up look ups later
 
     # len
     @abstractmethod
@@ -73,7 +73,7 @@ class RowDataSet(DatasetAdapter):
     Dataset for corpora where each row is an DS
     """
     def __init__(self, dataset, target_column: str = "target", deduplication: bool = True):
-        super().__init__(dataset)
+        super().__init__(dataset, target_column)
         self.target_column = target_column
         # Remember used startpoints to keep Birthday Problem from breaking the infinite Data Regiment
         self.unused_startpoints = np.array([])
@@ -82,7 +82,7 @@ class RowDataSet(DatasetAdapter):
 
 
     def __len__(self):
-        return len(self.dataset[self.target_column]) 
+        return len(self.target) 
 
     def get_random_snippet(self, length: int, exp_count: int = 1, **kwargs): 
         if self.deduplication:
@@ -98,14 +98,14 @@ class RowDataSet(DatasetAdapter):
             start_point_id = np.random.randint(unused_startpoint_count)
             start_point = self.unused_startpoints[start_point_id]
             # Remove as many surrounding starpoints as possible to minimize overlap (number to remove calc via expected number samples drawn from TS)
-            vals_to_spare = min(((len(self.dataset) + 1 - length) // exp_count), length) // 2
+            vals_to_spare = min(((len(self.target) + 1 - length) // exp_count), length) // 2
             startpoints_to_delete = ~np.isin(self.unused_startpoints, np.arange(start_point-vals_to_spare, start_point+vals_to_spare+1))
             self.unused_startpoints = self.unused_startpoints[startpoints_to_delete]
 
             self.in_use = False
         else:
             start_point = np.random.randint(len(self) - length + 1)
-        return self.dataset[self.target_column][start_point:start_point + length]
+        return self.target[start_point:start_point + length]
 
 def get_cols_with_lists(data: ds.Dataset):
     """Returns the names of all columns that contain lists or lists of lists instead of scalar values"""
@@ -188,12 +188,12 @@ class SplitDataSet(DatasetAdapter):
         elif isinstance(dataset_path, ds.Dataset):
             dataset = dataset_path
 
-        super().__init__(dataset)
+        super().__init__(dataset, target_column)
 
-        assert not isinstance(dataset[0][self.target_column][0], list), "Multivariate DS aren't supported yet"
+        assert not isinstance(self.target[0][0], (list, tuple)), "Multivariate DS aren't supported yet"
 
     def __len__(self):
-        return sum([len(ts[self.target_column]) for ts in self.dataset])
+        return sum([len(ts) for ts in self.target])
 
     def get_random_snippet(self, length: int, **kwargs):
         if self.deduplication:
@@ -205,7 +205,7 @@ class SplitDataSet(DatasetAdapter):
 
             unused_ts_count = len(self.unused_ts)
             if unused_ts_count == 0:
-                self.unused_ts = np.arange(len(self.dataset))
+                self.unused_ts = np.arange(len(self.target))
                 unused_ts_count = len(self.unused_ts)
             ts_id_id = np.random.randint(unused_ts_count)
             ts_id = self.unused_ts[ts_id_id]
@@ -213,9 +213,9 @@ class SplitDataSet(DatasetAdapter):
 
             self.in_use = False
         else:
-            ts_id = np.random.randint(len(self.dataset))
+            ts_id = np.random.randint(len(self.target))
 
-        ts = self.dataset[int(ts_id)][self.target_column]
+        ts = self.target[int(ts_id)]
         start_point = np.random.randint(len(ts) - length + 1)
         return ts[start_point:start_point + length]
 
