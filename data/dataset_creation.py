@@ -31,6 +31,7 @@ from copy import deepcopy
 from src.db import insertTable, hash_dict
 from time import sleep
 from collections import Counter
+import psutil
 
 CACHE = Path("./cache/data")
 CACHE.mkdir(parents=True, exist_ok=True)
@@ -39,6 +40,9 @@ CACHE.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
 print(f"PYTHON_PID={os.getpid()}", flush=True)
 CHUNK_SIZE = 100
+CPU_COUNT = int(os.environ.get("SLURM_CPUS_PER_TASK", psutil.cpu_count(logical=True))) # get from slurm else standaard
+WORKERS = CPU_COUNT 
+
 
 app = Typer()
 
@@ -55,7 +59,8 @@ class DatasetAdapter(ABC):
     """
     # Init
     def __init__(self, dataset, target_column):
-        self.target = dataset[target_column] # Drop everything except target column to speed up look ups later
+        self.target = dataset.shuffle(seed=None).take(min(len(dataset), int(1))) # TODO for giant ds take only 10k randomly selected TS else OOM 
+        self.target = self.target[target_column] # Drop everything except target column to speed up look ups later
 
     # len
     @abstractmethod
@@ -171,17 +176,20 @@ class SplitDataSet(DatasetAdapter):
                     if self.target_column in dataset.column_names: # When overwritting target column we better rename to avoid conflicts
                         dataset = dataset.rename_column(self.target_column, self.target_column + '_old')
                         columns = [(self.target_column + '_old' if col == self.target_column else col) for col in columns] # update target col name
-                    dataset = dataset.map(concat_lists, load_from_cache_file=True)
+                    dataset = dataset.map(concat_lists) #TODO num_proc
                 elif columns[0] != target_column:
                     dataset = dataset.rename_column(columns[0], target_column)
                     
+                long_ts = len(dataset[0][self.target_column]) > 15_000
+                if isinstance(dataset[0][self.target_column][0], list) or long_ts:
 
-                if isinstance(dataset[0][self.target_column][0], list):
                     # flatten Multivariate to multiple univariates
                     dataset = dataset.map(
                         partial(explode_batch, target_column=target_column),
                         batched=True,
+                        batch_size=200,
                         remove_columns=[c for c in dataset.column_names if c not in ("item_id","start","freq")],
+                        num_proc=WORKERS,
                     )
                 dataset.save_to_disk(cache_adr)
 
@@ -280,7 +288,9 @@ def load_folder(folder: Path, min_length = 128, deduplication = True):
         random.shuffle(subfolders) # Shuffle to use Caching (later) as parallelization
         print(subfolders)
         for subfolder in tqdm(subfolders, desc=f"Loading datasets in {folder.name}"):
-            print(f"Loading Folder: {subfolder.name}")
+            proc = psutil.Process(os.getpid())
+            print(f"Python RAM usage: {proc.memory_info().rss / 1e6:.2f} MB")
+            print(f"Loading Folder: {subfolder.name}", flush=True)
             corpus.append(SplitDataSet(subfolder, deduplication=deduplication))
     return corpus
 
@@ -328,12 +338,23 @@ def explode_batch(batch, target_column):
     starts = batch["start"] if "start" in batch else [timestamps[i].min() for i in range(batch_len)]
     freqs = batch["freq"] if "freq" in batch else [pd.infer_freq(timestamps[i]) for i in range(batch_len)]
 
+    proc = psutil.Process(os.getpid())
+    print(f"Python RAM usage: {proc.memory_info().rss / 1e6:.2f} MB", flush=True)
+
+    q = 0
     for iid, st, fq, targets in zip(ids, starts, freqs, batch[target_column]):
+        if not isinstance(targets[0], (tuple, list)): 
+            targets = [targets]
         for tgt in targets:
-            out["item_id"].append(iid)
-            out["start"].append(st)
-            out["freq"].append(fq)
-            out["target"].append(tgt)
+            startpoint = 0
+            while startpoint < len(tgt): # Split into smaller ts to optimize loading
+                # print(startpoint, flush=True)
+                out["item_id"].append(iid)
+                out["start"].append(st)
+                out["freq"].append(fq)
+                out["target"].append(tgt[startpoint:int(startpoint+1e4)])
+                startpoint += int(1e4)
+
     return out
 
 
@@ -348,10 +369,14 @@ def create_dataset(
     #min_probability: float = 0.000025, 
     small_ts_share: float = 0.3,
     deduplication: bool = True,
-    workers: int = 4,
+    workers: int = -1,
     data_path: str = "./data/data_sets_raw",
     output_dir: str = "./data/train"
 ):
+    if workers > -1:
+        global WORKERS
+        WORKERS = workers
+
     hp = dict(deepcopy(locals()))
     hp_hash = hash_dict(hp)
     hp["hash"] = hp_hash
