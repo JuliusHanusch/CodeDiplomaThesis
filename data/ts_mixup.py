@@ -10,7 +10,7 @@ def ts_mixup(datasets: List[np.ndarray], alpha: np.float64 = 1.5) -> np.ndarray:
     l = len(datasets[0])
     for dataset in datasets:
         if l != len(dataset):
-            raise Exception(ts_mixup.__name__, 'Datasets differ in length')
+            raise Exception(ts_mixup.__name__, f'Datasets differ in length {[len(d) for d in datasets]}')
 
     ### IMPLEMENTATION ###
     lambdas: np.ndarray = np.random.dirichlet([alpha] * k)  # weights for each dataset

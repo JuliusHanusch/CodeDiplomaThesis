@@ -46,13 +46,14 @@ def build_search_space(seed: Optional[int] = None) -> ConfigurationSpace:
 
     return cs
 
+
 @app.command()
 def main(
     count: int = typer.Option(5, "--count", "-n", help="Number of configs to generate"),
     seed: Optional[int] = typer.Option(None, "--seed", help="Random seed"),
 ):
     """
-    Sample `count` random configurations from the defined search space
+    Sample `count` many random configurations from the defined search space
     and print each as YAML.
     """
     cs = build_search_space(seed)
@@ -64,6 +65,7 @@ def main(
         config = {key: val if not isinstance(val, numbers.Number) else float(val) for key, val in config.items()}
         with open(f"./data/data_configs/{i}.yml", "w") as file:
             yaml.safe_dump(config, file)
+
 
 if __name__ == "__main__":
     app()

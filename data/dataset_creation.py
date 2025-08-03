@@ -59,10 +59,12 @@ class DatasetAdapter(ABC):
     """
     # Init
     def __init__(self, dataset, target_column):
-        self.target = dataset.shuffle(seed=None).take(min(len(dataset), int(1))) # TODO for giant ds take only 10k randomly selected TS else OOM 
-        self.target = self.target[target_column] # Drop everything except target column to speed up look ups later
+        if isinstance(dataset, (ds.Dataset)):
+            # Reduces Size of large DS and loads them into Mem (Speed up ~ 800x when in MEM & Large DS dont fit)
+            dataset = dataset.shuffle(seed=None).take(min(len(dataset), int(100)))  # TODO
+        self.target = dataset[target_column] # Drop everything except target column to speed up look ups later
 
-    # len
+
     @abstractmethod
     def __len__(self):
         pass
@@ -70,9 +72,12 @@ class DatasetAdapter(ABC):
     # get random snippet of length n
     @abstractmethod
     def get_random_snippet(self, length: int):
+        """
+        Method to get a random TS-Snippet of the given length from the dataset 
+        """
         pass
 
-# ! Obsolete
+
 class RowDataSet(DatasetAdapter):
     """
     Dataset for corpora where each row is an DS
@@ -91,26 +96,32 @@ class RowDataSet(DatasetAdapter):
 
     def get_random_snippet(self, length: int, exp_count: int = 1, **kwargs): 
         if self.deduplication:
-            # Avoid Race Conditions during deduplication
+            # Avoid Race Conditions during deduplication by locking
             while self.in_use: 
                 sleep(0.01)
             self.in_use = True
 
+            # How many startpoints still unused
             unused_startpoint_count = len(self.unused_startpoints)
-            if unused_startpoint_count == 0:
+            if unused_startpoint_count == 0: # If none left -> Reset
                 self.unused_startpoints = np.arange(len(self) - length + 1)
                 unused_startpoint_count = len(self.unused_startpoints)
+
+            # Select a Startpoint at random 
             start_point_id = np.random.randint(unused_startpoint_count)
             start_point = self.unused_startpoints[start_point_id]
+
             # Remove as many surrounding starpoints as possible to minimize overlap (number to remove calc via expected number samples drawn from TS)
             vals_to_spare = min(((len(self.target) + 1 - length) // exp_count), length) // 2
             startpoints_to_delete = ~np.isin(self.unused_startpoints, np.arange(start_point-vals_to_spare, start_point+vals_to_spare+1))
             self.unused_startpoints = self.unused_startpoints[startpoints_to_delete]
 
+            # Unlock again
             self.in_use = False
         else:
-            start_point = np.random.randint(len(self) - length + 1)
+            start_point = np.random.randint(max(len(self) - length + 1, 1))
         return self.target[start_point:start_point + length]
+
 
 def get_cols_with_lists(data: ds.Dataset):
     """Returns the names of all columns that contain lists or lists of lists instead of scalar values"""
@@ -122,6 +133,7 @@ def get_cols_with_lists(data: ds.Dataset):
         elif feature is None and isinstance(data[0][col], (list, tuple)):
             list_cols.append(col)
     return list_cols
+
 
 class SplitDataSet(DatasetAdapter):
     """
@@ -176,7 +188,7 @@ class SplitDataSet(DatasetAdapter):
                     if self.target_column in dataset.column_names: # When overwritting target column we better rename to avoid conflicts
                         dataset = dataset.rename_column(self.target_column, self.target_column + '_old')
                         columns = [(self.target_column + '_old' if col == self.target_column else col) for col in columns] # update target col name
-                    dataset = dataset.map(concat_lists) #TODO num_proc
+                    dataset = dataset.map(concat_lists, num_proc=WORKERS) #TODO num_proc
                 elif columns[0] != target_column:
                     dataset = dataset.rename_column(columns[0], target_column)
                     
@@ -224,7 +236,7 @@ class SplitDataSet(DatasetAdapter):
             ts_id = np.random.randint(len(self.target))
 
         ts = self.target[int(ts_id)]
-        start_point = np.random.randint(len(ts) - length + 1)
+        start_point = np.random.randint(max(len(ts) - length + 1, 1))
         return ts[start_point:start_point + length]
 
 
@@ -241,11 +253,13 @@ def load_folder(folder: Path, min_length = 128, deduplication = True):
     try:
         data = ds.load_from_disk(folder)
         # Filter out the too short ones
-        data = data.map(trim_nans) # remove trivials (only long enough because of NaNs) TODO Maybe ok at beginning??
+        data = data.map(trim_nans, num_proc=WORKERS) # remove trivials (only long enough because of NaNs) TODO Maybe ok at beginning??
         data = data.filter((lambda x: len(x["target"])>=min_length), num_proc=8)
         data = data["train"] if "train" in data else data  # unnest 
 
+        # ========================================== #
         # Group all the TS from the same DS together # 
+        # ========================================== #
         id_col = "id" if "id" in data.column_names else "item_id"
         # get all the names
         ds_names = data[id_col]
@@ -327,10 +341,20 @@ def get_top_contributors(values, thr=0.3):
 
     return sorted(sorted_indices[:n].tolist())
 
+
 def explode_batch(batch, target_column):
+    """
+    Funtion for datasets .map() function
+    Takes in a batch of samples
+    Each sample can contain 
+    a very long ts that shall be splitted into smaller ones to save resources (Many small ones are easier to save and load via datasets)
+    or several time series (i.e. multi-variat) that shall be split into several independent ones
+    Potentially both
+    """
     out = {"item_id": [], "start": [], "freq": [], "target": []}
+
+    # Get Official Values or opt for placeholders if not found 
     id_cols = list({"item_id", "id", "name"}.intersection(batch.keys()))
-    print(id_cols)
     batch_len = len(batch[target_column])
     # Either take official id or assign to each var its own
     ids = batch[id_cols[0]] if len(id_cols) > 0 else list(range(batch_len))
@@ -338,14 +362,19 @@ def explode_batch(batch, target_column):
     starts = batch["start"] if "start" in batch else [timestamps[i].min() for i in range(batch_len)]
     freqs = batch["freq"] if "freq" in batch else [pd.infer_freq(timestamps[i]) for i in range(batch_len)]
 
+    # Debugging Only
     proc = psutil.Process(os.getpid())
     print(f"Python RAM usage: {proc.memory_info().rss / 1e6:.2f} MB", flush=True)
 
+    # Explode batch
     q = 0
     for iid, st, fq, targets in zip(ids, starts, freqs, batch[target_column]):
         if not isinstance(targets[0], (tuple, list)): 
             targets = [targets]
+
+        # Multivariat -> Univariat
         for tgt in targets:
+            # Long TS -> small TS
             startpoint = 0
             while startpoint < len(tgt): # Split into smaller ts to optimize loading
                 # print(startpoint, flush=True)
@@ -366,17 +395,18 @@ def create_dataset(
     length: int = 128,
     samples: int = 10000,
     alpha: float = 1.5,
-    #min_probability: float = 0.000025, 
     small_ts_share: float = 0.3,
     deduplication: bool = True,
     workers: int = -1,
     data_path: str = "./data/data_sets_raw",
     output_dir: str = "./data/train"
 ):
+    # If given Overwrite Worker Count else one per CPU
     if workers > -1:
         global WORKERS
         WORKERS = workers
 
+    # Path Management
     hp = dict(deepcopy(locals()))
     hp_hash = hash_dict(hp)
     hp["hash"] = hp_hash
@@ -386,14 +416,18 @@ def create_dataset(
     if output_adr.exists():
         raise Exception("Corpus already exists; the provided configuration might be a duplicate.")
 
+    # Track Config Used in Database
     insertTable(
         table_name="corpora",
         row_data=hp,
     )
+
+    # Load Data from disk
     logging.info(f"Loading datasets from {data_path.resolve()}")
     corpus = load_datasets(data_path, corpora, min_length=length, deduplication=deduplication)
     print(f"Loaded {len(corpus)} datasets from {data_path.resolve()}")
 
+    # Check Size
     ds_lengths = [len(record) for record in corpus]
     corpus_length = sum(ds_lengths)
     print(f"Corpus Size: {corpus_length}")
@@ -402,7 +436,7 @@ def create_dataset(
     assert np.all(np.array(ds_lengths) >= length)
     min_probability = small_ts_share / ds_count # 20% of the corpus are reserved for the smallest DS
 
-    # calculate probs
+    # calculate probs of sampling from each dataset in corpus
     assert ds_count * min_probability < 1, "Minimum probability too high for the number of datasets, can't be satisfied." # If == 1 would be equal weights
     # Capped to min probability or the probability that the expected number of samples from this DS covers the entire ds (Reason: No snippet twice)
     ds_probability = np.array([max(ds_length / corpus_length, min((ds_length+1-length)/samples, min_probability)) for ds_length in ds_lengths])
@@ -425,6 +459,10 @@ def create_dataset(
                 exp_count = samples * ds_probability[ds_id]
                 snippets.append(dataset.get_random_snippet(length=length, exp_count=exp_count))
 
+            # Drop too short ones
+            snippets = [snip for snip in snippets if len(snip) >= length]
+            if len(snippets) == 0:
+                continue # skip empties
             final_sample = ts_mixup(snippets, alpha=alpha)
             # Quality insurance
             if np.isnan(np.array(final_sample)).sum() / length < 0.25:  # Less than 25% NaNs
@@ -434,7 +472,7 @@ def create_dataset(
     chunk_count = (samples+(CHUNK_SIZE-1))//CHUNK_SIZE
     corpus_augmented = []
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
+    with ThreadPoolExecutor(max_workers=WORKERS) as executor:
         futures = [executor.submit(create_augmented_snippet, i) for i in range(chunk_count)]
         for f in tqdm(as_completed(futures), total=chunk_count, desc="Creating augmented snippets"):
             try:
