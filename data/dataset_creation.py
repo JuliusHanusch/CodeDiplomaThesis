@@ -59,15 +59,51 @@ class DatasetAdapter(ABC):
     """
     # Init
     def __init__(self, dataset, target_column):
-        if isinstance(dataset, (ds.Dataset)):
+        # Counter to track when to reload data from disk keeping in mem makes it very fast but lets it go OOM
+        # TODO Mention In Paper that chunking worsens birthday problem
+        self.chunk_size = 1_000
+        self._access_counter = self.chunk_size 
+        self._big_ds = False 
+        self._dataset = None 
+        self.target_col = target_column
+
+        if isinstance(dataset, (ds.Dataset)) and self.chunk_size < len(dataset):
             # Reduces Size of large DS and loads them into Mem (Speed up ~ 800x when in MEM & Large DS dont fit)
-            dataset = dataset.shuffle(seed=None).take(min(len(dataset), int(100)))  # TODO
-        self.target = dataset[target_column] # Drop everything except target column to speed up look ups later
+            self._dataset = dataset 
+            self._big_ds = True
+            self.preload_chunk()
+        else:
+            self.target = dataset[self.target_col] # Drop everything except target column to speed up look ups later
 
 
     @abstractmethod
     def __len__(self):
-        pass
+        pass 
+
+    def access_data(self): 
+        """
+        Some DS are huge --> Keeping in Mem leads to OOM and related issues
+        Solution: Load random Chunks in Mem
+        Track how often Data was accessed if surepasses threshold load new chunk
+        """
+        if not self._big_ds:
+            return
+        self._access_counter -= 1
+        if self._access_counter <= -1:
+            # load new chunk and reset counter
+            self._access_counter = self.chunk_size
+            self.preload_chunk
+
+
+    def preload_chunk(self):
+        """
+        Loads a random subset of dataset into memory
+        """
+        if self._big_ds:
+            self.target = self._dataset.shuffle(seed=None).take(self.chunk_size)[self.target_col]
+        else:
+            raise Exception("Preload Chunk should not be called if DS fits well into Memory")
+
     
     # get random snippet of length n
     @abstractmethod
@@ -95,6 +131,7 @@ class RowDataSet(DatasetAdapter):
         return len(self.target) 
 
     def get_random_snippet(self, length: int, exp_count: int = 1, **kwargs): 
+        self.access_data()
         if self.deduplication:
             # Avoid Race Conditions during deduplication by locking
             while self.in_use: 
@@ -213,9 +250,16 @@ class SplitDataSet(DatasetAdapter):
         assert not isinstance(self.target[0][0], (list, tuple)), "Multivariate DS aren't supported yet"
 
     def __len__(self):
-        return sum([len(ts) for ts in self.target])
+        if self._big_ds:
+            # estimate full ds size based on chunk size
+            lengths = [len(ts) for ts in self.target]
+            avg_length = sum(lengths)/len(lengths)
+            return int(avg_length * len(self._dataset))
+        else:
+            return sum([len(ts) for ts in self.target])
 
     def get_random_snippet(self, length: int, **kwargs):
+        self.access_data()
         if self.deduplication:
             # Avoid Race Conditions during deduplication
             while self.in_use: 

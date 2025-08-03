@@ -308,13 +308,13 @@ def my_normalize(text: str|list[str]):
     else:
         raise Exception(f"Text has unsupported dtype {type(text)}")
 
-def is_in_collection(orig: str, collection: list[str]):
+def is_in_collection(orig: str, collection: list[str], thr=0.8):
     """Returns True if orig is similar enough to any of the words in the collection"""
     orig = my_normalize(orig)
     collection = my_normalize(tuple(collection)) # to tuple for caching
     for word in collection:
         score = bigram_similarity(orig, word)
-        if score >= 0.8:
+        if score >= thr:
             print(f"{orig} matches {word}!")
             return True
     return False
@@ -325,7 +325,7 @@ def group_similar_words(words: list[str]) -> list[list[str]]:
     for word in words:
         placed = False
         for group in groups:
-            if is_in_collection(word, group[0]):
+            if is_in_collection(word, group, thr=0.9):
                 group.append(word)
                 placed = True
                 break
