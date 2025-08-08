@@ -61,7 +61,7 @@ class DatasetAdapter(ABC):
     def __init__(self, dataset, target_column):
         # Counter to track when to reload data from disk keeping in mem makes it very fast but lets it go OOM
         # TODO Mention In Paper that chunking worsens birthday problem
-        self.chunk_size = 1_000
+        self.chunk_size = 2_500
         self._access_counter = self.chunk_size 
         self._big_ds = False 
         self._dataset = None 
@@ -328,7 +328,7 @@ def load_folder(folder: Path, min_length = 128, deduplication = True):
             group_set = set(group)
     
             # Build index list from unassigned items only
-            assigned = [i for i in unassigned if data[i][id_col] in group_set]
+            assigned = [i for i in unassigned if ds_names[i] in group_set]
             
             if assigned:
                 datasets.append(data.select(assigned))
@@ -472,25 +472,34 @@ def create_dataset(
     print(f"Loaded {len(corpus)} datasets from {data_path.resolve()}")
 
     # Check Size
-    ds_lengths = [len(record) for record in corpus]
+    ds_lengths = [len(dataset) for dataset in corpus]
     corpus_length = sum(ds_lengths)
     print(f"Corpus Size: {corpus_length}")
     ds_count = len(ds_lengths)
     print(f"Number DS: {ds_count}")
-    assert np.all(np.array(ds_lengths) >= length)
-    min_probability = small_ts_share / ds_count # 20% of the corpus are reserved for the smallest DS
+    # TODO assert np.all(np.array(ds_lengths) >= length)
+    # Universal Basic Income Principle e.g. ts_share=0.2 --> if all TS are tiny compared to the largest one they get together ~20% while the large one gets 80% (+ a tiny share from the unclaimed UBI ~ depends on the ratio of count of large TS to small TS)
+    ubi = small_ts_share / ds_count # a smoothing factor
 
     # calculate probs of sampling from each dataset in corpus
-    assert ds_count * min_probability < 1, "Minimum probability too high for the number of datasets, can't be satisfied." # If == 1 would be equal weights
     # Capped to min probability or the probability that the expected number of samples from this DS covers the entire ds (Reason: No snippet twice)
-    ds_probability = np.array([max(ds_length / corpus_length, min((ds_length+1-length)/samples, min_probability)) for ds_length in ds_lengths])
-    total_raise = sum(ds_probability) - 1 # raise through capping
-    big_ones = get_top_contributors(ds_probability, thr=0.3)
-    ds_probability[big_ones] -= total_raise / len(big_ones)  # the top 1% subsidies the smallest ones (hehehe)
-    assert 1 - min_probability < sum(ds_probability) < 1 + min_probability, "Probabilities do not sum to near 1, something went wrong."
-    assert np.all((0 < ds_probability) & (ds_probability < 1))
-    print("Probability of sampling from the largest Contributors: ", ds_probability[big_ones])
+    ds_probability = np.array([(ds_length / corpus_length) + ubi for ds_length in ds_lengths])
+    # Renormalize 
+    ds_probability = ds_probability / sum(ds_probability)
+
+    # Obsolete Weight distribution Across largest DS (Idea good but in practice complex as several edge cases exists)
+    # min_probability = small_ts_share / ds_count 
+    # assert ds_count * min_probability < 1, "Minimum probability too high for the number of datasets, can't be satisfied." # If == 1 would be equal weights
+    # Capped to min probability or the probability that the expected number of samples from this DS covers the entire ds (Reason: No snippet twice)
+    # ds_probability = np.array([max(ds_length / corpus_length, min((ds_length+1-length)/samples, min_probability)) for ds_length in ds_lengths])
+    # total_raise = sum(ds_probability) - 1 # raise through capping
+    # big_ones = get_top_contributors(ds_probability, thr=0.3)
+    # ds_probability[big_ones] -= total_raise / len(big_ones)  # the top 1% subsidies the smallest ones (hehehe)
+    # assert 1 - min_probability < sum(ds_probability) < 1 + min_probability, "Probabilities do not sum to near 1, something went wrong."
+    # print("Probability of sampling from the largest Contributors: ", ds_probability[big_ones])
     # assert np.all(np.array(ds_probability) >= min_probability), "Some probabilities are below the minimum probability threshold."
+
+    assert np.all((0 < ds_probability) & (ds_probability < 1))
 
     logging.info("Creating snippets")
     def create_augmented_snippet(_):
@@ -524,11 +533,16 @@ def create_dataset(
             except Exception as e:
                 logging.error(f"Worker failed: {e}")
                 raise e
+            # TODO Write Chunks to disk
 
     # Convert to final format -> save to disk
     output_dir.mkdir(parents=True, exist_ok=True)
     convert_to_arrow(output_adr, corpus_augmented[:samples])
     print("All Done!")
+    # TODO Clear Mem
+    # TODO Load Chunks From Disk
+    # TODO Combine
+    # TODO Write Back To Disk
 
 
 
