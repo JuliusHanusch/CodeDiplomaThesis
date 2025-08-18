@@ -325,7 +325,7 @@ def group_similar_words(words: list[str]) -> list[list[str]]:
     for word in words:
         placed = False
         for group in groups:
-            if is_in_collection(word, group, thr=0.9):
+            if is_in_collection(word, group, thr=0.85):
                 group.append(word)
                 placed = True
                 break

@@ -32,6 +32,13 @@ from src.db import insertTable, hash_dict
 from time import sleep
 from collections import Counter
 import psutil
+import gc
+import pyarrow as pa
+import pyarrow.ipc as ipc
+import shutil
+import time
+import torch
+
 
 CACHE = Path("./cache/data")
 CACHE.mkdir(parents=True, exist_ok=True)
@@ -61,7 +68,7 @@ class DatasetAdapter(ABC):
     def __init__(self, dataset, target_column):
         # Counter to track when to reload data from disk keeping in mem makes it very fast but lets it go OOM
         # TODO Mention In Paper that chunking worsens birthday problem
-        self.chunk_size = 2_500
+        self.chunk_size = 1 #TODO 2_500
         self._access_counter = self.chunk_size 
         self._big_ds = False 
         self._dataset = None 
@@ -92,13 +99,14 @@ class DatasetAdapter(ABC):
         if self._access_counter <= -1:
             # load new chunk and reset counter
             self._access_counter = self.chunk_size
-            self.preload_chunk
+            # TODO self.preload_chunk()
 
 
     def preload_chunk(self):
         """
         Loads a random subset of dataset into memory
         """
+        print("preload", flush=True)
         if self._big_ds:
             self.target = self._dataset.shuffle(seed=None).take(self.chunk_size)[self.target_col]
         else:
@@ -131,10 +139,13 @@ class RowDataSet(DatasetAdapter):
         return len(self.target) 
 
     def get_random_snippet(self, length: int, exp_count: int = 1, **kwargs): 
+        print("1.1.row", flush=True)
         self.access_data()
         if self.deduplication:
+            print("1.1.row.1", flush=True)
             # Avoid Race Conditions during deduplication by locking
             while self.in_use: 
+                print("Waiting for Lock", flush=True)
                 sleep(0.01)
             self.in_use = True
 
@@ -145,7 +156,8 @@ class RowDataSet(DatasetAdapter):
                 unused_startpoint_count = len(self.unused_startpoints)
 
             # Select a Startpoint at random 
-            start_point_id = np.random.randint(unused_startpoint_count)
+            # start_point_id = np.random.randint(unused_startpoint_count)
+            start_point_id = torch.randint(unused_startpoint_count, (1,)).item()
             start_point = self.unused_startpoints[start_point_id]
 
             # Remove as many surrounding starpoints as possible to minimize overlap (number to remove calc via expected number samples drawn from TS)
@@ -155,8 +167,12 @@ class RowDataSet(DatasetAdapter):
 
             # Unlock again
             self.in_use = False
+            print("1.1.row.2", flush=True)
         else:
-            start_point = np.random.randint(max(len(self) - length + 1, 1))
+            print("1.1.row.1b", flush=True)
+            # start_point = np.random.randint(max(len(self) - length + 1, 1))
+            start_point = torch.randint(max(len(self) - length + 1, 1), (1,)).item()
+        print("1.1.row.2", flush=True)
         return self.target[start_point:start_point + length]
 
 
@@ -259,28 +275,42 @@ class SplitDataSet(DatasetAdapter):
             return sum([len(ts) for ts in self.target])
 
     def get_random_snippet(self, length: int, **kwargs):
+        print("1.1", flush=True)
         self.access_data()
+        print("1.2", flush=True)
         if self.deduplication:
+            print("1.2.1a", flush=True)
             # Avoid Race Conditions during deduplication
             while self.in_use: 
-                print("Waiting for lock to be released...")
+                print("1.2.1.1", flush=True)
+                print("Waiting for lock to be released...", flush=True)
                 sleep(0.01)
             self.in_use = True
+            print("1.2.2", flush=True)
 
             unused_ts_count = len(self.unused_ts)
             if unused_ts_count == 0:
+                print("1.2.2.1", flush=True)
                 self.unused_ts = np.arange(len(self.target))
                 unused_ts_count = len(self.unused_ts)
-            ts_id_id = np.random.randint(unused_ts_count)
+            print("1.2.3", flush=True)
+            # ts_id_id = np.random.randint(unused_ts_count)
+            ts_id_id = torch.randint(unused_ts_count, (1,)).item()
             ts_id = self.unused_ts[ts_id_id]
             self.unused_ts = np.delete(self.unused_ts, ts_id_id)
 
             self.in_use = False
+            print("1.2.4", flush=True)
         else:
-            ts_id = np.random.randint(len(self.target))
+            print("1.2.1b", flush=True)
+            # ts_id = np.random.randint(len(self.target))
+            ts_id = torch.randint(len(self.target), (1,)).item()
 
+        print("1.3", flush=True)
         ts = self.target[int(ts_id)]
-        start_point = np.random.randint(max(len(ts) - length + 1, 1))
+        # start_point = np.random.randint(max(len(ts) - length + 1, 1))
+        start_point = torch.randint(max(len(ts) - length + 1, 1), (1,)).item()
+        print("1.4", flush=True)
         return ts[start_point:start_point + length]
 
 
@@ -486,6 +516,8 @@ def create_dataset(
     ds_probability = np.array([(ds_length / corpus_length) + ubi for ds_length in ds_lengths])
     # Renormalize 
     ds_probability = ds_probability / sum(ds_probability)
+    print("Probs", np.sort(ds_probability), flush=True)
+    ds_probability_tensor = torch.tensor(ds_probability)
 
     # Obsolete Weight distribution Across largest DS (Idea good but in practice complex as several edge cases exists)
     # min_probability = small_ts_share / ds_count 
@@ -502,48 +534,107 @@ def create_dataset(
     assert np.all((0 < ds_probability) & (ds_probability < 1))
 
     logging.info("Creating snippets")
-    def create_augmented_snippet(_):
+
+    def create_augmented_snippet():
         augmented_chunk = []
+        c = 0
         while len(augmented_chunk) < CHUNK_SIZE:
-            datasets_ids = np.random.choice(ds_count, size=k, replace=False, p=ds_probability) # TODO Replace true??
+            c += 1
+            print("0", flush=True)
+            if c > CHUNK_SIZE * 2:
+                print("0.1", flush=True)
+                break # Fail Save if for some reason an endless loop should occur
+            datasets_ids = torch.multinomial(ds_probability_tensor, k, replacement=True)
+            #datasets_ids = np.random.choice(ds_count, size=k, replace=True, p=ds_probability) # TODO Replace true??
             snippets = []
             for ds_id in datasets_ids:
-                dataset = corpus[int(ds_id)]
+                print("1", flush=True)
+                ds_id = int(ds_id)
+                dataset = corpus[ds_id]
                 exp_count = samples * ds_probability[ds_id]
                 snippets.append(dataset.get_random_snippet(length=length, exp_count=exp_count))
 
+            print("2", flush=True)
             # Drop too short ones
             snippets = [snip for snip in snippets if len(snip) >= length]
             if len(snippets) == 0:
+                print("2.1", flush=True)
                 continue # skip empties
+            print("3", flush=True)
             final_sample = ts_mixup(snippets, alpha=alpha)
+            print("4", flush=True)
             # Quality insurance
             if np.isnan(np.array(final_sample)).sum() / length < 0.25:  # Less than 25% NaNs
                 augmented_chunk.append(final_sample)
+        print("5", flush=True)
         return augmented_chunk
     
     chunk_count = (samples+(CHUNK_SIZE-1))//CHUNK_SIZE
+    chunks_per_checkpoint = 100
     corpus_augmented = []
+    tmp_folder = output_adr.with_suffix("")
+    tmp_folder.mkdir(parents=True, exist_ok=True)
+    checkpoints = [int(checkpoint.stem) for checkpoint in tmp_folder.iterdir() if checkpoint.is_file()]
+    loop = tqdm(range(len(checkpoints)*chunks_per_checkpoint,chunk_count), desc="Creating augmented snippets")
 
-    with ThreadPoolExecutor(max_workers=WORKERS) as executor:
-        futures = [executor.submit(create_augmented_snippet, i) for i in range(chunk_count)]
-        for f in tqdm(as_completed(futures), total=chunk_count, desc="Creating augmented snippets"):
-            try:
-                corpus_augmented.extend(f.result())
-            except Exception as e:
-                logging.error(f"Worker failed: {e}")
-                raise e
-            # TODO Write Chunks to disk
+    for i in loop:
+        chunk = create_augmented_snippet()
+        corpus_augmented.extend(chunk)
 
+        # Write Chunk to disk
+        if len(corpus_augmented) > CHUNK_SIZE*chunks_per_checkpoint or i == (chunk_count-1):
+            proc = psutil.Process(os.getpid())
+            print(f"Python RAM usage: {proc.memory_info().rss / 1e6:.2f} MB", flush=True)
+
+            # Checkpointing (due to HW problems, packaging problems, long runtime) 
+            # Which checkpoints exist already 
+            checkpoints = [int(checkpoint.stem) for checkpoint in tmp_folder.iterdir() if checkpoint.is_file()]
+            if len(checkpoints)*chunks_per_checkpoint >= chunk_count:
+                break
+            # get lowest missing number (to keep checkpoints tidy)
+            expected_checkpoints = set(range(len(checkpoints)+1))
+            missing_checkpoints = expected_checkpoints - set(checkpoints)
+            checkpoint_name = min(list(missing_checkpoints))
+            # TODO loop.update(int((checkpoint_name - loop.n)*chunks_per_checkpoint)) # Bring Progressbar to current stand
+
+            # Write Chunk to disk to save Mem
+            tmp_adr = tmp_folder / f"{checkpoint_name}.arrow"
+            convert_to_arrow(tmp_adr, corpus_augmented)
+            print(f"Saved Checkpoint to {tmp_adr}", flush=True)
+            # Del Pointer to it
+            corpus_augmented = []
+            gc.collect()
+
+    print("All Checkpoints Created!", flush=True)
     # Convert to final format -> save to disk
-    output_dir.mkdir(parents=True, exist_ok=True)
-    convert_to_arrow(output_adr, corpus_augmented[:samples])
-    print("All Done!")
-    # TODO Clear Mem
-    # TODO Load Chunks From Disk
-    # TODO Combine
-    # TODO Write Back To Disk
+    # Clear Mem (probably unnecessary as problems dont seem to arise from OOM but HW failure)
+    del corpus
+    del corpus_augmented
+    gc.collect()
+    proc = psutil.Process(os.getpid())
+    print(f"Python RAM usage: {proc.memory_info().rss / 1e6:.2f} MB", flush=True)
+    # Load Chunks From Disk
+    corpus_augmented = []
+    for file in tqdm(list(tmp_folder.iterdir()), desc="Load & Concat Checkpoints"):
+        if file.is_file():
+            with pa.memory_map(str(file), "r") as source:
+                reader = ipc.RecordBatchFileReader(source)
+                table = reader.read_all()
+            snippets = table["target"]  # Get TS
+            # Combine
+            corpus_augmented += [np.array(chunk.as_py()) for chunk in snippets]
+        if len(corpus_augmented) > samples:
+            # We generated too much --> Dont need to load that much
+            print("Already loaded enough")
+            break 
 
+    # Write Back To Disk
+    convert_to_arrow(output_adr, corpus_augmented[:samples])
+
+    # del tmp folder
+    shutil.rmtree(tmp_folder)
+
+    print("All Done!")
 
 
 if __name__ == "__main__":
