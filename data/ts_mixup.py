@@ -51,7 +51,7 @@ def ts_mixup(datasets: List[np.ndarray], alpha: np.float64 = 1.5) -> np.ndarray:
     # lambdas = torch.distributions.Dirichlet(torch.full((k,), alpha)).sample([1])[0]
     lambdas = DISTRIBUTION_GENERATOR.draw(alpha=alpha, k=k)
     means: np.ndarray = np.array([np.mean(np.abs(dataset)) for dataset in datasets])  # means of each dataset
-    means[means == 0] = 1e-5  # prevent division by zero
+    means[means == 0] = 1  # prevent division by zero
 
     datasets: List[np.ndarray] = [dataset / mean for dataset, mean in zip(datasets, means)]
     mixed_ts: np.ndarray = np.array(

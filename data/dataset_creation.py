@@ -67,9 +67,9 @@ class DatasetAdapter(ABC):
     # Init
     def __init__(self, dataset, target_column):
         # Counter to track when to reload data from disk keeping in mem makes it very fast but lets it go OOM
-        # TODO Mention In Paper that chunking worsens birthday problem
-        self.chunk_size = 1 #TODO 2_500
-        self._access_counter = self.chunk_size 
+        # TODO Mention In Paper that chunking worsens birthday problem --> We run several workers in parallel conflicts with deduplication though
+        self.chunk_size = 2_000 
+        self._access_counter = self.chunk_size * 2
         self._big_ds = False 
         self._dataset = None 
         self.target_col = target_column
@@ -78,6 +78,10 @@ class DatasetAdapter(ABC):
             # Reduces Size of large DS and loads them into Mem (Speed up ~ 800x when in MEM & Large DS dont fit)
             self._dataset = dataset 
             self._big_ds = True
+            self.shuffle_order = list(range(len(self._dataset)))
+            random.shuffle(self.shuffle_order)
+            self.chunk_number = 0
+            self.target = None
             self.preload_chunk()
         else:
             self.target = dataset[self.target_col] # Drop everything except target column to speed up look ups later
@@ -98,8 +102,8 @@ class DatasetAdapter(ABC):
         self._access_counter -= 1
         if self._access_counter <= -1:
             # load new chunk and reset counter
-            self._access_counter = self.chunk_size
-            # TODO self.preload_chunk()
+            self.preload_chunk()
+            self._access_counter = len(self.target)
 
 
     def preload_chunk(self):
@@ -108,7 +112,13 @@ class DatasetAdapter(ABC):
         """
         print("preload", flush=True)
         if self._big_ds:
-            self.target = self._dataset.shuffle(seed=None).take(self.chunk_size)[self.target_col]
+            idx = self.shuffle_order[self.chunk_size*self.chunk_number:self.chunk_size*(self.chunk_number+1)]
+            if self.target:
+                self.target += self._dataset.select(idx, keep_in_memory=True)[self.target_col]
+            else:
+                self.target = self._dataset.select(idx, keep_in_memory=True)[self.target_col]
+
+            self.chunk_number += 1
         else:
             raise Exception("Preload Chunk should not be called if DS fits well into Memory")
 
@@ -241,7 +251,7 @@ class SplitDataSet(DatasetAdapter):
                     if self.target_column in dataset.column_names: # When overwritting target column we better rename to avoid conflicts
                         dataset = dataset.rename_column(self.target_column, self.target_column + '_old')
                         columns = [(self.target_column + '_old' if col == self.target_column else col) for col in columns] # update target col name
-                    dataset = dataset.map(concat_lists, num_proc=WORKERS) #TODO num_proc
+                    dataset = dataset.map(concat_lists, num_proc=WORKERS) 
                 elif columns[0] != target_column:
                     dataset = dataset.rename_column(columns[0], target_column)
                     
@@ -376,8 +386,7 @@ def load_folder(folder: Path, min_length = 128, deduplication = True):
         random.shuffle(subfolders) # Shuffle to use Caching (later) as parallelization
         print(subfolders)
         for subfolder in tqdm(subfolders, desc=f"Loading datasets in {folder.name}"):
-            proc = psutil.Process(os.getpid())
-            print(f"Python RAM usage: {proc.memory_info().rss / 1e6:.2f} MB")
+            print_ram()
             print(f"Loading Folder: {subfolder.name}", flush=True)
             corpus.append(SplitDataSet(subfolder, deduplication=deduplication))
     return corpus
@@ -415,6 +424,9 @@ def get_top_contributors(values, thr=0.3):
 
     return sorted(sorted_indices[:n].tolist())
 
+def print_ram():
+    proc = psutil.Process(os.getpid())
+    print(f"Python RAM usage: {proc.memory_info().rss / 1e6:.2f} MB", flush=True)
 
 def explode_batch(batch, target_column):
     """
@@ -437,8 +449,7 @@ def explode_batch(batch, target_column):
     freqs = batch["freq"] if "freq" in batch else [pd.infer_freq(timestamps[i]) for i in range(batch_len)]
 
     # Debugging Only
-    proc = psutil.Process(os.getpid())
-    print(f"Python RAM usage: {proc.memory_info().rss / 1e6:.2f} MB", flush=True)
+    print_ram()
 
     # Explode batch
     q = 0
@@ -451,7 +462,6 @@ def explode_batch(batch, target_column):
             # Long TS -> small TS
             startpoint = 0
             while startpoint < len(tgt): # Split into smaller ts to optimize loading
-                # print(startpoint, flush=True)
                 out["item_id"].append(iid)
                 out["start"].append(st)
                 out["freq"].append(fq)
@@ -502,7 +512,7 @@ def create_dataset(
     print(f"Loaded {len(corpus)} datasets from {data_path.resolve()}")
 
     # Check Size
-    ds_lengths = [len(dataset) for dataset in corpus]
+    ds_lengths = [min(len(dataset), 250_000_000) for dataset in corpus] # Limit Size to 250M per DS else it gets too biased and slow
     corpus_length = sum(ds_lengths)
     print(f"Corpus Size: {corpus_length}")
     ds_count = len(ds_lengths)
@@ -545,7 +555,7 @@ def create_dataset(
                 print("0.1", flush=True)
                 break # Fail Save if for some reason an endless loop should occur
             datasets_ids = torch.multinomial(ds_probability_tensor, k, replacement=True)
-            #datasets_ids = np.random.choice(ds_count, size=k, replace=True, p=ds_probability) # TODO Replace true??
+            #datasets_ids = np.random.choice(ds_count, size=k, replace=True, p=ds_probability) 
             snippets = []
             for ds_id in datasets_ids:
                 print("1", flush=True)
@@ -583,8 +593,7 @@ def create_dataset(
 
         # Write Chunk to disk
         if len(corpus_augmented) > CHUNK_SIZE*chunks_per_checkpoint or i == (chunk_count-1):
-            proc = psutil.Process(os.getpid())
-            print(f"Python RAM usage: {proc.memory_info().rss / 1e6:.2f} MB", flush=True)
+            print_ram()
 
             # Checkpointing (due to HW problems, packaging problems, long runtime) 
             # Which checkpoints exist already 
@@ -595,7 +604,6 @@ def create_dataset(
             expected_checkpoints = set(range(len(checkpoints)+1))
             missing_checkpoints = expected_checkpoints - set(checkpoints)
             checkpoint_name = min(list(missing_checkpoints))
-            # TODO loop.update(int((checkpoint_name - loop.n)*chunks_per_checkpoint)) # Bring Progressbar to current stand
 
             # Write Chunk to disk to save Mem
             tmp_adr = tmp_folder / f"{checkpoint_name}.arrow"
@@ -611,8 +619,7 @@ def create_dataset(
     del corpus
     del corpus_augmented
     gc.collect()
-    proc = psutil.Process(os.getpid())
-    print(f"Python RAM usage: {proc.memory_info().rss / 1e6:.2f} MB", flush=True)
+    print_ram()
     # Load Chunks From Disk
     corpus_augmented = []
     for file in tqdm(list(tmp_folder.iterdir()), desc="Load & Concat Checkpoints"):
