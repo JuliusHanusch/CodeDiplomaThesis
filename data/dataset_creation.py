@@ -47,7 +47,6 @@ CACHE.mkdir(parents=True, exist_ok=True)
 # --- Config ---
 logging.basicConfig(level=logging.INFO)
 print(f"PYTHON_PID={os.getpid()}", flush=True)
-CHUNK_SIZE = 100
 CPU_COUNT = int(os.environ.get("SLURM_CPUS_PER_TASK", psutil.cpu_count(logical=True))) # get from slurm else standaard
 WORKERS = CPU_COUNT 
 
@@ -537,16 +536,20 @@ def create_dataset(
     assert np.all((0 < ds_probability) & (ds_probability < 1))
 
     logging.info("Creating snippets")
-    #TODO Continue Refactoring from here
-    def create_augmented_snippet():
-        augmented_chunk = []
-        c = 0
-        while len(augmented_chunk) < CHUNK_SIZE:
-            c += 1
+    
+    samples_per_checkpoint = 10_000
+    corpus_augmented = []
+    tmp_folder = output_adr.with_suffix("")
+    tmp_folder.mkdir(parents=True, exist_ok=True)
+    checkpoints = [int(checkpoint.stem) for checkpoint in tmp_folder.iterdir() if checkpoint.is_file()]
+    batch_count = (samples+samples_per_checkpoint-1)//samples_per_checkpoint
+    loop = tqdm(range(len(checkpoints), batch_count), desc="Creating augmented snippets")
+
+    for i in loop:
+        # Create a Batch of Augmented Samples
+        for _ in range(samples_per_checkpoint):
             print("0", flush=True)
-            if c > CHUNK_SIZE * 2:
-                print("0.1", flush=True)
-                break # Fail Save if for some reason an endless loop should occur
+            # Select k Snippets from Corpus Randomly
             datasets_ids = torch.multinomial(ds_probability_tensor, k, replacement=True)
             snippets = []
             for ds_id in datasets_ids:
@@ -554,86 +557,80 @@ def create_dataset(
                 ds_id = int(ds_id)
                 dataset = corpus[ds_id]
                 snippets.append(dataset.get_random_snippet(length=length))
-
             print("2", flush=True)
+
             # Drop too short ones
             snippets = [snip for snip in snippets if len(snip) >= length]
             if len(snippets) == 0:
                 print("2.1", flush=True)
                 continue # skip empties
+
+            # Combine via TS-MixUp
             print("3", flush=True)
             final_sample = ts_mixup(snippets, alpha=alpha)
             print("4", flush=True)
+
             # Quality insurance
             if np.isnan(np.array(final_sample)).sum() / length < 0.25:  # Less than 25% NaNs
-                augmented_chunk.append(final_sample)
-        print("5", flush=True)
-        return augmented_chunk
-    
-    chunk_count = (samples+(CHUNK_SIZE-1))//CHUNK_SIZE
-    chunks_per_checkpoint = 100
-    corpus_augmented = []
-    tmp_folder = output_adr.with_suffix("")
-    tmp_folder.mkdir(parents=True, exist_ok=True)
-    checkpoints = [int(checkpoint.stem) for checkpoint in tmp_folder.iterdir() if checkpoint.is_file()]
-    loop = tqdm(range(len(checkpoints)*chunks_per_checkpoint,chunk_count), desc="Creating augmented snippets")
+                corpus_augmented.append(final_sample)
+            print("5", flush=True)
 
-    for i in loop:
-        chunk = create_augmented_snippet()
-        corpus_augmented.extend(chunk)
 
-        # Write Chunk to disk
-        if len(corpus_augmented) > CHUNK_SIZE*chunks_per_checkpoint or i == (chunk_count-1):
-            print_ram()
+        # Checkpoint Batch to disk
+        print_ram()
 
-            # Checkpointing (due to HW problems, packaging problems, long runtime) 
-            # Which checkpoints exist already 
-            checkpoints = [int(checkpoint.stem) for checkpoint in tmp_folder.iterdir() if checkpoint.is_file()]
-            if len(checkpoints)*chunks_per_checkpoint >= chunk_count:
-                # TODO Check and delete corrupted files if none found break 
-                aok = check_and_del_corrupted_checkpoint(tmp_folder)
-                if aok: # Only break if we didnt need to delete a corrupted file
-                    break
-                
-            # get lowest missing number (to keep checkpoints tidy)
-            expected_checkpoints = set(range(len(checkpoints)+1))
-            missing_checkpoints = expected_checkpoints - set(checkpoints)
-            checkpoint_name = min(list(missing_checkpoints))
+        # Checkpointing (due to HW problems, packaging problems, long runtime) 
+        # Which checkpoint(name)s exist already 
+        checkpoints = [int(checkpoint.stem) for checkpoint in tmp_folder.iterdir() if checkpoint.is_file()]
+        if len(checkpoints)*samples_per_checkpoint >= samples:
+            # Check and delete corrupted files if none found break 
+            aok = check_and_del_corrupted_checkpoint(tmp_folder)
+            if aok: # Only break if we didn't need to delete a corrupted checkpoint
+                break
+            
+        # get lowest missing number (to keep checkpoints tidy)
+        expected_checkpoints = set(range(len(checkpoints)+1))
+        missing_checkpoints = expected_checkpoints - set(checkpoints)
+        checkpoint_name = min(list(missing_checkpoints))
 
-            # Write Chunk to disk to save Mem
-            tmp_adr = tmp_folder / f"{checkpoint_name}.arrow"
-            convert_to_arrow(tmp_adr, corpus_augmented)
-            print(f"Saved Checkpoint to {tmp_adr}", flush=True)
-            # Del Pointer to it
-            corpus_augmented = []
-            gc.collect()
+        # Write Batch to disk to save Memory (RAM)
+        tmp_adr = tmp_folder / f"{checkpoint_name}.arrow"
+        convert_to_arrow(tmp_adr, corpus_augmented)
+        print(f"Saved Checkpoint to {tmp_adr}", flush=True)
+        # Del Pointer to it
+        corpus_augmented = []
+        gc.collect()
 
     print("All Checkpoints Created!", flush=True)
-    # Convert to final format -> save to disk
+
+    # ======================================= #
+    # Convert to final format -> save to disk #
+    # ======================================= #
     # Clear Mem (probably unnecessary as problems dont seem to arise from OOM but HW failure)
     del corpus
     del corpus_augmented
     gc.collect()
     print_ram()
-    # Load Chunks From Disk
+
+    # Load Checkpoints From Disk
     corpus_augmented = []
     for file in tqdm(list(tmp_folder.iterdir()), desc="Load & Concat Checkpoints"):
         if file.is_file():
             with pa.memory_map(str(file), "r") as source:
                 reader = ipc.RecordBatchFileReader(source)
                 table = reader.read_all()
-            snippets = table["target"]  # Get TS
+            batch = table["target"]  
             # Combine
-            corpus_augmented += [np.array(chunk.as_py()) for chunk in snippets]
+            corpus_augmented += [np.array(snippet.as_py()) for snippet in batch]
         if len(corpus_augmented) > samples:
-            # We generated too much --> Dont need to load that much
+            # We generated too much --> Dont need to load all
             print("Already loaded enough")
             break 
 
     # Write Back To Disk
     convert_to_arrow(output_adr, corpus_augmented[:samples])
 
-    # del tmp folder
+    # del tmp folder with checkpoints
     shutil.rmtree(tmp_folder)
 
     print("All Done!")
@@ -643,6 +640,5 @@ if __name__ == "__main__":
     app()
 
 # TODO provide access to CPU count and DS Size threshold
-# TODO Remove Deduplication from the configspace
+# TODO Remove Deduplication from the configspace --> Regenerate Configs
 # TODO Remove Debugging messages
-# TODO Flatten DS creation function (no need for chunks anymore)
