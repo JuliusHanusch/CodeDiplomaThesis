@@ -304,9 +304,7 @@ class RowDataSet(DatasetAdapter):
         return len(self.target) 
 
     def get_random_snippet(self, length: int, **kwargs): 
-        print("1.1.row", flush=True)
         start_point = torch.randint(max(len(self) - length + 1, 1), (1,)).item()
-        print("1.1.row.2", flush=True)
         return self.target[start_point:start_point + length]
 
 
@@ -470,13 +468,9 @@ class SplitDataSet(DatasetAdapter):
 
 
     def get_random_snippet(self, length: int, **kwargs) -> List[float]:
-        print("1.1", flush=True)
         ts = next(self.dl)
 
-        print("1.2", flush=True)
-        # start_point = np.random.randint(max(len(ts) - length + 1, 1))
         start_point = torch.randint(max(len(ts) - length + 1, 1), (1,)).item()
-        print("1.3", flush=True)
         return ts[start_point:start_point + length]
 
 
@@ -544,7 +538,7 @@ def create_dataset(
     ds_probability = np.array([(ds_length / corpus_length) + ubi for ds_length in ds_lengths])
     # Renormalize 
     ds_probability = ds_probability / sum(ds_probability)
-    print("Probs", np.sort(ds_probability), flush=True)
+    print("Probs:", np.sort(ds_probability), flush=True)
     ds_probability_tensor = torch.tensor(ds_probability)
 
     assert np.all((0 < ds_probability) & (ds_probability < 1))
@@ -562,33 +556,25 @@ def create_dataset(
     for _ in loop:
         # Create a Batch of Augmented Samples
         for _ in range(samples_per_checkpoint):
-            print("0", flush=True)
             # Select k Snippets from Corpus Randomly
             datasets_ids = torch.multinomial(ds_probability_tensor, k, replacement=True)
             snippets = []
             for ds_id in datasets_ids:
-                print("1", flush=True)
                 ds_id = int(ds_id)
                 dataset = corpus[ds_id]
                 snippets.append(dataset.get_random_snippet(length=length))
-            print("2", flush=True)
 
             # Drop too short ones
             snippets = [snip for snip in snippets if len(snip) >= length]
             if len(snippets) == 0:
-                print("2.1", flush=True)
                 continue # skip empties
 
             # Combine via TS-MixUp
-            print("3", flush=True)
             final_sample = ts_mixup(snippets, alpha=alpha)
-            print("4", flush=True)
 
             # Quality insurance
             if np.isnan(np.array(final_sample)).sum() / length < 0.25:  # Less than 25% NaNs
                 corpus_augmented.append(final_sample)
-            print("5", flush=True)
-
 
         # Checkpoint Batch to disk
         print_ram()
@@ -653,5 +639,4 @@ def create_dataset(
 if __name__ == "__main__":
     app()
 
-# TODO Regenerate Configs
 # TODO Remove Debugging messages

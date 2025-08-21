@@ -30,25 +30,17 @@ DISTRIBUTION_GENERATOR = distribution_generator()
 
 
 def ts_mixup(datasets: List[np.ndarray], alpha: np.float64 = 1.5) -> np.ndarray:
-    print("3.1", flush=True)
     ### INIT AND SANITY CHECKS ###
     k = len(datasets)
     if k < 1:
-        print("3.1.1", flush=True)
         raise Exception(ts_mixup.__name__, 'Received empty or invalid datasets as input')
 
     l = len(datasets[0])
-    print("3.2", flush=True)
     for dataset in datasets:
-        print("3.3", flush=True)
         if l != len(dataset):
-            print("3.3.1", flush=True)
             raise Exception(ts_mixup.__name__, f'Datasets differ in length {[len(d) for d in datasets]}')
 
     ### IMPLEMENTATION ###
-    print("3.4", flush=True)
-    # lambdas: np.ndarray = np.random.dirichlet([alpha] * k)  # weights for each dataset
-    # lambdas = torch.distributions.Dirichlet(torch.full((k,), alpha)).sample([1])[0]
     lambdas = DISTRIBUTION_GENERATOR.draw(alpha=alpha, k=k)
     means: np.ndarray = np.array([np.mean(np.abs(dataset)) for dataset in datasets])  # means of each dataset
     means[means == 0] = 1  # prevent division by zero
@@ -58,6 +50,5 @@ def ts_mixup(datasets: List[np.ndarray], alpha: np.float64 = 1.5) -> np.ndarray:
         [sum(lambdas[ds_idx] * datasets[ds_idx][row_idx]
         for ds_idx in range(len(datasets)))
         for row_idx in range(len(datasets[0]))])
-    print("3.5", flush=True)
 
     return mixed_ts
