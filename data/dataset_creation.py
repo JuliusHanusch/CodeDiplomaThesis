@@ -54,29 +54,21 @@ WORKERS = CPU_COUNT
 
 app = Typer()
 
-def no_collate(batch):
-    return batch  # just return the list of samples
-
 
 class DatasetAdapter(ABC):
     """
-    Idea: We get DS in different shape (Every Corpus has its own unique shape)
+    Idea: We get DS in different shapes (Every Corpus has its own unique shape)
     Time Corpus: Fits entire DS into rows
     Chronos: Fits Datasets into splits and TS into rows
-    Lotsa
+    Lotsa: Similar to Chronos just that each DS is separate from the others (i.e. not just diff split)
     Performing in depth preprocessing to bring all into the same shape somehow is too difficult
     Instead we add to each DS such an adapter with the fundamental functions we require
     Allows to translate rules according to the shape of each DS 
     """
     # Init
-    def __init__(self, dataset, target_column):
-        # Counter to track when to reload data from disk keeping in mem makes it very fast but lets it go OOM
-        # TODO Mention In Paper that chunking worsens birthday problem --> We run several workers in parallel conflicts with deduplication though
-        self._big_ds = False 
-        self._dataset = None 
+    def __init__(self, target_column):
         self.target_col = target_column
             
-
 
     @abstractmethod
     def __len__(self):
@@ -85,62 +77,236 @@ class DatasetAdapter(ABC):
     
     # get random snippet of length n
     @abstractmethod
-    def get_random_snippet(self, length: int):
+    def get_random_snippet(self, length: int) -> List[float]:
         """
         Method to get a random TS-Snippet of the given length from the dataset 
         """
         pass
 
 
+# ========================= #
+# --- Utility Functions --- #
+# ========================= #
+
+def convert_to_arrow(path: Union[str, Path], time_series: List[np.ndarray], compression: str = "lz4"):
+    """
+    Takes in List of Time Series and Writes it to an Arrow File  
+    """
+    start = np.datetime64("2000-01-01 00:00", "s")
+    dataset = [{"start": start, "target": ts} for ts in time_series]
+    ArrowWriter(compression=compression).write_to_file(dataset, path=path)
+
+
+def no_collate(batch):
+    """Function for pytorch's DataLoader to avoid converting Batches into Tensors"""
+    return batch  
+
+
+def load_folder(folder: Path, min_length = 128):
+    """
+    Loops over all datasets inside a folder and converts them into RowDatasets or SplitDatasets
+    """
+    print(f"Loading Folder: {folder}")
+    corpus = []
+    try:
+        # Assumption: Folder is a HF Dataset --> Load it
+        data = ds.load_from_disk(folder)
+        # Filter out the Time Series that are too short
+        data = data.map(trim_nans, num_proc=WORKERS) # remove trivials (only long enough because of NaNs) 
+        data = data.filter((lambda x: len(x["target"])>=min_length), num_proc=8)
+        data = data["train"] if "train" in data else data  # unnest 
+
+        # ========================================== #
+        # Group all the TS from the same DS together # 
+        # ========================================== #
+        id_col = "id" if "id" in data.column_names else "item_id"
+
+        # get all the names
+        ds_names = data[id_col]
+        ds_groups = group_similar_words(set(ds_names))
+
+        # sort groups by size to speed up filtering
+        ds_name_counter = Counter(ds_names)
+        ds_groups = sorted(ds_groups, key=lambda group: sum([ds_name_counter[ds_name] for ds_name in group]), reverse=True)
+        group_sizes = []
+        for group in ds_groups:
+            sizes = [ds_name_counter[ds_name] for ds_name in group]
+            group_sizes.append(sum(sizes))
+            print(sum(sizes), sizes, group)
+        
+        # Do the actual Grouping
+        grouped_datasets = []
+        unassigned = set(range(len(data)))
+        row_ds = []
+        for group, size in tqdm(zip(ds_groups, group_sizes), total=sum(x > 5 for x in group_sizes), desc="Splitting Complex Dataset into Subsets"):
+            if size <= 5: 
+                # Treat members of small groups as independent (mostly for performance reasons)
+                row_ds = data.select(unassigned)
+                unassigned = [] # ~ unassigned - unassigned 
+                break
+    
+            # Build index list from unassigned items only
+            group_set = set(group)
+            assigned = [i for i in unassigned if ds_names[i] in group_set]
+            
+            if assigned:
+                # Create Group and add to collection of groups
+                grouped_datasets.append(data.select(assigned))
+                unassigned -= set(assigned)
+        assert len(unassigned) == 0
+
+        # Convert Groups into Datasets and add to Corpus
+        for dataset in grouped_datasets:
+            corpus.append(SplitDataSet(dataset))
+        for dataset in row_ds:
+            corpus.append(RowDataSet(dataset))
+            
+    except FileNotFoundError as e:
+        # Assumption: Folder is a Folder of several HF Datasets
+        
+        # filter out files (like .md) and hidden folders (like .cache)
+        subfolders = [f for f in folder.iterdir() if not f.name.startswith('.') and f.is_dir()] 
+
+        # Shuffle to parallelize Caching (later we prepare SplitDataSets and cache the results, thats slow, but can be done stupidly in parallel)
+        random.shuffle(subfolders) 
+
+        print(subfolders)
+        # Load all DS in Folder and add to corpus
+        for subfolder in tqdm(subfolders, desc=f"Loading datasets in {folder.name}"):
+            print_ram()
+            print(f"Loading Folder: {subfolder.name}", flush=True)
+            corpus.append(SplitDataSet(subfolder))
+
+    return corpus
+
+
+def load_datasets(data_path: Path, corpora: List[str], min_length=128) -> List[DatasetAdapter]:
+    """
+    Creates a large combined corpus by collecting all corpora included in the corpora list from the data_path folder and converting them into DataSetAdapters
+    """
+    corpus = []
+    for folder in tqdm(list(data_path.iterdir()), desc="Loading datasets"):
+        if folder.name in corpora:
+            print(f"Loading {folder.name}")
+            corpus += load_folder(folder, min_length=min_length)
+    if not corpus:
+        raise ValueError("No matching datasets found.")
+    return corpus
+
+
+def trim_nans(dataset):
+    """
+    Removes all missing values from begin and end of Time Series
+    """
+    arr = np.array(dataset["target"])
+    mask = ~np.isnan(arr)
+    if not mask.any():
+        return []
+    # Get index of first none missing value
+    start_point = mask.argmax()
+    # Get index of last none missing value
+    endpoint = len(mask) - mask[::-1].argmax()
+    # Cut it down and return
+    dataset["target"] = dataset["target"][start_point:endpoint]
+    dataset["timestamp"] = dataset["timestamp"][start_point:endpoint]
+    return dataset
+
+
+def print_ram():
+    """Prints the RAM usage of the current Process"""
+    proc = psutil.Process(os.getpid())
+    print(f"Python RAM usage: {proc.memory_info().rss / 1e6:.2f} MB", flush=True)
+
+
+def explode_batch(batch, target_column):
+    """
+    Function for datasets' .map() 
+    Takes in a batch of samples
+    Each sample can contain either
+    a very long ts that shall be splitted into smaller ones to save resources (Note: Many small ones are easier to store and load via datasets)
+    or several time series (i.e. one multivariate one) that shall be split into several independent ones
+    or potentially both
+    """
+    out = {"item_id": [], "start": [], "freq": [], "target": []}
+
+    # For all of the necessary columns either take the given value or insert a placeholder if none is given 
+    id_cols = list({"item_id", "id", "name"}.intersection(batch.keys()))
+    batch_len = len(batch[target_column])
+    ids = batch[id_cols[0]] if len(id_cols) > 0 else list(range(batch_len))
+    timestamps = [pd.to_datetime(batch["timestamp"][i]) for i in range(batch_len)] if "timestamp" in batch else []
+    starts = batch["start"] if "start" in batch else [timestamps[i].min() for i in range(batch_len)]
+    freqs = batch["freq"] if "freq" in batch else [pd.infer_freq(timestamps[i]) for i in range(batch_len)]
+
+    # Debugging Only
+    print_ram()
+
+    # Explode batch
+    for iid, st, fq, targets in zip(ids, starts, freqs, batch[target_column]):
+        # If target is not list of lists --> convert it into one
+        if not isinstance(targets[0], (tuple, list)): 
+            targets = [targets]
+
+        # Multivariat -> Univariat
+        for tgt in targets:
+            # Long TS -> small TS
+            startpoint = 0
+            while startpoint < len(tgt): 
+                out["item_id"].append(iid)
+                out["start"].append(st)
+                out["freq"].append(fq)
+                out["target"].append(tgt[startpoint:int(startpoint+1e4)])
+                startpoint += int(1e4)
+
+    return out
+
+
+def check_and_del_corrupted_checkpoint(checkpoint_dir: Path) -> bool:
+    """
+    Loops over all checkpoints in the directory and deletes the corrupted ones
+    If it had to delete some files returns False else returns true
+    """
+    def check_arrow_file(path: Path) -> bool:
+        """Tries to load the given file. On success returns True else False"""
+        try:
+            # First try IPC (Arrow .arrow / .feather)
+            with pa.memory_map(str(path), "r") as source:
+                reader = ipc.RecordBatchFileReader(source)
+                _ = reader.read_all()  # force load
+            return True
+        except:
+            return False
+        
+    aok = True
+    for file in tqdm(list(checkpoint_dir.iterdir()), desc="Checking checkpoints"):
+        if file.is_file():
+            if check_arrow_file(file):
+                continue
+            else:
+                # Delete Corrupted File
+                file.unlink()
+                aok = False
+    return aok
+
+
+# ================================== #
+# Adapters For The different Corpora #
+# ================================== #
 class RowDataSet(DatasetAdapter):
     """
     Dataset for corpora where each row is an DS
+    --> Consists of a single Time Series
     """
-    def __init__(self, dataset, target_column: str = "target", deduplication: bool = True):
-        super().__init__(dataset, target_column)
-        # Remember used startpoints to keep Birthday Problem from breaking the infinite Data Regiment
-        self.unused_startpoints = np.array([])
-        self.deduplication = deduplication
-        self.in_use = False # lock to avoid race conditions
+    def __init__(self, dataset, target_column: str = "target"):
+        super().__init__(target_column)
         self.target = dataset[self.target_col] # Drop everything except target column to speed up look ups later
 
 
     def __len__(self):
         return len(self.target) 
 
-    def get_random_snippet(self, length: int, exp_count: int = 1, **kwargs): 
+    def get_random_snippet(self, length: int, **kwargs): 
         print("1.1.row", flush=True)
-        if self.deduplication:
-            print("1.1.row.1", flush=True)
-            # Avoid Race Conditions during deduplication by locking
-            while self.in_use: 
-                print("Waiting for Lock", flush=True)
-                sleep(0.01)
-            self.in_use = True
-
-            # How many startpoints still unused
-            unused_startpoint_count = len(self.unused_startpoints)
-            if unused_startpoint_count == 0: # If none left -> Reset
-                self.unused_startpoints = np.arange(len(self) - length + 1)
-                unused_startpoint_count = len(self.unused_startpoints)
-
-            # Select a Startpoint at random 
-            # start_point_id = np.random.randint(unused_startpoint_count)
-            start_point_id = torch.randint(unused_startpoint_count, (1,)).item()
-            start_point = self.unused_startpoints[start_point_id]
-
-            # Remove as many surrounding starpoints as possible to minimize overlap (number to remove calc via expected number samples drawn from TS)
-            vals_to_spare = min(((len(self.target) + 1 - length) // exp_count), length) // 2
-            startpoints_to_delete = ~np.isin(self.unused_startpoints, np.arange(start_point-vals_to_spare, start_point+vals_to_spare+1))
-            self.unused_startpoints = self.unused_startpoints[startpoints_to_delete]
-
-            # Unlock again
-            self.in_use = False
-            print("1.1.row.2", flush=True)
-        else:
-            print("1.1.row.1b", flush=True)
-            # start_point = np.random.randint(max(len(self) - length + 1, 1))
-            start_point = torch.randint(max(len(self) - length + 1, 1), (1,)).item()
+        start_point = torch.randint(max(len(self) - length + 1, 1), (1,)).item()
         print("1.1.row.2", flush=True)
         return self.target[start_point:start_point + length]
 
@@ -161,42 +327,46 @@ class SplitDataSet(DatasetAdapter):
     """
     Dataset for corpora where each split (or subfolder) is a DS with each row being a TS of this
     """
-    def __init__(self, dataset_path: Path | ds.Dataset, target_column: str = "target", deduplication: bool = True):
-        self.target_col = target_column
-        # Remember used ts to keep Birthday Problem from breaking the infinite Data Regiment
-        self.unused_ts = np.array([])
-        self.deduplication = deduplication
-        self.in_use = False # lock to avoid race conditions
+    def __init__(self, dataset_path: Path | ds.Dataset, target_column: str = "target"):
+        super().__init__(target_column)
 
         if isinstance(dataset_path, (Path, str)):
+            # Get corresponding cash adress
             cache_adr = CACHE / dataset_path.name
             if cache_adr.exists():
+                # Load from Cache
                 dataset = ds.load_from_disk(cache_adr)
             else:
+                # Apply naming/structure conventions, Split Data into more manageable chunks and write to cache
                 dataset = ds.load_from_disk(dataset_path)
 
                 if "train" in dataset:
                     dataset = dataset["train"]
 
-                # Identify all columns that could be target columns
+                # ================================================= #
+                # Identify all columns that could be target columns #
+                # ================================================= #
                 columns_to_exclude = {"timestamp", "id", "item_id", "start", "freq"}
-                # Drop all columns with only a single value (else we check them a few million times if they are still single val)
+                # Drop all columns with only a single value (else we would check them a few million times if they are still single val)
                 cols_to_keep = set(get_cols_with_lists(dataset))
+                # Also keep the expected columns
                 cols_to_keep = cols_to_keep.union(columns_to_exclude)
                 dataset = dataset.remove_columns([col for col in dataset.column_names if col not in cols_to_keep])
 
                 columns = set(dataset.column_names)
-                columns = list(columns - columns_to_exclude)
-                print("Columns:", columns)
+                potential_targets = list(columns - columns_to_exclude)
+                print("Columns:", potential_targets)
                 print("Rows:", len(dataset))
 
-                if len(columns) > 1:
-                    # Create Multivariate Target Column by Concat all possible targets (gets exploded in the next step)
+                if len(potential_targets) > 1: 
+                    # There are multiple potential target columns --> combine them into one multivariate one (gets exploded in the next step)
                     def concat_lists(example):
+                        """Combine several columns into one multivariate one (list of lists) + drop constant columns + Apply Naming Convention"""
                         targets = []
-                        for col in columns:
-                            if isinstance(example[col], list):
+                        for col in potential_targets:
+                            if isinstance(example[col], list): # Check again (just to be sure)
                                 if isinstance(example[col][0], list): # List of lists
+                                    # TODO Check that int or Float (i.e. not date or string-categorical)
                                     targets += [
                                         example[col][i] 
                                         for i in range(len(example[col]))
@@ -207,17 +377,23 @@ class SplitDataSet(DatasetAdapter):
                         example[self.target_col] = targets
                         return example
                     
-                    if self.target_col in dataset.column_names: # When overwritting target column we better rename to avoid conflicts
+                    # Rename old target column to avoid conflicts when overwritting it with the Multivariate one
+                    if self.target_col in dataset.column_names: 
                         dataset = dataset.rename_column(self.target_col, self.target_col + '_old')
-                        columns = [(self.target_col + '_old' if col == self.target_col else col) for col in columns] # update target col name
+                        potential_targets = [(self.target_col + '_old' if col == self.target_col else col) for col in potential_targets] # update target col name
+
                     dataset = dataset.map(concat_lists, num_proc=WORKERS) 
-                elif columns[0] != target_column:
-                    dataset = dataset.rename_column(columns[0], target_column)
+                elif potential_targets[0] != target_column:
+                    # Apply naming convention and continue
+                    dataset = dataset.rename_column(potential_targets[0], target_column)
+                else:
+                    # Everything is already AOK
+                    pass
                     
                 long_ts = len(dataset[0][self.target_col]) > 15_000
                 if isinstance(dataset[0][self.target_col][0], list) or long_ts:
 
-                    # flatten Multivariate to multiple univariates
+                    # flatten Multivariate to multiple univariates + Split long TS into multiple smaller chunks to speed up loading from disk later
                     dataset = dataset.map(
                         partial(explode_batch, target_column=target_column),
                         batched=True,
@@ -228,26 +404,48 @@ class SplitDataSet(DatasetAdapter):
                 dataset.save_to_disk(cache_adr)
 
         elif isinstance(dataset_path, ds.Dataset):
+            # dataset_path isn't a path --> rename var 
             dataset = dataset_path
 
-        super().__init__(dataset, target_column)
-        # Only load a small sample (for estimating size and structure of ds)
+        # Load a small sample (for estimating size and structure of ds)
         self.target = dataset.shuffle(seed=None).take(min(100, len(dataset)))[self.target_col]
         assert not isinstance(self.target[0][0], (list, tuple)), "Multivariate DS aren't supported yet"
 
-        # Load actual data (DataLoader for performance reasons)
+        # Load actual data 
         self._dataset = dataset 
         self.dl = self.data_loader()
 
 
     def __len__(self):
-        # estimate full ds size based on chunk size
+        '''ESTIMATE full ds size based on chunk size'''
         lengths = [len(ts) for ts in self.target]
         avg_length = sum(lengths)/len(lengths)
         return int(avg_length * len(self._dataset))
 
-    def data_loader(self):
-        if len(self._dataset) <= 10_000:
+
+    def data_loader(self, large_ds_threshold=10_000, max_worker_count=8):
+        """
+        Generator to loop over all TS in the given dataset indefinetly.\\
+        Loads small DS into ram (very fast after loading).\\
+        Streams large DS via Pytorch (i.e. replaces RAM with CPUs)\\
+        Note: Loading into RAM doesn't lead to OOMs (though it stalls) loading too many samples via torch to CPUs does.
+        Note: First sampling from "small" datasets takes very long because loading into mem but then very fast.
+        
+        Args:
+        ----------
+        large_ds_threshold : int
+            From how many time series onward do we consider the dataset too large to load into memory.
+            
+        max_worker_count : int
+            How many workers can pytorch use for speeding up loading from disk 
+            Only matters if dataset surpasses large_ds_threshold
+            If more than WORKERS it's capped to WORKERS instead
+            The higher large_ds_threshold the larger this value can be as each large DS gets that many workers 
+            --> if too many DS considered large then too many workers are created 
+            --> OOM 
+        """
+
+        if len(self._dataset) <= large_ds_threshold:
             print("Loading To Mem", flush=True)
             # Load small DS into RAM --> very fast
             target = self._dataset.shuffle(seed=None, keep_in_memory=True)[self.target_col]
@@ -257,7 +455,7 @@ class SplitDataSet(DatasetAdapter):
         else:
             # Load large DS via Torch --> Better worst case performance
             data = self._dataset.remove_columns([c for c in self._dataset.column_names if c != self.target_col])
-            dl = DataLoader(data, num_workers=min(8, WORKERS), prefetch_factor=4, batch_size=32, collate_fn=no_collate, shuffle=True)
+            dl = DataLoader(data, num_workers=min(max_worker_count, WORKERS), prefetch_factor=4, batch_size=32, collate_fn=no_collate, shuffle=True)
             while True:
                 iterator = iter(dl)
                 for batch in iterator:
@@ -265,7 +463,7 @@ class SplitDataSet(DatasetAdapter):
                         yield sample[self.target_col]
 
 
-    def get_random_snippet(self, length: int, **kwargs):
+    def get_random_snippet(self, length: int, **kwargs) -> List[float]:
         print("1.1", flush=True)
         ts = next(self.dl)
 
@@ -276,188 +474,15 @@ class SplitDataSet(DatasetAdapter):
         return ts[start_point:start_point + length]
 
 
-# --- Utility Functions ---
-def convert_to_arrow(path: Union[str, Path], time_series: List[np.ndarray], compression: str = "lz4"):
-    start = np.datetime64("2000-01-01 00:00", "s")
-    dataset = [{"start": start, "target": ts} for ts in time_series]
-    ArrowWriter(compression=compression).write_to_file(dataset, path=path)
-
-
-def load_folder(folder: Path, min_length = 128, deduplication = True):
-    print(f"Loading Folder: {folder}")
-    corpus = []
-    try:
-        data = ds.load_from_disk(folder)
-        # Filter out the too short ones
-        data = data.map(trim_nans, num_proc=WORKERS) # remove trivials (only long enough because of NaNs) TODO Maybe ok at beginning??
-        data = data.filter((lambda x: len(x["target"])>=min_length), num_proc=8)
-        data = data["train"] if "train" in data else data  # unnest 
-
-        # ========================================== #
-        # Group all the TS from the same DS together # 
-        # ========================================== #
-        id_col = "id" if "id" in data.column_names else "item_id"
-        # get all the names
-        ds_names = data[id_col]
-        ds_groups = group_similar_words(set(ds_names))
-        # sort groups by size to speed up filtering
-        ds_name_counter = Counter(ds_names)
-        ds_groups = sorted(ds_groups, key=lambda group: sum([ds_name_counter[ds_name] for ds_name in group]), reverse=True)
-        group_sizes = []
-        for group in ds_groups:
-            sizes = [ds_name_counter[ds_name] for ds_name in group]
-            group_sizes.append(sum(sizes))
-            print(sum(sizes), sizes, group)
-        print("Dataset Type: ", data.format['type'])
-        datasets = []
-        unassigned = set(range(len(data)))
-        row_ds = []
-        for group, size in tqdm(zip(ds_groups, group_sizes), total=sum(x > 5 for x in group_sizes), desc="Splitting Complex Dataset into Subsets"):
-            if size <= 5: # All groups consist only of a few ts --> Row DS (Idea: harmless to treat 5 TS as diff DS other than treating 100 TS as diff DS)
-                row_ds = data.select(unassigned)
-                unassigned = []
-                break
-            group_set = set(group)
-    
-            # Build index list from unassigned items only
-            assigned = [i for i in unassigned if ds_names[i] in group_set]
-            
-            if assigned:
-                datasets.append(data.select(assigned))
-                unassigned -= set(assigned)
-        assert len(unassigned) == 0
-
-        for dataset in datasets:
-            corpus.append(SplitDataSet(dataset, deduplication=deduplication))
-        for dataset in row_ds:
-            corpus.append(RowDataSet(dataset, deduplication=deduplication))
-            
-    except FileNotFoundError as e:
-        print(e, str(folder))
-        subfolders = [f for f in folder.iterdir() if not f.name.startswith('.') and f.is_dir()] # filter out hidden folders like .cache and files like .md
-        random.shuffle(subfolders) # Shuffle to use Caching (later) as parallelization
-        print(subfolders)
-        for subfolder in tqdm(subfolders, desc=f"Loading datasets in {folder.name}"):
-            print_ram()
-            print(f"Loading Folder: {subfolder.name}", flush=True)
-            corpus.append(SplitDataSet(subfolder, deduplication=deduplication))
-    return corpus
-
-
-def load_datasets(data_path: Path, corpora: Union[List[str], str], min_length=128, deduplication = True) -> dict:
-    corpus = []
-    for folder in tqdm(list(data_path.iterdir()), desc="Loading datasets"):
-        if ("all" in corpora and folder.name != "Time_Corpus") or (isinstance(corpora, list) and folder.name in corpora):
-            print(f"Loading {folder.name}")
-            corpus += load_folder(folder, min_length=min_length, deduplication=deduplication)
-    if not corpus:
-        raise ValueError("No matching datasets found.")
-    return corpus
-
-def trim_nans(dataset):
-    arr = np.array(dataset["target"])
-    mask = ~np.isnan(arr)
-    if not mask.any():
-        return []
-    start_point = mask.argmax()
-    endpoint = len(mask) - mask[::-1].argmax()
-    dataset["target"] = dataset["target"][start_point:endpoint]
-    dataset["timestamp"] = dataset["timestamp"][start_point:endpoint]
-    return dataset
-
-
-def get_top_contributors(values, thr=0.3):
-    arr = np.array(values)
-    sorted_indices = np.argsort(arr)[::-1]  # Descending
-    sorted_vals = arr[sorted_indices]
-
-    cumsum = np.cumsum(sorted_vals)
-    n = np.searchsorted(cumsum, thr, side='left') + 1
-
-    return sorted(sorted_indices[:n].tolist())
-
-def print_ram():
-    proc = psutil.Process(os.getpid())
-    print(f"Python RAM usage: {proc.memory_info().rss / 1e6:.2f} MB", flush=True)
-
-def explode_batch(batch, target_column):
-    """
-    Funtion for datasets .map() function
-    Takes in a batch of samples
-    Each sample can contain 
-    a very long ts that shall be splitted into smaller ones to save resources (Many small ones are easier to save and load via datasets)
-    or several time series (i.e. multi-variat) that shall be split into several independent ones
-    Potentially both
-    """
-    out = {"item_id": [], "start": [], "freq": [], "target": []}
-
-    # Get Official Values or opt for placeholders if not found 
-    id_cols = list({"item_id", "id", "name"}.intersection(batch.keys()))
-    batch_len = len(batch[target_column])
-    # Either take official id or assign to each var its own
-    ids = batch[id_cols[0]] if len(id_cols) > 0 else list(range(batch_len))
-    timestamps = [pd.to_datetime(batch["timestamp"][i]) for i in range(batch_len)] if "timestamp" in batch else []
-    starts = batch["start"] if "start" in batch else [timestamps[i].min() for i in range(batch_len)]
-    freqs = batch["freq"] if "freq" in batch else [pd.infer_freq(timestamps[i]) for i in range(batch_len)]
-
-    # Debugging Only
-    print_ram()
-
-    # Explode batch
-    q = 0
-    for iid, st, fq, targets in zip(ids, starts, freqs, batch[target_column]):
-        if not isinstance(targets[0], (tuple, list)): 
-            targets = [targets]
-
-        # Multivariat -> Univariat
-        for tgt in targets:
-            # Long TS -> small TS
-            startpoint = 0
-            while startpoint < len(tgt): # Split into smaller ts to optimize loading
-                out["item_id"].append(iid)
-                out["start"].append(st)
-                out["freq"].append(fq)
-                out["target"].append(tgt[startpoint:int(startpoint+1e4)])
-                startpoint += int(1e4)
-
-    return out
-
-
-def check_and_del_corrupted_checkpoint(checkpoint_dir: Path):
-    """
-    Loops over all files in the directory and deletes the corrupted ones
-    If it had to delete some files returns False else returns true
-    """
-    def check_arrow_file(path: Path) -> bool:
-        try:
-            # First try IPC (Arrow .arrow / .feather)
-            with pa.memory_map(str(path), "r") as source:
-                reader = ipc.RecordBatchFileReader(source)
-                _ = reader.read_all()  # force load
-            return True
-        except:
-            return False
-    aok = True
-    for file in tqdm(list(checkpoint_dir.iterdir()), desc="Checking checkpoints"):
-        if file.is_file():
-            if check_arrow_file(file):
-                continue
-            else:
-                file.unlink()
-                aok = False
-    return aok
-
-
 @app.command()
 @use_yaml_config(param_name="config")
 def create_dataset(
-    corpora: List[str] = ['all'],
+    corpora: List[str] = [],
     k: int = 1,
     length: int = 128,
     samples: int = 10000,
     alpha: float = 1.5,
     small_ts_share: float = 0.3,
-    deduplication: bool = True,
     workers: int = -1,
     data_path: str = "./data/data_sets_raw",
     output_dir: str = "./data/train"
@@ -485,43 +510,34 @@ def create_dataset(
 
     # Load Data from disk
     logging.info(f"Loading datasets from {data_path.resolve()}")
-    corpus = load_datasets(data_path, corpora, min_length=length, deduplication=deduplication)
+    corpus = load_datasets(data_path, corpora, min_length=length)
     print(f"Loaded {len(corpus)} datasets from {data_path.resolve()}")
 
     # Check Size
-    ds_lengths = [min(len(dataset), 500_000_000) for dataset in corpus] # Limit Size to 500M per DS else it gets too biased and slow
+    # Cap Size estimate to 500M per DS else it gets too biased and slow (as large DS get streamed from disk and we use them more the higher this estimate is)
+    ds_lengths = [min(len(dataset), 500_000_000) for dataset in corpus] 
     corpus_length = sum(ds_lengths)
     print(f"Corpus Size: {corpus_length}")
     ds_count = len(ds_lengths)
     print(f"Number DS: {ds_count}")
-    # TODO assert np.all(np.array(ds_lengths) >= length)
-    # Universal Basic Income Principle e.g. ts_share=0.2 --> if all TS are tiny compared to the largest one they get together ~20% while the large one gets 80% (+ a tiny share from the unclaimed UBI ~ depends on the ratio of count of large TS to small TS)
-    ubi = small_ts_share / ds_count # a smoothing factor
 
-    # calculate probs of sampling from each dataset in corpus
-    # Capped to min probability or the probability that the expected number of samples from this DS covers the entire ds (Reason: No snippet twice)
+    # ================================ #
+    # Universal Basic Income Principle #
+    # ================================ #
+    # Calculate Additive smoothing factor
+    ubi = small_ts_share / ds_count 
+
+    # calculate probs of sampling from each dataset in corpus (percentual size of entire corpus + ubi)
     ds_probability = np.array([(ds_length / corpus_length) + ubi for ds_length in ds_lengths])
     # Renormalize 
     ds_probability = ds_probability / sum(ds_probability)
     print("Probs", np.sort(ds_probability), flush=True)
     ds_probability_tensor = torch.tensor(ds_probability)
 
-    # Obsolete Weight distribution Across largest DS (Idea good but in practice complex as several edge cases exists)
-    # min_probability = small_ts_share / ds_count 
-    # assert ds_count * min_probability < 1, "Minimum probability too high for the number of datasets, can't be satisfied." # If == 1 would be equal weights
-    # Capped to min probability or the probability that the expected number of samples from this DS covers the entire ds (Reason: No snippet twice)
-    # ds_probability = np.array([max(ds_length / corpus_length, min((ds_length+1-length)/samples, min_probability)) for ds_length in ds_lengths])
-    # total_raise = sum(ds_probability) - 1 # raise through capping
-    # big_ones = get_top_contributors(ds_probability, thr=0.3)
-    # ds_probability[big_ones] -= total_raise / len(big_ones)  # the top 1% subsidies the smallest ones (hehehe)
-    # assert 1 - min_probability < sum(ds_probability) < 1 + min_probability, "Probabilities do not sum to near 1, something went wrong."
-    # print("Probability of sampling from the largest Contributors: ", ds_probability[big_ones])
-    # assert np.all(np.array(ds_probability) >= min_probability), "Some probabilities are below the minimum probability threshold."
-
     assert np.all((0 < ds_probability) & (ds_probability < 1))
 
     logging.info("Creating snippets")
-
+    #TODO Continue Refactoring from here
     def create_augmented_snippet():
         augmented_chunk = []
         c = 0
@@ -532,14 +548,12 @@ def create_dataset(
                 print("0.1", flush=True)
                 break # Fail Save if for some reason an endless loop should occur
             datasets_ids = torch.multinomial(ds_probability_tensor, k, replacement=True)
-            #datasets_ids = np.random.choice(ds_count, size=k, replace=True, p=ds_probability) 
             snippets = []
             for ds_id in datasets_ids:
                 print("1", flush=True)
                 ds_id = int(ds_id)
                 dataset = corpus[ds_id]
-                exp_count = samples * ds_probability[ds_id]
-                snippets.append(dataset.get_random_snippet(length=length, exp_count=exp_count))
+                snippets.append(dataset.get_random_snippet(length=length))
 
             print("2", flush=True)
             # Drop too short ones
@@ -627,3 +641,8 @@ def create_dataset(
 
 if __name__ == "__main__":
     app()
+
+# TODO provide access to CPU count and DS Size threshold
+# TODO Remove Deduplication from the configspace
+# TODO Remove Debugging messages
+# TODO Flatten DS creation function (no need for chunks anymore)
