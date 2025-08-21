@@ -38,6 +38,7 @@ import pyarrow.ipc as ipc
 import shutil
 import time
 import torch
+from torch.utils.data import DataLoader
 
 
 CACHE = Path("./cache/data")
@@ -52,6 +53,9 @@ WORKERS = CPU_COUNT
 
 
 app = Typer()
+
+def no_collate(batch):
+    return batch  # just return the list of samples
 
 
 class DatasetAdapter(ABC):
@@ -68,59 +72,15 @@ class DatasetAdapter(ABC):
     def __init__(self, dataset, target_column):
         # Counter to track when to reload data from disk keeping in mem makes it very fast but lets it go OOM
         # TODO Mention In Paper that chunking worsens birthday problem --> We run several workers in parallel conflicts with deduplication though
-        self.chunk_size = 2_000 
-        self._access_counter = self.chunk_size * 2
         self._big_ds = False 
         self._dataset = None 
         self.target_col = target_column
-
-        if isinstance(dataset, (ds.Dataset)) and self.chunk_size < len(dataset):
-            # Reduces Size of large DS and loads them into Mem (Speed up ~ 800x when in MEM & Large DS dont fit)
-            self._dataset = dataset 
-            self._big_ds = True
-            self.shuffle_order = list(range(len(self._dataset)))
-            random.shuffle(self.shuffle_order)
-            self.chunk_number = 0
-            self.target = None
-            self.preload_chunk()
-        else:
-            self.target = dataset[self.target_col] # Drop everything except target column to speed up look ups later
+            
 
 
     @abstractmethod
     def __len__(self):
         pass 
-
-    def access_data(self): 
-        """
-        Some DS are huge --> Keeping in Mem leads to OOM and related issues
-        Solution: Load random Chunks in Mem
-        Track how often Data was accessed if surepasses threshold load new chunk
-        """
-        if not self._big_ds:
-            return
-        self._access_counter -= 1
-        if self._access_counter <= -1:
-            # load new chunk and reset counter
-            self.preload_chunk()
-            self._access_counter = len(self.target)
-
-
-    def preload_chunk(self):
-        """
-        Loads a random subset of dataset into memory
-        """
-        print("preload", flush=True)
-        if self._big_ds:
-            idx = self.shuffle_order[self.chunk_size*self.chunk_number:self.chunk_size*(self.chunk_number+1)]
-            if self.target:
-                self.target += self._dataset.select(idx, keep_in_memory=True)[self.target_col]
-            else:
-                self.target = self._dataset.select(idx, keep_in_memory=True)[self.target_col]
-
-            self.chunk_number += 1
-        else:
-            raise Exception("Preload Chunk should not be called if DS fits well into Memory")
 
     
     # get random snippet of length n
@@ -138,11 +98,11 @@ class RowDataSet(DatasetAdapter):
     """
     def __init__(self, dataset, target_column: str = "target", deduplication: bool = True):
         super().__init__(dataset, target_column)
-        self.target_column = target_column
         # Remember used startpoints to keep Birthday Problem from breaking the infinite Data Regiment
         self.unused_startpoints = np.array([])
         self.deduplication = deduplication
         self.in_use = False # lock to avoid race conditions
+        self.target = dataset[self.target_col] # Drop everything except target column to speed up look ups later
 
 
     def __len__(self):
@@ -150,7 +110,6 @@ class RowDataSet(DatasetAdapter):
 
     def get_random_snippet(self, length: int, exp_count: int = 1, **kwargs): 
         print("1.1.row", flush=True)
-        self.access_data()
         if self.deduplication:
             print("1.1.row.1", flush=True)
             # Avoid Race Conditions during deduplication by locking
@@ -203,7 +162,7 @@ class SplitDataSet(DatasetAdapter):
     Dataset for corpora where each split (or subfolder) is a DS with each row being a TS of this
     """
     def __init__(self, dataset_path: Path | ds.Dataset, target_column: str = "target", deduplication: bool = True):
-        self.target_column = target_column
+        self.target_col = target_column
         # Remember used ts to keep Birthday Problem from breaking the infinite Data Regiment
         self.unused_ts = np.array([])
         self.deduplication = deduplication
@@ -245,18 +204,18 @@ class SplitDataSet(DatasetAdapter):
                                     ]
                                 elif len(set(example[col])) > 1: # Check that not constant
                                     targets.append(example[col])
-                        example[self.target_column] = targets
+                        example[self.target_col] = targets
                         return example
                     
-                    if self.target_column in dataset.column_names: # When overwritting target column we better rename to avoid conflicts
-                        dataset = dataset.rename_column(self.target_column, self.target_column + '_old')
-                        columns = [(self.target_column + '_old' if col == self.target_column else col) for col in columns] # update target col name
+                    if self.target_col in dataset.column_names: # When overwritting target column we better rename to avoid conflicts
+                        dataset = dataset.rename_column(self.target_col, self.target_col + '_old')
+                        columns = [(self.target_col + '_old' if col == self.target_col else col) for col in columns] # update target col name
                     dataset = dataset.map(concat_lists, num_proc=WORKERS) 
                 elif columns[0] != target_column:
                     dataset = dataset.rename_column(columns[0], target_column)
                     
-                long_ts = len(dataset[0][self.target_column]) > 15_000
-                if isinstance(dataset[0][self.target_column][0], list) or long_ts:
+                long_ts = len(dataset[0][self.target_col]) > 15_000
+                if isinstance(dataset[0][self.target_col][0], list) or long_ts:
 
                     # flatten Multivariate to multiple univariates
                     dataset = dataset.map(
@@ -272,55 +231,47 @@ class SplitDataSet(DatasetAdapter):
             dataset = dataset_path
 
         super().__init__(dataset, target_column)
-
+        # Only load a small sample (for estimating size and structure of ds)
+        self.target = dataset.shuffle(seed=None).take(min(100, len(dataset)))[self.target_col]
         assert not isinstance(self.target[0][0], (list, tuple)), "Multivariate DS aren't supported yet"
 
+        # Load actual data (DataLoader for performance reasons)
+        self._dataset = dataset 
+        self.dl = self.data_loader()
+
+
     def __len__(self):
-        if self._big_ds:
-            # estimate full ds size based on chunk size
-            lengths = [len(ts) for ts in self.target]
-            avg_length = sum(lengths)/len(lengths)
-            return int(avg_length * len(self._dataset))
+        # estimate full ds size based on chunk size
+        lengths = [len(ts) for ts in self.target]
+        avg_length = sum(lengths)/len(lengths)
+        return int(avg_length * len(self._dataset))
+
+    def data_loader(self):
+        if len(self._dataset) <= 10_000:
+            print("Loading To Mem", flush=True)
+            # Load small DS into RAM --> very fast
+            target = self._dataset.shuffle(seed=None, keep_in_memory=True)[self.target_col]
+            while True:
+                for sample in target:
+                    yield sample
         else:
-            return sum([len(ts) for ts in self.target])
+            # Load large DS via Torch --> Better worst case performance
+            data = self._dataset.remove_columns([c for c in self._dataset.column_names if c != self.target_col])
+            dl = DataLoader(data, num_workers=min(8, WORKERS), prefetch_factor=12, collate_fn=no_collate, shuffle=True)
+            while True:
+                iterator = iter(dl)
+                for sample in iterator:
+                    yield sample[0][self.target_col]
+
 
     def get_random_snippet(self, length: int, **kwargs):
         print("1.1", flush=True)
-        self.access_data()
+        ts = next(self.dl)
+
         print("1.2", flush=True)
-        if self.deduplication:
-            print("1.2.1a", flush=True)
-            # Avoid Race Conditions during deduplication
-            while self.in_use: 
-                print("1.2.1.1", flush=True)
-                print("Waiting for lock to be released...", flush=True)
-                sleep(0.01)
-            self.in_use = True
-            print("1.2.2", flush=True)
-
-            unused_ts_count = len(self.unused_ts)
-            if unused_ts_count == 0:
-                print("1.2.2.1", flush=True)
-                self.unused_ts = np.arange(len(self.target))
-                unused_ts_count = len(self.unused_ts)
-            print("1.2.3", flush=True)
-            # ts_id_id = np.random.randint(unused_ts_count)
-            ts_id_id = torch.randint(unused_ts_count, (1,)).item()
-            ts_id = self.unused_ts[ts_id_id]
-            self.unused_ts = np.delete(self.unused_ts, ts_id_id)
-
-            self.in_use = False
-            print("1.2.4", flush=True)
-        else:
-            print("1.2.1b", flush=True)
-            # ts_id = np.random.randint(len(self.target))
-            ts_id = torch.randint(len(self.target), (1,)).item()
-
-        print("1.3", flush=True)
-        ts = self.target[int(ts_id)]
         # start_point = np.random.randint(max(len(ts) - length + 1, 1))
         start_point = torch.randint(max(len(ts) - length + 1, 1), (1,)).item()
-        print("1.4", flush=True)
+        print("1.3", flush=True)
         return ts[start_point:start_point + length]
 
 
@@ -471,6 +422,31 @@ def explode_batch(batch, target_column):
     return out
 
 
+def check_and_del_corrupted_checkpoint(checkpoint_dir: Path):
+    """
+    Loops over all files in the directory and deletes the corrupted ones
+    If it had to delete some files returns False else returns true
+    """
+    def check_arrow_file(path: Path) -> bool:
+        try:
+            # First try IPC (Arrow .arrow / .feather)
+            with pa.memory_map(str(path), "r") as source:
+                reader = ipc.RecordBatchFileReader(source)
+                _ = reader.read_all()  # force load
+            return True
+        except:
+            return False
+    aok = True
+    for file in tqdm(list(checkpoint_dir.iterdir()), desc="Checking checkpoints"):
+        if file.is_file():
+            if check_arrow_file(file):
+                continue
+            else:
+                file.unlink()
+                aok = False
+    return aok
+
+
 @app.command()
 @use_yaml_config(param_name="config")
 def create_dataset(
@@ -512,7 +488,7 @@ def create_dataset(
     print(f"Loaded {len(corpus)} datasets from {data_path.resolve()}")
 
     # Check Size
-    ds_lengths = [min(len(dataset), 250_000_000) for dataset in corpus] # Limit Size to 250M per DS else it gets too biased and slow
+    ds_lengths = [min(len(dataset), 500_000_000) for dataset in corpus] # Limit Size to 500M per DS else it gets too biased and slow
     corpus_length = sum(ds_lengths)
     print(f"Corpus Size: {corpus_length}")
     ds_count = len(ds_lengths)
@@ -599,7 +575,11 @@ def create_dataset(
             # Which checkpoints exist already 
             checkpoints = [int(checkpoint.stem) for checkpoint in tmp_folder.iterdir() if checkpoint.is_file()]
             if len(checkpoints)*chunks_per_checkpoint >= chunk_count:
-                break
+                # TODO Check and delete corrupted files if none found break 
+                aok = check_and_del_corrupted_checkpoint(tmp_folder)
+                if aok: # Only break if we didnt need to delete a corrupted file
+                    break
+                
             # get lowest missing number (to keep checkpoints tidy)
             expected_checkpoints = set(range(len(checkpoints)+1))
             missing_checkpoints = expected_checkpoints - set(checkpoints)
