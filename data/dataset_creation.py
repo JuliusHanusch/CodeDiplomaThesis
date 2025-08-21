@@ -257,11 +257,12 @@ class SplitDataSet(DatasetAdapter):
         else:
             # Load large DS via Torch --> Better worst case performance
             data = self._dataset.remove_columns([c for c in self._dataset.column_names if c != self.target_col])
-            dl = DataLoader(data, num_workers=min(8, WORKERS), prefetch_factor=12, collate_fn=no_collate, shuffle=True)
+            dl = DataLoader(data, num_workers=min(8, WORKERS), prefetch_factor=4, batch_size=32, collate_fn=no_collate, shuffle=True)
             while True:
                 iterator = iter(dl)
-                for sample in iterator:
-                    yield sample[0][self.target_col]
+                for batch in iterator:
+                    for sample in batch:
+                        yield sample[self.target_col]
 
 
     def get_random_snippet(self, length: int, **kwargs):
