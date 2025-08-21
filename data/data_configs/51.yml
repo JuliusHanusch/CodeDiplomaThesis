@@ -1,0 +1,7 @@
+alpha: 1.2237892370776
+corpora:
+- UCI_Corpus_Processed
+- Lotsa_Corpus
+k: 4.0
+length: 128.0
+small_ts_share: 0.0012069406676

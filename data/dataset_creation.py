@@ -101,7 +101,7 @@ def no_collate(batch):
     return batch  
 
 
-def load_folder(folder: Path, min_length = 128):
+def load_folder(folder: Path, min_length = 128, large_ds_thr=10_000, dataloaders=8):
     """
     Loops over all datasets inside a folder and converts them into RowDatasets or SplitDatasets
     """
@@ -156,7 +156,7 @@ def load_folder(folder: Path, min_length = 128):
 
         # Convert Groups into Datasets and add to Corpus
         for dataset in grouped_datasets:
-            corpus.append(SplitDataSet(dataset))
+            corpus.append(SplitDataSet(dataset, large_ds_thr=large_ds_thr, dataloaders=dataloaders))
         for dataset in row_ds:
             corpus.append(RowDataSet(dataset))
             
@@ -174,12 +174,12 @@ def load_folder(folder: Path, min_length = 128):
         for subfolder in tqdm(subfolders, desc=f"Loading datasets in {folder.name}"):
             print_ram()
             print(f"Loading Folder: {subfolder.name}", flush=True)
-            corpus.append(SplitDataSet(subfolder))
+            corpus.append(SplitDataSet(subfolder, large_ds_thr=large_ds_thr, dataloaders=dataloaders))
 
     return corpus
 
 
-def load_datasets(data_path: Path, corpora: List[str], min_length=128) -> List[DatasetAdapter]:
+def load_datasets(data_path: Path, corpora: List[str], min_length=128, large_ds_thr=10_000, dataloaders=8) -> List[DatasetAdapter]:
     """
     Creates a large combined corpus by collecting all corpora included in the corpora list from the data_path folder and converting them into DataSetAdapters
     """
@@ -187,7 +187,7 @@ def load_datasets(data_path: Path, corpora: List[str], min_length=128) -> List[D
     for folder in tqdm(list(data_path.iterdir()), desc="Loading datasets"):
         if folder.name in corpora:
             print(f"Loading {folder.name}")
-            corpus += load_folder(folder, min_length=min_length)
+            corpus += load_folder(folder, min_length=min_length, large_ds_thr=large_ds_thr, dataloaders=dataloaders)
     if not corpus:
         raise ValueError("No matching datasets found.")
     return corpus
@@ -326,8 +326,10 @@ class SplitDataSet(DatasetAdapter):
     """
     Dataset for corpora where each split (or subfolder) is a DS with each row being a TS of this
     """
-    def __init__(self, dataset_path: Path | ds.Dataset, target_column: str = "target"):
+    def __init__(self, dataset_path: Path | ds.Dataset, target_column: str = "target", large_ds_thr=10_000, dataloaders=8):
         super().__init__(target_column)
+        self.large_ds_thr = large_ds_thr
+        self.dataloaders = dataloaders
 
         if isinstance(dataset_path, (Path, str)):
             # Get corresponding cash adress
@@ -373,6 +375,11 @@ class SplitDataSet(DatasetAdapter):
                                     ]
                                 elif len(set(example[col])) > 1: # Check that not constant
                                     targets.append(example[col])
+                        # Verify that all targets are int or float
+                        old_variety = len(targets)
+                        targets = [target for target in targets if isinstance(target[0], (float, int))]
+                        assert old_variety == len(targets)
+
                         example[self.target_col] = targets
                         return example
                     
@@ -422,7 +429,7 @@ class SplitDataSet(DatasetAdapter):
         return int(avg_length * len(self._dataset))
 
 
-    def data_loader(self, large_ds_threshold=10_000, max_worker_count=8):
+    def data_loader(self):
         """
         Generator to loop over all TS in the given dataset indefinetly.\\
         Loads small DS into ram (very fast after loading).\\
@@ -444,7 +451,7 @@ class SplitDataSet(DatasetAdapter):
             --> OOM 
         """
 
-        if len(self._dataset) <= large_ds_threshold:
+        if len(self._dataset) <= self.large_ds_thr:
             print("Loading To Mem", flush=True)
             # Load small DS into RAM --> very fast
             target = self._dataset.shuffle(seed=None, keep_in_memory=True)[self.target_col]
@@ -454,7 +461,7 @@ class SplitDataSet(DatasetAdapter):
         else:
             # Load large DS via Torch --> Better worst case performance
             data = self._dataset.remove_columns([c for c in self._dataset.column_names if c != self.target_col])
-            dl = DataLoader(data, num_workers=min(max_worker_count, WORKERS), prefetch_factor=4, batch_size=32, collate_fn=no_collate, shuffle=True)
+            dl = DataLoader(data, num_workers=min(self.dataloaders, WORKERS), prefetch_factor=4, batch_size=32, collate_fn=no_collate, shuffle=True)
             while True:
                 iterator = iter(dl)
                 for batch in iterator:
@@ -481,11 +488,18 @@ def create_dataset(
     length: int = 128,
     samples: int = 10000,
     alpha: float = 1.5,
-    small_ts_share: float = 0.3,
+    small_ts_share: float = 0.1,
     workers: int = -1,
+    dataloaders: int = 8, # Max Number of workers per large DS to load from Disk 
+    large_ds_thr: int = 10_000, # Threshold for how many Time Series need to be in a Dataset to stream it from disk instead of loading it to RAM
     data_path: str = "./data/data_sets_raw",
     output_dir: str = "./data/train"
 ):
+    if "--config" in sys.argv:
+        conf_name = Path(sys.argv[sys.argv.index("--config")+1]).stem
+    else:
+        conf_name = "CLI"
+    
     # If given Overwrite Worker Count else one per CPU
     if workers > -1:
         global WORKERS
@@ -497,7 +511,7 @@ def create_dataset(
     hp["hash"] = hp_hash
     data_path = Path(data_path)
     output_dir = Path(output_dir)
-    output_adr: Path = output_dir / f"{hp_hash}.arrow"
+    output_adr: Path = output_dir / f"{conf_name}_{hp_hash}.arrow"
     if output_adr.exists():
         raise Exception("Corpus already exists; the provided configuration might be a duplicate.")
 
@@ -509,7 +523,7 @@ def create_dataset(
 
     # Load Data from disk
     logging.info(f"Loading datasets from {data_path.resolve()}")
-    corpus = load_datasets(data_path, corpora, min_length=length)
+    corpus = load_datasets(data_path, corpora, min_length=length, large_ds_thr=large_ds_thr, dataloaders=dataloaders)
     print(f"Loaded {len(corpus)} datasets from {data_path.resolve()}")
 
     # Check Size
@@ -545,7 +559,7 @@ def create_dataset(
     batch_count = (samples+samples_per_checkpoint-1)//samples_per_checkpoint
     loop = tqdm(range(len(checkpoints), batch_count), desc="Creating augmented snippets")
 
-    for i in loop:
+    for _ in loop:
         # Create a Batch of Augmented Samples
         for _ in range(samples_per_checkpoint):
             print("0", flush=True)
@@ -639,6 +653,5 @@ def create_dataset(
 if __name__ == "__main__":
     app()
 
-# TODO provide access to CPU count and DS Size threshold
-# TODO Remove Deduplication from the configspace --> Regenerate Configs
+# TODO Regenerate Configs
 # TODO Remove Debugging messages

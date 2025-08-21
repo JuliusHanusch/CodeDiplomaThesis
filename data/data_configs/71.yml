@@ -1,0 +1,7 @@
+alpha: 0.0004802971
+corpora:
+- Time_Corpus_Processed_Split
+- Lotsa_Corpus
+k: 1.0
+length: 1024.0
+small_ts_share: 0.6029551647025

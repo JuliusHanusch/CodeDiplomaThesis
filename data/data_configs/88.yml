@@ -1,0 +1,7 @@
+alpha: 0.2678767552004
+corpora:
+- Time_Corpus_Processed_Split
+- Chronos_Corpus
+k: 4.0
+length: 128.0
+small_ts_share: 0.0596448868572

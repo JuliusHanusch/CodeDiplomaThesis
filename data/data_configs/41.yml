@@ -1,7 +1,7 @@
-alpha: 0.2541712981503
+alpha: 0.0047982771431
 corpora:
-- UCI_Corpus_Processed
-deduplication: 1.0
+- Time_Corpus_Processed
+- Time_Corpus_Processed_Split
 k: 3.0
-length: 64.0
-small_ts_share: 0.0933108024997
+length: 1024.0
+small_ts_share: 0.0564342113189

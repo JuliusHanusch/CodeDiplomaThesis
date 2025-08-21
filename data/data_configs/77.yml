@@ -1,0 +1,7 @@
+alpha: 0.6567782941959
+corpora:
+- Chronos_Corpus
+- Chronos_Corpus_Kernel_Synth
+k: 5.0
+length: 128.0
+small_ts_share: 0.0025656852025
