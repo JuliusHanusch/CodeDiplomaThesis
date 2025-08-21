@@ -20,4 +20,4 @@ FILE_LIST=($(ls "$CONFIG_DIR"))
 INPUT_FILE=${FILE_LIST[$SLURM_ARRAY_TASK_ID]}
 echo "${CONFIG_DIR}/${INPUT_FILE}"
   
-py-spy record -o profile.svg -- python ./data/dataset_creation.py --config "${CONFIG_DIR}/${INPUT_FILE}" --output-dir "$out_dir" --samples 5000000 --workers -1
+python ./data/dataset_creation.py --config "${CONFIG_DIR}/${INPUT_FILE}" --output-dir "$out_dir" --samples 5000000 --workers -1
