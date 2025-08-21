@@ -365,7 +365,6 @@ class SplitDataSet(DatasetAdapter):
                         for col in potential_targets:
                             if isinstance(example[col], list): # Check again (just to be sure)
                                 if isinstance(example[col][0], list): # List of lists
-                                    # TODO Check that int or Float (i.e. not date or string-categorical)
                                     targets += [
                                         example[col][i] 
                                         for i in range(len(example[col]))
@@ -376,7 +375,7 @@ class SplitDataSet(DatasetAdapter):
                         # Verify that all targets are int or float
                         old_variety = len(targets)
                         targets = [target for target in targets if isinstance(target[0], (float, int))]
-                        assert old_variety == len(targets)
+                        assert old_variety == len(targets) # Other Types are just Not Implemented Yet
 
                         example[self.target_col] = targets
                         return example
@@ -639,4 +638,3 @@ def create_dataset(
 if __name__ == "__main__":
     app()
 
-# TODO Remove Debugging messages
