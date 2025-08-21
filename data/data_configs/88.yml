@@ -1,7 +1,9 @@
-alpha: 0.2678767552004
+alpha: 0.0703359308592
 corpora:
-- Time_Corpus_Processed_Split
+- UCI_Corpus_Processed
+- UCI_Corpus_Processed_Split
+- Lotsa_Corpus
 - Chronos_Corpus
-k: 4.0
-length: 128.0
-small_ts_share: 0.0596448868572
+k: 1.0
+length: 1024.0
+small_ts_share: 1.0485139799857

@@ -49,6 +49,9 @@ python ./data/create_data_configs.py --count 100 # Optional as we published our 
 sbatch mixup.sh
 ```
 Note: This corpora will be huge, so make sure you have enough disk space available (~50GB each) and adjust the output directory in the ``mixup.sh`` file.
+Note: This will take a while, but it supports checkpointing and you can start multiple jobs in parallel to speed it up even more. However, data might not be as well balanced if a corpus is created over multiple Jobs.
+We opted for running it 36h single threaded and then to double worker count every 36h for all remaining ones as those are the slowest.
+Simply by running `sbatch mixup.sh` twice as much as before every 36h. The jobs end if their corresponding corpus is already created.
 
 
 
