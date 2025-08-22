@@ -554,7 +554,7 @@ def create_dataset(
 
     for _ in loop:
         # Create a Batch of Augmented Samples
-        for _ in range(samples_per_checkpoint):
+        while len(corpus_augmented) < samples_per_checkpoint:
             # Select k Snippets from Corpus Randomly
             datasets_ids = torch.multinomial(ds_probability_tensor, k, replacement=True)
             snippets = []
