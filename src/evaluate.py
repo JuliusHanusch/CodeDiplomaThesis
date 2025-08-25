@@ -104,8 +104,11 @@ def main(
             dataset_name = config["name"]
             prediction_length = config["prediction_length"]
 
-            logger.info(f"Loading {dataset_name}")
+            logger.info(f"Loading {target} from {dataset_name}")
             test_data = load_val_data(config=config, target=target)
+            if test_data is None: # Catch DS Not Found
+                logger.info(f"Failed locating Target {target} in {dataset_name}")
+                continue 
 
             logger.info(
                 f"Generating forecasts for {dataset_name} "
@@ -117,10 +120,6 @@ def main(
                     pipeline=pipeline,
                     prediction_length=prediction_length,
                     batch_size=batch_size,
-                    #num_samples=num_samples,
-                    # temperature=temperature,
-                    # top_k=top_k,
-                    # top_p=top_p,
                 )
             else:
                 sample_forecasts = generate_sample_forecasts(

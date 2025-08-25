@@ -17,6 +17,7 @@ from autogluon.timeseries import TimeSeriesDataFrame
 import numpy as np
 from transformers import AutoModel
 from torch import nn
+from warnings import warn
 
 
 def make_dict_storable(advanced_dictionary: dict)->dict:
@@ -206,19 +207,63 @@ def load_val_data(
 ):
     print(f"\n=== Processing dataset: {config.get('name', config.get('id', 'unknown'))} ===")
     print(f"\nStarting processing: {config['name']}")
+    offset = config["offset"]
+    prediction_length = config["prediction_length"]
+    num_rolls = config["num_rolls"]
+    name = config["name"]
 
     if "hf_repo" in config:
-        offset = config["offset"]
-        prediction_length = config["prediction_length"]
-        num_rolls = config["num_rolls"]
         hf_repo = config["hf_repo"]
-        name = config["name"]
         trust_remote_code = True if hf_repo == "autogluon/chronos_datasets_extra" else False
-
 
         ds = datasets.load_dataset(
             hf_repo, name, split="train", trust_remote_code=trust_remote_code
         )
+    elif "disk_path" in config:
+        disk_path = config["disk_path"]
+        cache_adr = Path("./cache") / (disk_path.stem + ".parquet")
+
+        # Load -> Explode Table -> Cache
+        if not cache_adr.exists():
+            data = datasets.load_from_disk(disk_path)
+            data = data["test"]
+            # Convert into pd format + Drop Unnecessary Features
+            exploded_data = [
+                {"target": sublist}
+                for row in data["value"]
+                for sublist in row
+            ]
+            df = pd.DataFrame(exploded_data)
+            df.to_parquet(cache_adr)
+        else:
+            df = pd.read_parquet(cache_adr)
+
+        # Select TS
+        ts_id = target # target should be just a number
+        try:
+            ts = pd.DataFrame({"target": df.iloc[ts_id]["target"]})
+        except IndexError as e:
+            # Return None if Target outside Range available data
+            warn(f"TS {ts_id} couldnt be loaded from {disk_path} maybe some ds went missing during download")
+            return None
+        
+        ts.reset_index(inplace=True)
+        
+        # Back to HF
+        data = subdfs_to_rows(ts, offset=offset, n=num_rolls)
+
+        features = Features({
+            #'indices': Sequence(Value('int64')),
+            'timestamp': Sequence(Value('string')),  # or 'timestamp[s]' if ISO format
+            'target': Sequence(Value('float64'))  # 2D array: rows of values per sub-df
+        })
+
+        ds = Dataset.from_pandas(data, features=features)
+        ds._info.splits = {
+            "train": SplitInfo(name="train", num_examples=len(ds)),
+            "test": SplitInfo(name="test", num_examples=0)
+        }
+
 
 
     else:
@@ -228,12 +273,8 @@ def load_val_data(
             df = load_from_link(
                     url = config["link"],
                     filename = config.get("filename"),
-                    dataset_name = config["name"]
+                    dataset_name = name
                 )
-
-        offset = config["offset"]
-        prediction_length = config["prediction_length"]
-        num_rolls = config["num_rolls"]
 
         data = df[[target]].copy()
         data = data.rename({target: "target"}, axis="columns")

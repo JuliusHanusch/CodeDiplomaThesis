@@ -385,7 +385,8 @@ if __name__ == "__main__":
     #     worker_walltime="02:00:00",
     #     account="p_automl",
     #     job_extra_directives="['--gres=gpu:1']",
-    #     worker_count=1,
-    #     max_batch_size=1
+    #     worker_count=3,
+    #     max_batch_size=32,
+    #     limit_model_size=1,
     # )
     #app()
