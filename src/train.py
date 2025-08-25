@@ -171,7 +171,7 @@ def get_next_path(
 
 
 #modified load model fúnction to implement additional hyperparameter
-def load_model( # TODO Check if same as originial 
+def load_model( 
     model_id="google/t5-efficient-tiny",
     model_type="seq2seq",
     random_init=False,
@@ -747,7 +747,7 @@ def main(
 
     shuffled_train_dataset = DatasetClass( # TODO Add to Search Space
         datasets=train_datasets,
-        probabilities=probability, # Todo
+        probabilities=probability, 
         tokenizer=None if bolt else chronos_config.create_tokenizer(),
         context_length=context_length,
         prediction_length=prediction_length,

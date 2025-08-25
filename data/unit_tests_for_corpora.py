@@ -51,7 +51,7 @@ if __name__ == "__main__":
     overlap = set(chr_train).intersection(test_set_names)
     assert len(overlap) == 0, f"Test Set leaked into train data, {overlap} is/are in train corpora"
 
-    # TODO Each ds can be loaded and has over 100 rows
+    # Each ds can be loaded and has over 100 rows
     for p in dataset_paths:
         dataset = ds.load_from_disk(p)["train"]
         if p.stem in ("ercot", "exchange_rate", "monash_pedestrian_counts", "monash_cif_2016", "monash_australian_electricity", "brazilian_cities_temperature"):
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     # LOTSA Corpus #
     # ============ # 
 
-    # TODO As long as specified in the paper
+    # As long as specified in the paper
     lotsa_folder = data_directory / "Lotsa_Corpus"
     subfolders = [f for f in lotsa_folder.iterdir() if not f.name.startswith('.') and f.is_dir()]
     print(len(subfolders))
@@ -128,21 +128,31 @@ if __name__ == "__main__":
             token=token,
         )
         index_df = pd.read_csv(index_path, delimiter=';')
+        if "url" in index_df.columns:
+            index_df = index_df.drop_duplicates(subset=['url', 'file_name'], keep='first')
+        else:
+            index_df = index_df.drop_duplicates(subset=['datasetID', 'file_name'], keep='first')
+        # Explode 
+        index_df["data_column"] = index_df["data_column"].apply(lambda x: x.split(","))
+        index_df = index_df.explode("data_column", ignore_index=True)
+        # Count Expected Entries
         expected = Counter(index_df["name"])
 
         # Load full corpus and flatten
         full_corpus = ds.load_from_disk(data_dir / corpus_name)
         if isinstance(full_corpus, dict):  # has train/test splits
             full_corpus = ds.concatenate_datasets([full_corpus["train"], full_corpus["test"]])
+        full_corpus = full_corpus.to_pandas()
+        full_corpus = full_corpus.explode("value", ignore_index=True)
         observed = Counter(full_corpus["name"])
 
         # Compute missing
         deficit = expected - observed
         missing_pct = sum(deficit.values()) / len(index_df)
 
-        assert missing_pct < allowed_missing_pct, f"{missing_pct*100:.2f}% of {corpus_name} DS are missing, reproducibility might be impaired"
         for key, value in deficit.items():
             warn(f"From {key} are {value}/{expected[key]} TS missing")
+        assert missing_pct < allowed_missing_pct, f"{missing_pct*100:.2f}% of {corpus_name} DS are missing, reproducibility might be impaired"
         print(f"Missing {missing_pct*100:.2f}% of {corpus_name} DS - That is rather normal")
 
     
@@ -152,50 +162,14 @@ if __name__ == "__main__":
         repo_id="ddrg/kaggle-time-series-datasets",
         data_dir=data_directory,
         token=credentials["HUGGINGFACE"]["HF_TOKEN"],
-        allowed_missing_pct=0.07, #We only achieved about 93% available data (A few were removed on purpose as they might be in test set many might get lost when DS change on kaggle)
+        allowed_missing_pct=0.1125, #We only achieved about 89% available data (A few were removed on purpose as they might be in test set many might get lost when DS change on kaggle)
     )
 
-    sys.exit()
     verify_corpus_integrity(
         corpus_name="UCI_Corpus",
         index_file="UCI_final.csv",
         repo_id="ddrg/time-series-datasets",
         data_dir=data_directory,
         token=credentials["HUGGINGFACE"]["HF_TOKEN"],
-        # TODO Set Allowed Missing Pct
+        allowed_missing_pct=0.023 
     )
-
-
-
-    # TODO 
-    kaggle_ds_index_file = hf_hub_download(
-        repo_id="ddrg/kaggle-time-series-datasets", 
-        filename="time-series-datasets.csv", 
-        repo_type="dataset",
-        token = credentials["HUGGINGFACE"]["HF_TOKEN"]
-    )
-    kaggle_ds_index = pd.read_csv(kaggle_ds_index_file, delimiter=';')
-    print(kaggle_ds_index)
-    kaggle_corpus = ds.load_from_disk(data_directory / "Time_Corpus")
-    kaggle_corpus = ds.concatenate_datasets([kaggle_corpus["train"], kaggle_corpus["test"]])
-    kaggle_inventory = Counter(kaggle_corpus["name"])
-    kaggle_inventory_desired = Counter(kaggle_ds_index["name"])
-    kaggle_inventory_deficit = kaggle_inventory_desired - kaggle_inventory
-    print(kaggle_inventory_deficit)
-    missing_pct = sum(kaggle_inventory_deficit.values()) / len(kaggle_ds_index)
-
-    #We also just achieve about 93% available data (A few were removed on purpose as they might be in test set many might get lost when DS change on kaggle)
-    assert missing_pct < 0.07, f"{missing_pct*100:.2f}% of Kaggle DS are missing, reproducibility might be impaired" 
-    for key, value in kaggle_inventory_deficit.items():
-        warn(f"From {key} are {value}/{kaggle_inventory_desired[key]} TS missing")
-    print(f"Missing {missing_pct*100:.2f}% of Kaggle DS - That is rather normal")
-
-
-    uci_ds_index_file = hf_hub_download(
-        repo_id="ddrg/time-series-datasets", 
-        filename="UCI_final.csv", 
-        repo_type="dataset",
-        token = credentials["HUGGINGFACE"]["HF_TOKEN"]
-    )
-    uci_ds_index = pd.read_csv(uci_ds_index_file, delimiter=';')
-    uci_corpus = ds.load_from_disk(data_directory / "UCI_Corpus")

@@ -6,9 +6,8 @@ root_dir = Path(__file__).parent.parent
 sys.path.append(str(root_dir.resolve()))  
 sys.path.append(str((root_dir/"code").resolve()))  
 sys.path.append(str((Path(__file__).parent.parent / "chronos_pkg/src").resolve()))
-from ConfigSpace import Configuration, ConfigurationSpace
+from ConfigSpace import Configuration
 from ConfigSpace.exceptions import IllegalValueError
-from functools import partial
 from pathlib import Path
 from typer import Typer, Option
 from typer_config import use_yaml_config
@@ -16,27 +15,23 @@ import logging
 
 from smac import MultiFidelityFacade as MFFacade
 from smac import Scenario
-from smac.facade import AbstractFacade
 from smac.intensifier.hyperband import Hyperband
-from smac.intensifier.successive_halving import SuccessiveHalving
-from search_space import get_config_space#, training_data_paths
+from search_space import get_config_space
 from smac import HyperparameterOptimizationFacade as HPOFacade
 from dask.distributed import Client
 from dask_jobqueue import SLURMCluster
-from time import sleep
 import uuid
 from ast import literal_eval
 import torch
 import pandas as pd
 import socket
-import random
-from smac.runhistory.runhistory import RunHistory
 import sqlite3
 import json
 import time
 from datetime import datetime
-from typing import Optional
+from src.db import insertTable
 import pandas as pd
+
 pd.options.display.max_columns = None
 
 BASE_OUTPATH = Path(__file__).parent.parent / "chronos_models"
@@ -49,7 +44,7 @@ app = Typer()
 @app.command()
 @use_yaml_config(param_name="config")
 def main(
-    training_data_paths: str,
+    training_folder: str = Option("../data/train", help="Folder with all the Training Corpora (in .arrow format) that can be used"),
     seed: int = Option(0, help="Random seed for reproducibility."),
     model_ids: str = Option("['google/t5-efficient-tiny']", help="Which base model to use."),
     limit_model_size: int = Option(1, "Whether to limit model to about the size proposed by model_id or to let it grow indefinetly"),
@@ -66,7 +61,7 @@ def main(
     max_batch_size: int = Option(32, help="How large is the max batch size per device. Note: Larger BS are simulated via Gradient Accumulation"),
 ):
 
-    configs_space = get_config_space(training_data_paths=training_data_paths, model_ids=model_ids, max_batch_size=max_batch_size, limit_model_size=limit_model_size)
+    configs_space = get_config_space(training_folder=training_folder, model_ids=model_ids, max_batch_size=max_batch_size, limit_model_size=limit_model_size)
 
 
     # Define our environment variables
@@ -93,10 +88,10 @@ def main(
     else:
         bad_nodes = ""
 
-    # TODO
+
     print(bad_nodes)
     cluster = SLURMCluster(
-        job_cpu=4, #TODO Can we increase to 4
+        job_cpu=4, 
         cores=1,
         memory=memory,
         walltime=worker_walltime,
@@ -220,7 +215,7 @@ def train(
 
         if output_path.exists():
             raise NotImplementedError(f"Model already trained for config {config_hash}.")
-            # TODO Load Config Results from DB and return
+            # TODO Load Config Results from DB and return (If already exists it should be in DB already so maybe todo?)
             return
         
         config: dict = dict(config)
@@ -293,7 +288,7 @@ def train(
 
             # ! Eval Chronos
             val_configs = (
-                Path("./data/eval_configs/eval_config.yml").resolve(), # TODO Path to Zero-Shot Val Config
+                Path("./data/eval_configs/eval_config.yml").resolve(), 
             )
             results = {}
 
@@ -326,9 +321,6 @@ def train(
         duration = time.time() - start_time
 
         # ! Save Meta Data To DB
-
-        from src.db import insertTable
-
         config_simple = make_dict_storable(config_dict)
         # in_domain_mase, in_domain_wql, in_domain_mae, in_domain_nrmse, zero_shot_mase, zero_shot_wql, zero_shot_mae, zero_shot_nrmse = results_to_metrics(results)
         insertTable("Results", {

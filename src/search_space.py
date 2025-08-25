@@ -2,21 +2,17 @@ from ConfigSpace import ConfigurationSpace, Constant, Integer, Float, Categorica
 from ast import literal_eval
 from pathlib import Path
 
-# TODO Update
-#training_data_paths = "['/data/horse/ws/jipo020b-aion/AION/data/testfiles/training_mix.arrow']"
 
+def get_config_space(training_folder: str, model_ids: str = '["google/t5-efficient-tiny"]', max_batch_size=32, limit_model_size=1) -> ConfigurationSpace:
+    # Find all Corpora in training_folder
+    datasets = []
+    training_folder_ = Path(training_folder)
+    for file in training_folder_.iterdir():
+        if file.is_file() and file.suffix == '.arrow':
+            datasets.append(file)
+    # For Tracking which HPs are "just" datasets and which are for algorithm tuning
+    training_data_paths = str([str(corpus.resolve()) for corpus in datasets])
 
-
-probability_options = [
-    "[0.8, 0.1, 0.1]",
-    "[0.7, 0.2, 0.1]",
-    "[0.6, 0.2, 0.2]",
-    "[0.9, 0.05, 0.05]",
-    "[0.85, 0.1, 0.05]"
-]
-# define data splits
-
-def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-efficient-tiny"]', max_batch_size=32, limit_model_size=1) -> ConfigurationSpace:
     # Fixed parameters to be added as constants
     fixed_config = {
         "training_data_paths": training_data_paths,
@@ -47,10 +43,9 @@ def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-eff
             cs.add(Constant(key, value))
     
     # Add A variable for every dataset
-    datasets = literal_eval(training_data_paths)
     for ds_path in datasets:
-        ds_name =  Path(ds_path).stem
-        cs.add(Float(ds_name, (0, 1), default=1/len(datasets)))
+        ds_name =  ds_path.stem
+        cs.add(Integer(ds_name, (0, 1), default=1)) # Binary Decision: include or not
 
     # Add tunable hyperparameters
     model_ids = literal_eval(model_ids)
@@ -72,7 +67,6 @@ def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-eff
     cs.add(Float("max_missing_prop", (0.8, 1.0), log = True, default=0.9))
     cs.add(Float("drop_prob", (0.0, 0.5), log = False, default=0.2))
     #cs.add(Categorical("tokenizer_class", ["MeanScaleUniformBins", "MeanScaleQuantileBins"], default="MeanScaleUniformBins"))
-    # TODO Must be as long as there a Corpora cs.add(Categorical("probability", [probability_options]))
     cs.add(Categorical("lr_scheduler_type", ["linear", "cosine", "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau","cosine_with_min_lr"],default="linear"))
     cs.add(Integer("bolt", (0, 1),default=0))
     cs.add(Integer("min_past_expo", (4, 10),default=6))
@@ -85,12 +79,12 @@ def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-eff
 
     # Bolt Only Stuff
     cs.add(Integer("patch_size_expo", (0, 6), log = False, default=4))
-    cs.add(Integer("patch_stride_expo", (0, 7), log = False, default=4)) #TODO how exxactlly does it work -> Adjust
+    cs.add(Integer("patch_stride_expo", (0, 7), log = False, default=4)) 
     cs.add(Integer("use_reg_token", (0, 1),default=1))
     cs.add(EqualsCondition(cs["patch_size_expo"], cs["bolt"], 1))
     cs.add(EqualsCondition(cs["patch_stride_expo"], cs["bolt"], 1))
     cs.add(EqualsCondition(cs["use_reg_token"], cs["bolt"], 1))
-    # TODO Add Patch FFN HP
+    # TODO Add Patch use_layer_norm HP 
 
 
     return cs

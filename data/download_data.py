@@ -1,3 +1,9 @@
+import sys  
+import os  
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent.resolve()))  
+from src.utils import is_in_collection
+
 import datasets as ds
 import yaml
 import os
@@ -6,12 +12,9 @@ from typer import Typer, Option
 import subprocess
 from shutil import which
 import tempfile
-from typing import Set
-from normality import normalize
 from shutil import rmtree
-from functools import cache
 
-app = Typer()
+app = Typer(pretty_exceptions_enable=False)
 
 
 @app.command()
@@ -52,7 +55,7 @@ def download_kaggle_corpus(test_set_names):
         kaggle_dataset = ds.load_dataset("ddrg/kaggle-time-series-datasets", "TIME_SERIES", trust_remote_code = True, cache_dir=tmp_cache_dir)
         # Filter out potential matches from test set
         print(f"Corpus before filtering: {str(kaggle_dataset)}")
-        kaggle_dataset = kaggle_dataset.filter(lambda x: not is_in_collection(x["name"], test_set_names))
+        kaggle_dataset = kaggle_dataset.filter(lambda x: not is_in_collection(x["name"], test_set_names), num_proc=8)
         print(f"Corpus after filtering: {str(kaggle_dataset)}")
         kaggle_dataset.save_to_disk(output_path/"Time_Corpus")
 
@@ -61,7 +64,7 @@ def download_uci_corpus(test_set_names):
     # Download Data but dont HF-Cache TS-Corpus has its own caching mechanism
     with tempfile.TemporaryDirectory(dir=cache_path) as tmp_cache_dir:
         dataset = ds.load_dataset("ddrg/time-series-datasets", "TIME_SERIES", trust_remote_code = True, cache_dir=tmp_cache_dir)
-        dataset = dataset.filter(lambda x: not is_in_collection(x["name"], test_set_names))
+        dataset = dataset.filter(lambda x: not is_in_collection(x["name"], test_set_names), num_proc=8)
         dataset.save_to_disk(output_path/"UCI_Corpus")
 
 
@@ -104,49 +107,7 @@ def download_lotsa_corpus(test_set_names):
         if is_in_collection(dataset_name, test_set_names):
             # deleted dataset again to not accidentally train on test set
             rmtree(dataset_folder)
-            print(f"Removed {dataset_folder}")
-
-    
-
-# Utils #
-
-
-def char_bigrams(s: str) -> Set[str]:
-    """Return the set of character bigrams for string s."""
-    return {s[i : i + 2] for i in range(len(s) - 1)} if len(s) > 1 else set()
-
-def bigram_similarity(s1: str, s2: str) -> float:
-    """
-    Compute Jaccard similarity between two strings based on character bigrams.
-    Returns 1.0 if both strings yield no bigrams.
-    """
-    b1, b2 = char_bigrams(f" {s1} "), char_bigrams(f" {s2} ")
-    if not b1 and not b2:
-        return 1.0
-    inter = b1 & b2
-    union = len(b1) + len(b2)
-    return len(inter) * 2 / union
-
-@cache
-def my_normalize(text: str|list[str]):
-    if isinstance(text, str):
-        return normalize(text, latinize=True, ascii=True)
-    elif isinstance(text, (list, tuple)):
-        return [my_normalize(word) for word in text]
-    else:
-        raise Exception(f"Text has unsupported dtype {type(text)}")
-
-def is_in_collection(orig: str, collection: list[str]):
-    orig = my_normalize(orig)
-    collection = my_normalize(tuple(collection)) # to tuple for caching
-    for word in collection:
-        score = bigram_similarity(orig, word)
-        if score >= 0.8:
-            print(f"{orig} matches {word}!")
-            return True
-    return False
-        
-
+            print(f"Removed {dataset_folder}")     
 
 
 if __name__ == "__main__":
