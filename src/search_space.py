@@ -2,21 +2,17 @@ from ConfigSpace import ConfigurationSpace, Constant, Integer, Float, Categorica
 from ast import literal_eval
 from pathlib import Path
 
-# TODO Update
-#training_data_paths = "['/data/horse/ws/jipo020b-aion/AION/data/testfiles/training_mix.arrow']"
 
+def get_config_space(training_folder: str, model_ids: str = '["google/t5-efficient-tiny"]', max_batch_size=32, limit_model_size=1) -> ConfigurationSpace:
+    # Find all Corpora in training_folder
+    datasets = []
+    training_folder_ = Path(training_folder)
+    for file in training_folder_.iterdir():
+        if file.is_file() and file.suffix == '.arrow':
+            datasets.append(file)
+    # For Tracking which HPs are "just" datasets and which are for algorithm tuning
+    training_data_paths = str([str(corpus.resolve()) for corpus in datasets])
 
-
-probability_options = [
-    "[0.8, 0.1, 0.1]",
-    "[0.7, 0.2, 0.1]",
-    "[0.6, 0.2, 0.2]",
-    "[0.9, 0.05, 0.05]",
-    "[0.85, 0.1, 0.05]"
-]
-# define data splits
-
-def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-efficient-tiny"]', max_batch_size=32, limit_model_size=1) -> ConfigurationSpace:
     # Fixed parameters to be added as constants
     fixed_config = {
         "training_data_paths": training_data_paths,
@@ -47,9 +43,8 @@ def get_config_space(training_data_paths: str, model_ids: str = '["google/t5-eff
             cs.add(Constant(key, value))
     
     # Add A variable for every dataset
-    datasets = literal_eval(training_data_paths)
     for ds_path in datasets:
-        ds_name =  Path(ds_path).stem
+        ds_name =  ds_path.stem
         cs.add(Integer(ds_name, (0, 1), default=1)) # Binary Decision: include or not
 
     # Add tunable hyperparameters
