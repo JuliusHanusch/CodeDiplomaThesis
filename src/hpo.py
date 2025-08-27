@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 root_dir = Path(__file__).parent.parent
 sys.path.append(str(root_dir.resolve()))  
-sys.path.append(str((root_dir/"code").resolve()))  
+sys.path.append(str((root_dir/"src").resolve()))  
 sys.path.append(str((Path(__file__).parent.parent / "chronos_pkg/src").resolve()))
 from ConfigSpace import Configuration
 from ConfigSpace.exceptions import IllegalValueError
@@ -47,7 +47,7 @@ def main(
     training_folder: str = Option("../data/train", help="Folder with all the Training Corpora (in .arrow format) that can be used"),
     seed: int = Option(0, help="Random seed for reproducibility."),
     model_ids: str = Option("['google/t5-efficient-tiny']", help="Which base model to use."),
-    limit_model_size: int = Option(1, "Whether to limit model to about the size proposed by model_id or to let it grow indefinetly"),
+    limit_model_size: int = Option(1, help= "Whether to limit model to about the size proposed by model_id or to let it grow indefinetly"),
     trial_walltime_limit: int = Option(300, help="How long until we stop a trial. (-1 ~ Unlimited)"),
     number_trials: int = Option(5, help="How many trials to run."),
     min_budget: int = Option(960_000, help="Minimum number of Training Samples"),
@@ -142,7 +142,17 @@ def main(
     # Checkpointing from previous Searches
     if DB_PATH.is_file():
         conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql("SELECT * FROM Results", conn)
+
+        # Exists Table as well
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Results';")
+        table_exists = cur.fetchone() is not None
+        if table_exists:
+            print("Trying to add Previous Runs to History to learn from them...")
+            df = pd.read_sql("SELECT * FROM Results", conn)
+        else:
+            df = pd.DataFrame()
+        conn.close()
         for _, row in df.iterrows():
             config: dict = json.loads(row["config"])
             config = {key: config[key] for key in configs_space.keys() if key in config}

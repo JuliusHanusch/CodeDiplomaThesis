@@ -99,6 +99,7 @@ def main(
 
     result_rows = []
     for config in backtest_configs:
+        aok = True
         targets = config.pop("targets", ["target"])
         for target in targets:
             dataset_name = config["name"]
@@ -162,12 +163,16 @@ def main(
             for metric_name, value in metrics.items():
                 metric_name_norm = normalize_metric_name(metric_name=metric_name)
                 baseline_score = eval_ag(config_hashable=json.dumps(config, sort_keys=True), target=target, metric=metric_name_norm.upper())
+                if baseline_score <= 0.0000001 or pd.isna(baseline_score):
+                    # Skip special cases when metrics fail i.e. when time series is constant
+                    aok = False
+                    continue
                 results[metric_name_norm] = log(value / baseline_score)
                 logger.info(f"\nMetric: {metric_name} -> {metric_name_norm}\nOriginal: {value}\nBaseline: {baseline_score}\nNew: {results[metric_name_norm]}")
-
-            result_rows.append(
-                {"dataset": dataset_name, "model": chronos_model_id, **results}
-            )
+            if aok:
+                result_rows.append(
+                    {"dataset": dataset_name, "model": chronos_model_id, **results}
+                )
 
     # Save results to a CSV file
     results_df = (
@@ -182,8 +187,19 @@ def eval_ag(
         config_hashable: str,
         target: str,
         metric: str,
-        force_return: bool = False, # Returns 1 if not found (for metrics not supported by AG)
+        _force_return: bool = False, # Returns 1 if not found (for metrics not supported by AG)
 ) -> float:
+    """
+    Cacheable Function to train a ZeroShot baseline model quickly via AutoGluon
+    AG is used as it automates preprocessing and model selection delivering strong baselines across varied datasets
+
+    Args:
+        _config_hashable_ is the dataset config as a json-string (for caching it is important that configs are hashable)
+        _target_ the target TS to use of the given dataset 
+        _metric_ AutoGluon Metric to use
+        _force_return if true returns 1.0 if metric not available (for internal use only)
+    Returns the value of the best found model using the given metric on the given dataset as a float 
+    """
     config = json.loads(config_hashable)
     # Note Use double caching (outer cache avoids read from CSV, inner cache avoids retraining for each metric)
     cache_path = Path("./cache/AG_Scores.csv")
@@ -195,13 +211,13 @@ def eval_ag(
         cached_scores = pd.read_csv(cache_path)
         relevant_scores = cached_scores[
             (cached_scores["ds_name"] == dataset_name) &
-            (cached_scores["target"] == target) &
+            (cached_scores["target"] == str(target)) &
             (cached_scores["metric"] == metric)
         ]
         if len(relevant_scores) > 0:
             return relevant_scores["value"].iloc[0]
-        elif force_return: # Return default if metric not supported
-            logger.warning(f"Metric {metric} not found for {dataset_name} and {target} AG might not support the metric. Return 1 due to force_return")
+        elif _force_return: # Return default if metric not supported
+            logger.warning(f"Metric {metric} not found for {dataset_name} and {target} AG might not support the metric. Return 1 due to _force_return")
             # Cache Default
             if cache_path.exists():
                 cached_scores = pd.read_csv(cache_path)
@@ -279,7 +295,7 @@ def eval_ag(
     results.to_csv(cache_path, index=False)
 
     # Call again now that entry exists (if still not exists return 1)
-    return eval_ag(config_hashable, target=target, metric=metric, force_return=True)
+    return eval_ag(config_hashable, target=target, metric=metric, _force_return=True)
 
 
 @cache

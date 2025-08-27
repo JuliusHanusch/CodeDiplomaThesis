@@ -50,16 +50,32 @@ sbatch mixup.sh
 ```
 Note: This corpora will be huge, so make sure you have enough disk space available (~50GB each) and adjust the output directory in the ``mixup.sh`` file.
 Note: This will take a while, but it supports checkpointing and you can start multiple jobs in parallel to speed it up even more. However, data might not be as well balanced if a corpus is created over multiple Jobs.
-We opted for running it 36h single threaded and then to double worker count every 36h for all remaining ones as those are the slowest.
-Simply by running `sbatch mixup.sh` twice as much as before every 36h. The jobs end if their corresponding corpus is already created.
-
+We opted for running it single threaded and then to restart it every 36h this should stop immediately for all corpora that are already ready and start preparing the remaining from their last checkpoint.
+Simply by running `sbatch mixup.sh` again and again until there are no more folders in "./data/train/" i.e. only .arrow files.
 
 
 ## Training + HPO
+After The Corpora are prepared we can start the actual Hyperparameter Optimization.
 
+1. We start by setting up a venv for the search as this time we require GPUs
+```bash
+./hpc/venvs/setup_gpu_venv.sh
+```
+
+2. SetUp your Search Config, examples can be found inside of `"./src/search_configs"` the search space can be configured inside of `"./src/search_space.py"`
+
+3. Now we can run the search like this:
+
+```bash
+python3 ./src/hpo.py --config ./search_configs/test.yml
+``` 
+Alternatively:
+```bash
+sbatch ./hpc/run_search.sh
+```
 
 
 1. Install CPU Venv via running `hpc/venvs/setup_cpu_venv.sh`
-2. Donload Data This Might Take a day or two 'sbatch ./hpc/download.sh'
+2. Download Data This Might Take a day or two 'sbatch ./hpc/download.sh'
 
 Note: We use SLURM and always track nodes where (many) configs fails to avoid them later you might want to delete the `broken_nodes.txt` file to reset this tracking ever so often else it might hapen that you wont get scheduled anymore as all nodes get avoided.

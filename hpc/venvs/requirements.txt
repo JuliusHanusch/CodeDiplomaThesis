@@ -22,3 +22,4 @@ dask-jobqueue
 autogluon
 ucimlrepo
 deepspeed
+normality

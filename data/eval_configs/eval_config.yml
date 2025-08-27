@@ -121,6 +121,7 @@
   prediction_length: 64
   num_rolls: 16
 
+# TODO Half and Half Kaggle and UCI Test Set
 # Now the Big Guy
 - name: UCI_TEST_CORPUS
   disk_path: "./data/data_sets_raw/UCI_Corpus"

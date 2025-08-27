@@ -3,14 +3,15 @@ seed: 42
 model_ids: 
 - "google/t5-efficient-tiny"
 # - "openai-community/gpt2"
-trial_walltime_limit: 3600
+limit_model_size: 1
+trial_walltime_limit: 86400 # 1D TODO Incr
 number_trials: 100
 min_budget: 960_000
 max_budget: 7_680_000 # 30k Steps * 256 batch size TODO Incr to 10M steps 
 eta: 3
 memory: "160G"
-worker_walltime: "10:00:00"
+worker_walltime: "24:00:00" # TODO Incr
 account: "p_llm_timeseries"
 job_extra_directives: "['--gres=gpu:1']"
-worker_count: 10
+worker_count: 1 # TODO Increase
 max_batch_size: 32

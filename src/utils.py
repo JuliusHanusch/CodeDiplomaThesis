@@ -222,7 +222,7 @@ def load_val_data(
             hf_repo, name, split="train", trust_remote_code=trust_remote_code
         )
     elif "disk_path" in config:
-        disk_path = config["disk_path"]
+        disk_path = Path(config["disk_path"])
         cache_adr = Path("./cache") / (disk_path.stem + ".parquet")
 
         # Load -> Explode Table -> Cache
