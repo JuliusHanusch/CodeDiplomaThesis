@@ -20,6 +20,14 @@ from torch import nn
 from warnings import warn
 from typing import Set
 from normality import normalize
+from copy import deepcopy
+
+
+class ModelTooBig(Exception):
+    """_summary_
+    Model Surpases self-defined size limits
+    """
+    pass
 
 
 def make_dict_storable(advanced_dictionary: dict)->dict:
@@ -121,19 +129,21 @@ def to_gluonts_univariate(hf_dataset: datasets.Dataset):
     return gts_dataset
 
 
-def sample_least_overlapping_subdfs(df: pd.DataFrame, offset: int, n: int = 20) -> list[pd.DataFrame]:
+def sample_least_overlapping_subdfs(df: pd.DataFrame, window_len: int, n: int = 20) -> list[pd.DataFrame]:
     L = len(df)
-    offset = abs(offset)
-    max_start = L - offset
+    window_len = abs(window_len)
+    max_start = L - window_len
     if n > max_start + 1:
         raise ValueError("Too many sub-DFs for given length and offset.")
 
     step = max((max_start) // (n - 1), 1)
     starts = [min(i * step, max_start) for i in range(n)]
-    return [df.iloc[s : s + offset] for s in starts]
+    return [df.iloc[s : s + window_len] for s in starts]
 
-def subdfs_to_rows(df: pd.DataFrame, offset: int, n: int = 20) -> pd.DataFrame:
-    subdfs = sample_least_overlapping_subdfs(df, offset, n)
+
+def subdfs_to_rows(df: pd.DataFrame, offset: int, prediction_length: int, n: int = 20) -> pd.DataFrame:
+    window_len = abs(offset) + abs(prediction_length)
+    subdfs = sample_least_overlapping_subdfs(df, window_len, n)
     
     result = pd.DataFrame([
         {
@@ -221,75 +231,72 @@ def load_val_data(
         ds = datasets.load_dataset(
             hf_repo, name, split="train", trust_remote_code=trust_remote_code
         )
-    elif "disk_path" in config:
-        disk_path = Path(config["disk_path"])
-        cache_adr = Path("./cache") / (disk_path.stem + ".parquet")
-
-        # Load -> Explode Table -> Cache
-        if not cache_adr.exists():
-            data = datasets.load_from_disk(disk_path)
-            data = data["test"]
-            # Convert into pd format + Drop Unnecessary Features
-            exploded_data = [
-                {"target": sublist}
-                for row in data["value"]
-                for sublist in row
-            ]
-            df = pd.DataFrame(exploded_data)
-            df.to_parquet(cache_adr)
-        else:
-            df = pd.read_parquet(cache_adr)
-
-        # Select TS
-        ts_id = target # target should be just a number
-        try:
-            ts = pd.DataFrame({"target": df.iloc[ts_id]["target"]})
-        except IndexError as e:
-            # Return None if Target outside Range available data
-            warn(f"TS {ts_id} couldnt be loaded from {disk_path} maybe some ds went missing during download")
-            return None
-        
-        ts.reset_index(inplace=True)
-        
-        # Back to HF
-        data = subdfs_to_rows(ts, offset=offset, n=num_rolls)
-
-        features = Features({
-            #'indices': Sequence(Value('int64')),
-            'timestamp': Sequence(Value('string')),  # or 'timestamp[s]' if ISO format
-            'target': Sequence(Value('float64'))  # 2D array: rows of values per sub-df
-        })
-
-        ds = Dataset.from_pandas(data, features=features)
-        ds._info.splits = {
-            "train": SplitInfo(name="train", num_examples=len(ds)),
-            "test": SplitInfo(name="test", num_examples=0)
-        }
-
-
-
     else:
-        try:
-            df = load_via_uci_api(dataset_id=config["id"])
-        except DatasetNotFoundError:
-            df = load_from_link(
-                    url = config["link"],
-                    filename = config.get("filename"),
-                    dataset_name = name
-                )
+        if "disk_path" in config:
+            disk_path = Path(config["disk_path"])
+            cache_adr = Path("./cache") / (disk_path.stem + ".parquet")
 
-        data = df[[target]].copy()
-        data = data.rename({target: "target"}, axis="columns")
-        data.reset_index(inplace=True)
+            # Load -> Explode Table -> Cache
+            if not cache_adr.exists():
+                data = datasets.load_from_disk(disk_path)
+                data = data["test"]
+                # Convert into pd format + Drop Unnecessary Features
+                exploded_data = [
+                    {"target": sublist}
+                    for row in data["value"]
+                    for sublist in row
+                ]
+                df = pd.DataFrame(exploded_data)
+                df.to_parquet(cache_adr)
+            else:
+                df = pd.read_parquet(cache_adr)
 
-        # Clean all values (remove $ and , from strings)
-        def clean_currency(val):
-            if isinstance(val, str):
-                return pd.to_numeric(val.replace("$", "").replace(",", ""), errors="coerce")
-            return val
+            # Select TS
+            ts_id = target # target should be just a number
+            try:
+                ts = pd.DataFrame({"target": df.iloc[ts_id]["target"]})
+            except IndexError as e:
+                # Return None if Target outside Range available data
+                warn(f"TS {ts_id} couldnt be loaded from {disk_path} maybe some ds went missing during download")
+                return None
+            
+            ts.reset_index(inplace=True)
+            
+        else:
+            try:
+                df = load_via_uci_api(dataset_id=config["id"])
+            except DatasetNotFoundError:
+                df = load_from_link(
+                        url = config["link"],
+                        filename = config.get("filename"),
+                        dataset_name = name
+                    )
 
-        data = data.applymap(clean_currency)
-        data = subdfs_to_rows(data, offset=offset, n=num_rolls)
+            data = df[[target]].copy()
+            data = data.rename({target: "target"}, axis="columns")
+            data.reset_index(inplace=True)
+
+            # Clean all values (remove $ and , from strings)
+            def clean_currency(val):
+                if isinstance(val, str):
+                    return pd.to_numeric(val.replace("$", "").replace(",", ""), errors="coerce")
+                return val
+
+            ts = data.applymap(clean_currency)
+
+        # Back to HF
+        data = subdfs_to_rows(ts, offset=offset, prediction_length=prediction_length, n=num_rolls)
+        # if autogluon_format:
+        #     # Split Data Manually
+        #     data = subdfs_to_rows(ts, offset=offset, prediction_length=prediction_length, n=num_rolls)
+        # else:
+        #     # let gluonts split it later
+        #     data = pd.DataFrame([
+        #         {
+        #             'timestamp': ts["timestamp"] if "timestamp" in ts.columns else  [str(timestamp) for timestamp in pd.date_range(start='1990-12-01', freq="min", periods=len(ts.index))],
+        #             'target': ts["target"].tolist()
+        #         }
+        #     ])
 
         features = Features({
             #'indices': Sequence(Value('int64')),
@@ -313,12 +320,23 @@ def load_val_data(
             id_column="item_id",
             timestamp_column="timestamp",
         )
+        item_ids = set(df['item_id'])
+        print(f"n_ids: {len(item_ids)}", flush=True)
+        lengths = [len(validation_data.loc[iid]) for iid in item_ids]
     else:
         gts_dataset = to_gluonts_univariate(ds)
 
-        # Split dataset for evaluation
-        _, test_template = split(gts_dataset, offset=offset)
-        validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
+        # "Split" dataset for evaluation (or pseudo-split because we already split manually for the AG version) 
+        # TODO Replace Gluonts splitting it behaves strangely (large negative numbers are taken once modulo for reasons)
+        _, test_template = split(gts_dataset, offset=abs(offset)) 
+        validation_data = test_template.generate_instances(prediction_length=prediction_length, windows=1)
+        v2 = deepcopy(validation_data)
+        lengths = [len(sample["target"]) for sample in v2.input]
+
+    # TODO Remove
+    v2 = deepcopy(validation_data)
+    n_samples = sum(1 for _ in v2)
+    print(f"Offset {offset}\nPredictionLength {prediction_length}\nNumRolls {num_rolls}\nname {name}\nN_samples {n_samples}\nLengths {lengths}", flush=True)
     return validation_data
 
 

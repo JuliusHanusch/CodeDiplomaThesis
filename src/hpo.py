@@ -30,16 +30,18 @@ import json
 import time
 from datetime import datetime
 from src.db import insertTable
+from src.utils import ModelTooBig
 import pandas as pd
 
+
 pd.options.display.max_columns = None
+app = Typer()
 
 BASE_OUTPATH = Path(__file__).parent.parent / "chronos_models"
 BAD_NODES_TRACKER = Path(__file__).parent.parent / "cache/broken_nodes.txt" # HPC isn't perfect some nodes are flawed and everything goes OOM on them -> Track & avoid
 DB_PATH = Path(__file__).parent.parent / "AION.db"
 OBJECTIVES = ["RMSE", "MASE", "WQL"]
 
-app = Typer()
 
 @app.command()
 @use_yaml_config(param_name="config")
@@ -60,11 +62,12 @@ def main(
     worker_count: int = Option(1, help="How many workers to use."),
     max_batch_size: int = Option(32, help="How large is the max batch size per device. Note: Larger BS are simulated via Gradient Accumulation"),
 ):
+    """Performance SMAC search for best Chronos Config"""
 
+    # Get Search Space
     configs_space = get_config_space(training_folder=training_folder, model_ids=model_ids, max_batch_size=max_batch_size, limit_model_size=limit_model_size)
 
-
-    # Define our environment variables
+    # Define environment variables
     scenario = Scenario(
         configspace=configs_space,
         name=f"{literal_eval(model_ids)[0].replace('/', '_')}_{uuid.uuid4()}",
@@ -73,23 +76,21 @@ def main(
         n_trials=number_trials,  
         min_budget=min_budget,  
         max_budget=max_budget,  
-        # n_workers=8, not by cluster jobs
         seed=seed,
         use_default_config=True,
         objectives=OBJECTIVES,  
     )
 
+    # Some Nodes on HPC are sometimes broken --> we try to track and avoid them
     if BAD_NODES_TRACKER.exists():
         with BAD_NODES_TRACKER.open() as f:
             bad_nodes = [line.strip() for line in f if line.strip()]
-            # if len(set(bad_nodes)) > 10: # Some OOMs might be legit - test them again ever so often
-            #     bad_nodes = random.sample(bad_nodes, len(bad_nodes)//2) # The more often OOM hapens the more likely one will be sampled
             bad_nodes = ",".join(sorted(set(bad_nodes)))
     else:
         bad_nodes = ""
-
-
     print(bad_nodes)
+
+    # Submit Worker Jobs
     cluster = SLURMCluster(
         job_cpu=4, 
         cores=1,
@@ -110,16 +111,16 @@ def main(
             "which python",
             "python --version",
         ],
-        death_timeout=300
+        death_timeout=600
     )
 
     print(cluster.job_script())
-
     cluster.scale(jobs=worker_count)  # Ask for 1 job
-
     client = Client(address=cluster)
 
-    # We start with a few random configs + the default
+
+
+    # Start with a few random configs + the default
     initial_design = MFFacade.get_initial_design(scenario, n_configs=5) #, additional_configs=[configs_space.get_default_configuration()])
 
     # Create our intensifier
@@ -135,15 +136,15 @@ def main(
         dask_client=client,
         multi_objective_algorithm=HPOFacade.get_multi_objective_algorithm(
             scenario,
-            objective_weights=[1, 0.5, 0.5],  # Equal Weights but MASE & WQL are redundant
+            objective_weights=[1, 0.5, 0.5],  # Equal Weights but MASE & WQL are largely redundant
         ),
     )
 
-    # Checkpointing from previous Searches
+    # Load Checkpoints from previous Searches
     if DB_PATH.is_file():
         conn = sqlite3.connect(DB_PATH)
 
-        # Exists Table as well
+        # If Table Exists load prev trials from it
         cur = conn.cursor()
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Results';")
         table_exists = cur.fetchone() is not None
@@ -153,10 +154,12 @@ def main(
         else:
             df = pd.DataFrame()
         conn.close()
+
+        # Add previous trials to our history if they fit the search space
         for _, row in df.iterrows():
             config: dict = json.loads(row["config"])
             config = {key: config[key] for key in configs_space.keys() if key in config}
-            try: # Search Spaces might differ over time - reuse only the currently relevant trials
+            try: 
                 smac._runhistory.add(
                     config=Configuration(
                         configuration_space=configs_space,
@@ -171,13 +174,12 @@ def main(
             except IllegalValueError as e:
                 print(f"Wasn't able to add Config:\n{config}\nbecause of: {str(e)}")
 
-    client.wait_for_workers(1) # Wait to get Scheduled
+    # Wait to get Scheduled
+    client.wait_for_workers(1) 
 
-    # Let's optimize
-    # print(f"History: {smac.runhistory.get_configs("cost")}")
+    # Start The Search
     incumbents = smac.optimize()
     print(f"Incumbents: {incumbents}")
-    # print(f"History: {smac.runhistory.get_configs("cost")}")
 
 
     for incumbent in incumbents:
@@ -188,6 +190,7 @@ def main(
     client.close()
     cluster.close()
     print(f"All Done!!! {len(smac.runhistory.get_configs("cost"))} Evaluated")
+    print(f"You can find all the trials and their results in {DB_PATH}")
 
 
 
@@ -197,8 +200,22 @@ def train(
     seed: int = 0, 
     budget: int = 1
     ):
+    """
+    The actual Trial 
+    Trains and evaluates a Chronos Model with the given Config
+    Writes the detailed results to the Database and returns the error metric as a dict
+
+    Args:
+        config (Configuration): An Hyperparameter Configuration from the given Search Space
+        seed (int, optional): Random Seed that shall be used. Defaults to 0.
+        budget (int, optional): For how many train samples shall the model be trained. Defaults to 1.
+
+    Returns:
+        _type_: _description_
+    """
     start_time = time.time()
     if torch.cuda.is_available():
+        # Track Resource Consumption for Debugging CUDA
         device = torch.cuda.current_device()
         total = torch.cuda.get_device_properties(device).total_memory
         reserved = torch.cuda.memory_reserved(device)
@@ -209,8 +226,9 @@ def train(
         print(f"Reserved: {reserved / 1e9:.2f} GB")
         print(f"Allocated: {allocated / 1e9:.2f} GB")
         print(f"Free (inside reserved): {free / 1e9:.2f} GB")
+
     try:
-        # Hash Config to get exactly one model per config
+        # Hash Config (incl. budget) to get exactly one model per config
         config_dict = dict(config)
         config_dict["seed"] = seed
         config_dict["batch_size"] = 2 ** config_dict["batch_size_expo"] 
@@ -223,15 +241,14 @@ def train(
         config_hash = hash(frozenset([(key, str(val)) for key, val in config_dict.items()]))
         output_path =  Path(BASE_OUTPATH / f"chronos_{config_hash}")
 
-        if output_path.exists():
-            raise NotImplementedError(f"Model already trained for config {config_hash}.")
-            # TODO Load Config Results from DB and return (If already exists it should be in DB already so maybe todo?)
-            return
+        # if output_path.exists():
+        #     raise NotImplementedError(f"Model already trained for config {config_hash}.")
+        #     # TODO Load Config Results from DB and return (If already exists it should be in DB already so maybe todo?)
+        #     return
         
         config: dict = dict(config)
 
-        # Import Train Function
-        #from code.evaluate import main as eval_chronos
+        # Import Scripts to set their loggers (TODO make less dirty)
         from src.utils import make_dict_storable
         import src.train as trainer
         import src.evaluate as evaluater
@@ -242,7 +259,7 @@ def train(
         trainer.logger = logger
         evaluater.logger = logger
 
-        # Special HPs
+        # Compute Complex HPs (especially parameters that are powers of 2)
         d_kv = 2 ** config.pop("d_kv_expo", 6)
         d_ff = 2 ** config.pop("d_ff_expo", 12)
         context_length = 2 ** config.pop("context_length_expo", 9)
@@ -262,12 +279,13 @@ def train(
             config["tokenizer_kwargs"] = f"{{'low_limit': -{tokenizer_limit:.3f}, 'high_limit': {tokenizer_limit:.3f}}}"
             print(f"Tokenizer Kwargs: {config["tokenizer_kwargs"]}")
 
+        # Update/Remove Complex HPs that were calculated at beginning for experiment tracking
         config.pop("batch_size_expo")
         config.pop("max_per_device_train_batch_size")
         config["per_device_train_batch_size"] = config_dict["per_device_train_batch_size"]
         config["gradient_accumulation_steps"] = config_dict["gradient_accumulation_steps"]
 
-        # get ds probabilities in the according order
+        # Get Corpus Probabilities (s.t. we can optimize the training data)
         training_data_paths = config.pop("training_data_paths")
         training_data_paths_list = literal_eval(training_data_paths)
         probabilities = [config.pop(Path(p).stem) for p in training_data_paths_list]
@@ -296,43 +314,36 @@ def train(
             )
 
 
-            # ! Eval Chronos
-            val_configs = (
-                Path("./data/eval_configs/eval_config.yml").resolve(), 
+            # Eval Chronos
+            print(f"Start Evaluating {model_path}")
+            val_config = Path("./data/eval_configs/eval_config.yml").resolve()
+            results = evaluater.main(
+                config_path=val_config,
+                chronos_model_id = model_path,
+                device="cuda",
+                torch_dtype="bfloat16",
+                batch_size=32,
+                num_samples=20,
+                temperature=1.0,
+                top_k=50,
+                top_p=1.0,
+                bolt=bolt,
             )
-            results = {}
-
-            print(f"Start Evaluating {model_path} on {val_configs}")
-            for val_config in val_configs: # TODO support multiple val configs
-                results[val_config.stem]: pd.DataFrame = evaluater.main(
-                    config_path=val_config,
-                    chronos_model_id = model_path,
-                    device="cuda",
-                    torch_dtype="bfloat16",
-                    batch_size=32,
-                    num_samples=20,
-                    temperature=1.0,
-                    top_k=50,
-                    top_p=1.0,
-                    bolt=bolt,
-                )
-                # Aggregate Results
-                numeric_cols = results[val_config.stem].select_dtypes(include='number').columns
-                average_errors = results[val_config.stem][numeric_cols].mean(numeric_only=True).to_dict()
+            # Aggregate Results
+            numeric_cols = results.select_dtypes(include='number').columns
+            average_errors = results[numeric_cols].mean(numeric_only=True).to_dict()
             print(f"Results:\n {results}")
-        except Exception as e:
-            if "ModelTooBig" in str(e) and DB_PATH.exists(): # Dont make Inf first entry that gets messy
-                # Note Which models were too big to not sample them over and over
-                average_errors = {metric: float('inf') for metric in OBJECTIVES}
-                print(str(e))
-            else: 
-                raise
+        except ModelTooBig as e:
+            print(str(e), flush=True)
+            # Rember Which models were too big - to train the surrogate model to not sample them over and over
+            average_errors = {metric: float('inf') for metric in OBJECTIVES}
+
+
 
         duration = time.time() - start_time
 
-        # ! Save Meta Data To DB
+        # Save Meta Data To DB
         config_simple = make_dict_storable(config_dict)
-        # in_domain_mase, in_domain_wql, in_domain_mae, in_domain_nrmse, zero_shot_mase, zero_shot_wql, zero_shot_mae, zero_shot_nrmse = results_to_metrics(results)
         insertTable("Results", {
             "time_stamp": datetime.now().strftime("%Y-%m-%dT%H-%M-%S.%f"),
             "config_hash":config_hash, 
@@ -344,17 +355,23 @@ def train(
             "cpu_count": os.cpu_count(),
             "gpu_count": torch.cuda.device_count(),
             **average_errors}, 
-            db_path=DB_PATH)
+            db_path=DB_PATH,
+            )
+
+        # Remove current node from broken nodes list (might be obsolete)
         if BAD_NODES_TRACKER.exists():
             node_name = socket.gethostname() # Node worked at least ones -> Should not be broken
             lines = BAD_NODES_TRACKER.read_text().splitlines()
             lines = [line for line in lines if line.strip() != node_name]
             BAD_NODES_TRACKER.write_text("\n".join(lines) + "\n" if lines else "")
+
         # ! Return Costs
-        return {key: average_errors[key] for key in OBJECTIVES} #(average_errors["RMSE"], average_errors["MASE"], average_errors["WQL"])
-    except RuntimeError as e: # Catch OOM Error seems to be a HW problem (they appear in swarms on the same device - Unlikely Config Specific)
+        return {key: average_errors[key] for key in OBJECTIVES} 
+
+    except RuntimeError as e: 
+        # Catch OOM Error seems to be a HW problem (they appear in swarms on the same device - Unlikely Config Specific)
         if "out of memory" in str(e) or "uncorrectable ECC error encountered" in str(e):
-            # Get Broken Node
+            # Track Broken Nodes
             node_name = socket.gethostname()
             print(f"OOM or ECC error caught on {node_name}: {str(e)}")
             with BAD_NODES_TRACKER.open("a") as f:
@@ -370,25 +387,3 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     app()
-
-
-    # # TODO
-    # main(
-    #     config={}, # TODO Add Config
-    #     training_data_paths = "['/data/horse/ws/jipo020b-aion/AION/data/testfiles/training_mix.arrow']",
-    #     seed=0,
-    #     model_ids='["google/t5-efficient-tiny"]',
-    #     trial_walltime_limit=-1,
-    #     number_trials=6,
-    #     min_budget=512,
-    #     max_budget=2024,
-    #     eta=3,
-    #     memory="160G",
-    #     worker_walltime="02:00:00",
-    #     account="p_automl",
-    #     job_extra_directives="['--gres=gpu:1']",
-    #     worker_count=3,
-    #     max_batch_size=32,
-    #     limit_model_size=1,
-    # )
-    #app()

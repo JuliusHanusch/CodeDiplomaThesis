@@ -53,7 +53,7 @@ from gluonts.transform import (
     LeavesMissingValues,
     LastValueImputation,
 )
-from utils import make_dict_storable, get_expected_model_size, get_model_size
+from src.utils import make_dict_storable, get_expected_model_size, get_model_size, ModelTooBig
 
 
 from chronos import ChronosConfig, ChronosTokenizer
@@ -734,7 +734,7 @@ def main(
     print("Number Non-Embedding Params: ", model_size)
     expected_model_size = get_expected_model_size(model_id=model_id)
     if model_size > expected_model_size * 1.1 and limit_model_size:
-        raise Exception(
+        raise ModelTooBig(
             f"""ModelTooBig 
             The model may only be 10% larger than the config allows else it's not an instance of {model_id} anymore
             But: {model_size} >> {expected_model_size}
