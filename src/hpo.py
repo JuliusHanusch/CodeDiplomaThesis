@@ -30,7 +30,7 @@ import json
 import time
 from datetime import datetime
 from src.db import insertTable
-from src.utils import ModelTooBig
+from src.utils import ModelTooBig, make_dict_storable
 import pandas as pd
 
 
@@ -249,7 +249,6 @@ def train(
         config: dict = dict(config)
 
         # Import Scripts to set their loggers (TODO make less dirty)
-        from src.utils import make_dict_storable
         import src.train as trainer
         import src.evaluate as evaluater
         # Set Missing Global Variables
@@ -336,7 +335,7 @@ def train(
         except ModelTooBig as e:
             print(str(e), flush=True)
             # Rember Which models were too big - to train the surrogate model to not sample them over and over
-            average_errors = {metric: float('inf') for metric in OBJECTIVES}
+            average_errors = {metric: float('inf') for metric in OBJECTIVES + ["MAE", "SMAPE"]} # TODO don't hard code MAE and SMAPE
 
 
 

@@ -56,7 +56,7 @@ from gluonts.transform import (
 from src.utils import make_dict_storable, get_expected_model_size, get_model_size, ModelTooBig
 
 
-from chronos import ChronosConfig, ChronosTokenizer
+from chronos_pkg.src.chronos import ChronosConfig, ChronosTokenizer
 from chronos_pkg.src.chronos.chronos_bolt import ChronosBoltModelForForecasting, ChronosBoltConfig
 # import torch._dynamo
 # torch._dynamo.config.suppress_errors = True
@@ -679,7 +679,7 @@ def main(
 
 
 
-    model_or_config = load_model( # TODO Go find a cleaner solution
+    model_or_config = load_model( # TODO Go find a cleaner solution instead of model_OR_config
         model_id=model_id,
         model_type=model_type,
         vocab_size=n_tokens,
@@ -745,7 +745,7 @@ def main(
     else:
         DatasetClass = ChronosDataset
 
-    shuffled_train_dataset = DatasetClass( # TODO Add to Search Space
+    shuffled_train_dataset = DatasetClass( 
         datasets=train_datasets,
         probabilities=probability, 
         tokenizer=None if bolt else chronos_config.create_tokenizer(),

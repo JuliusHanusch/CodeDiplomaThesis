@@ -24,7 +24,7 @@ from functools import cache
 from autogluon.timeseries import TimeSeriesPredictor, TimeSeriesDataFrame
 from utils import load_val_data
 import json
-from chronos import ChronosPipeline
+from chronos_pkg.src.chronos import ChronosPipeline
 from chronos_pkg.src.chronos.chronos_bolt import ChronosBoltPipeline
 import re
 from math import log

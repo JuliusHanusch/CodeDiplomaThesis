@@ -7,7 +7,7 @@ import math
 def ceil_log2(x: int) -> int:
     return math.ceil(math.log2(x))
 
-# TODO if limit_model_size then adjust max layercount and co depending on model id
+
 def get_config_space(training_folder: str, model_ids: str = '["google/t5-efficient-tiny"]', max_batch_size=32, limit_model_size=1) -> ConfigurationSpace:
     # Find all Corpora in training_folder
     datasets = []

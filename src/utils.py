@@ -22,6 +22,7 @@ from typing import Set
 from normality import normalize
 from copy import deepcopy
 
+DEBUG = False
 
 class ModelTooBig(Exception):
     """_summary_
@@ -320,9 +321,10 @@ def load_val_data(
             id_column="item_id",
             timestamp_column="timestamp",
         )
-        item_ids = set(df['item_id'])
-        print(f"n_ids: {len(item_ids)}", flush=True)
-        lengths = [len(validation_data.loc[iid]) for iid in item_ids]
+        if DEBUG:
+            item_ids = set(df['item_id'])
+            print(f"n_ids: {len(item_ids)}", flush=True)
+            lengths = [len(validation_data.loc[iid]) for iid in item_ids]
     else:
         gts_dataset = to_gluonts_univariate(ds)
 
@@ -330,13 +332,15 @@ def load_val_data(
         # TODO Replace Gluonts splitting it behaves strangely (large negative numbers are taken once modulo for reasons)
         _, test_template = split(gts_dataset, offset=abs(offset)) 
         validation_data = test_template.generate_instances(prediction_length=prediction_length, windows=1)
-        v2 = deepcopy(validation_data)
-        lengths = [len(sample["target"]) for sample in v2.input]
+        if DEBUG:
+            v2 = deepcopy(validation_data)
+            lengths = [len(sample["target"]) for sample in v2.input]
 
-    # TODO Remove
-    v2 = deepcopy(validation_data)
-    n_samples = sum(1 for _ in v2)
-    print(f"Offset {offset}\nPredictionLength {prediction_length}\nNumRolls {num_rolls}\nname {name}\nN_samples {n_samples}\nLengths {lengths}", flush=True)
+    # Print Dimensions of Val Set
+    if DEBUG:
+        v2 = deepcopy(validation_data)
+        n_samples = sum(1 for _ in v2)
+        print(f"Offset {offset}\nPredictionLength {prediction_length}\nNumRolls {num_rolls}\nname {name}\nN_samples {n_samples}\nLengths {lengths}", flush=True)
     return validation_data
 
 
