@@ -53,10 +53,10 @@ from gluonts.transform import (
     LeavesMissingValues,
     LastValueImputation,
 )
-from utils import make_dict_storable, get_expected_model_size, get_model_size
+from src.utils import make_dict_storable, get_expected_model_size, get_model_size, ModelTooBig
 
 
-from chronos import ChronosConfig, ChronosTokenizer
+from chronos_pkg.src.chronos import ChronosConfig, ChronosTokenizer
 from chronos_pkg.src.chronos.chronos_bolt import ChronosBoltModelForForecasting, ChronosBoltConfig
 # import torch._dynamo
 # torch._dynamo.config.suppress_errors = True
@@ -171,7 +171,7 @@ def get_next_path(
 
 
 #modified load model fúnction to implement additional hyperparameter
-def load_model( # TODO Check if same as originial 
+def load_model( 
     model_id="google/t5-efficient-tiny",
     model_type="seq2seq",
     random_init=False,
@@ -679,7 +679,7 @@ def main(
 
 
 
-    model_or_config = load_model( # TODO Go find a cleaner solution
+    model_or_config = load_model( # TODO Go find a cleaner solution instead of model_OR_config
         model_id=model_id,
         model_type=model_type,
         vocab_size=n_tokens,
@@ -734,7 +734,7 @@ def main(
     print("Number Non-Embedding Params: ", model_size)
     expected_model_size = get_expected_model_size(model_id=model_id)
     if model_size > expected_model_size * 1.1 and limit_model_size:
-        raise Exception(
+        raise ModelTooBig(
             f"""ModelTooBig 
             The model may only be 10% larger than the config allows else it's not an instance of {model_id} anymore
             But: {model_size} >> {expected_model_size}
@@ -745,9 +745,9 @@ def main(
     else:
         DatasetClass = ChronosDataset
 
-    shuffled_train_dataset = DatasetClass( # TODO Add to Search Space
+    shuffled_train_dataset = DatasetClass( 
         datasets=train_datasets,
-        probabilities=probability, # Todo
+        probabilities=probability, 
         tokenizer=None if bolt else chronos_config.create_tokenizer(),
         context_length=context_length,
         prediction_length=prediction_length,

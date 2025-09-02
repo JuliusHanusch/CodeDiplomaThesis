@@ -17,6 +17,18 @@ from autogluon.timeseries import TimeSeriesDataFrame
 import numpy as np
 from transformers import AutoModel
 from torch import nn
+from warnings import warn
+from typing import Set
+from normality import normalize
+from copy import deepcopy
+
+DEBUG = False
+
+class ModelTooBig(Exception):
+    """_summary_
+    Model Surpases self-defined size limits
+    """
+    pass
 
 
 def make_dict_storable(advanced_dictionary: dict)->dict:
@@ -118,19 +130,21 @@ def to_gluonts_univariate(hf_dataset: datasets.Dataset):
     return gts_dataset
 
 
-def sample_least_overlapping_subdfs(df: pd.DataFrame, offset: int, n: int = 20) -> list[pd.DataFrame]:
+def sample_least_overlapping_subdfs(df: pd.DataFrame, window_len: int, n: int = 20) -> list[pd.DataFrame]:
     L = len(df)
-    offset = abs(offset)
-    max_start = L - offset
+    window_len = abs(window_len)
+    max_start = L - window_len
     if n > max_start + 1:
         raise ValueError("Too many sub-DFs for given length and offset.")
 
     step = max((max_start) // (n - 1), 1)
     starts = [min(i * step, max_start) for i in range(n)]
-    return [df.iloc[s : s + offset] for s in starts]
+    return [df.iloc[s : s + window_len] for s in starts]
 
-def subdfs_to_rows(df: pd.DataFrame, offset: int, n: int = 20) -> pd.DataFrame:
-    subdfs = sample_least_overlapping_subdfs(df, offset, n)
+
+def subdfs_to_rows(df: pd.DataFrame, offset: int, prediction_length: int, n: int = 20) -> pd.DataFrame:
+    window_len = abs(offset) + abs(prediction_length)
+    subdfs = sample_least_overlapping_subdfs(df, window_len, n)
     
     result = pd.DataFrame([
         {
@@ -206,47 +220,84 @@ def load_val_data(
 ):
     print(f"\n=== Processing dataset: {config.get('name', config.get('id', 'unknown'))} ===")
     print(f"\nStarting processing: {config['name']}")
+    offset = config["offset"]
+    prediction_length = config["prediction_length"]
+    num_rolls = config["num_rolls"]
+    name = config["name"]
 
     if "hf_repo" in config:
-        offset = config["offset"]
-        prediction_length = config["prediction_length"]
-        num_rolls = config["num_rolls"]
         hf_repo = config["hf_repo"]
-        name = config["name"]
         trust_remote_code = True if hf_repo == "autogluon/chronos_datasets_extra" else False
-
 
         ds = datasets.load_dataset(
             hf_repo, name, split="train", trust_remote_code=trust_remote_code
         )
-
-
     else:
-        try:
-            df = load_via_uci_api(dataset_id=config["id"])
-        except DatasetNotFoundError:
-            df = load_from_link(
-                    url = config["link"],
-                    filename = config.get("filename"),
-                    dataset_name = config["name"]
-                )
+        if "disk_path" in config:
+            disk_path = Path(config["disk_path"])
+            cache_adr = Path("./cache") / (disk_path.stem + ".parquet")
 
-        offset = config["offset"]
-        prediction_length = config["prediction_length"]
-        num_rolls = config["num_rolls"]
+            # Load -> Explode Table -> Cache
+            if not cache_adr.exists():
+                data = datasets.load_from_disk(disk_path)
+                data = data["test"]
+                # Convert into pd format + Drop Unnecessary Features
+                exploded_data = [
+                    {"target": sublist}
+                    for row in data["value"]
+                    for sublist in row
+                ]
+                df = pd.DataFrame(exploded_data)
+                df.to_parquet(cache_adr)
+            else:
+                df = pd.read_parquet(cache_adr)
 
-        data = df[[target]].copy()
-        data = data.rename({target: "target"}, axis="columns")
-        data.reset_index(inplace=True)
+            # Select TS
+            ts_id = target # target should be just a number
+            try:
+                ts = pd.DataFrame({"target": df.iloc[ts_id]["target"]})
+            except IndexError as e:
+                # Return None if Target outside Range available data
+                warn(f"TS {ts_id} couldnt be loaded from {disk_path} maybe some ds went missing during download")
+                return None
+            
+            ts.reset_index(inplace=True)
+            
+        else:
+            try:
+                df = load_via_uci_api(dataset_id=config["id"])
+            except DatasetNotFoundError:
+                df = load_from_link(
+                        url = config["link"],
+                        filename = config.get("filename"),
+                        dataset_name = name
+                    )
 
-        # Clean all values (remove $ and , from strings)
-        def clean_currency(val):
-            if isinstance(val, str):
-                return pd.to_numeric(val.replace("$", "").replace(",", ""), errors="coerce")
-            return val
+            data = df[[target]].copy()
+            data = data.rename({target: "target"}, axis="columns")
+            data.reset_index(inplace=True)
 
-        data = data.applymap(clean_currency)
-        data = subdfs_to_rows(data, offset=offset, n=num_rolls)
+            # Clean all values (remove $ and , from strings)
+            def clean_currency(val):
+                if isinstance(val, str):
+                    return pd.to_numeric(val.replace("$", "").replace(",", ""), errors="coerce")
+                return val
+
+            ts = data.applymap(clean_currency)
+
+        # Back to HF
+        data = subdfs_to_rows(ts, offset=offset, prediction_length=prediction_length, n=num_rolls)
+        # if autogluon_format:
+        #     # Split Data Manually
+        #     data = subdfs_to_rows(ts, offset=offset, prediction_length=prediction_length, n=num_rolls)
+        # else:
+        #     # let gluonts split it later
+        #     data = pd.DataFrame([
+        #         {
+        #             'timestamp': ts["timestamp"] if "timestamp" in ts.columns else  [str(timestamp) for timestamp in pd.date_range(start='1990-12-01', freq="min", periods=len(ts.index))],
+        #             'target': ts["target"].tolist()
+        #         }
+        #     ])
 
         features = Features({
             #'indices': Sequence(Value('int64')),
@@ -270,14 +321,80 @@ def load_val_data(
             id_column="item_id",
             timestamp_column="timestamp",
         )
+        if DEBUG:
+            item_ids = set(df['item_id'])
+            print(f"n_ids: {len(item_ids)}", flush=True)
+            lengths = [len(validation_data.loc[iid]) for iid in item_ids]
     else:
         gts_dataset = to_gluonts_univariate(ds)
 
-        # Split dataset for evaluation
-        _, test_template = split(gts_dataset, offset=offset)
-        validation_data = test_template.generate_instances(prediction_length, windows=num_rolls)
+        # "Split" dataset for evaluation (or pseudo-split because we already split manually for the AG version) 
+        # TODO Replace Gluonts splitting it behaves strangely (large negative numbers are taken once modulo for reasons)
+        _, test_template = split(gts_dataset, offset=abs(offset)) 
+        validation_data = test_template.generate_instances(prediction_length=prediction_length, windows=1)
+        if DEBUG:
+            v2 = deepcopy(validation_data)
+            lengths = [len(sample["target"]) for sample in v2.input]
+
+    # Print Dimensions of Val Set
+    if DEBUG:
+        v2 = deepcopy(validation_data)
+        n_samples = sum(1 for _ in v2)
+        print(f"Offset {offset}\nPredictionLength {prediction_length}\nNumRolls {num_rolls}\nname {name}\nN_samples {n_samples}\nLengths {lengths}", flush=True)
     return validation_data
 
+
+# Utils #
+
+def char_bigrams(s: str) -> Set[str]:
+    """Return the set of character bigrams for string s."""
+    return {s[i : i + 2] for i in range(len(s) - 1)} if len(s) > 1 else set()
+
+def bigram_similarity(s1: str, s2: str) -> float:
+    """
+    Compute Jaccard similarity between two strings based on character bigrams.
+    Returns 1.0 if both strings yield no bigrams.
+    """
+    b1, b2 = char_bigrams(f" {s1} "), char_bigrams(f" {s2} ")
+    if not b1 and not b2:
+        return 1.0
+    inter = b1 & b2
+    union = len(b1) + len(b2)
+    return len(inter) * 2 / union
+
+@cache
+def my_normalize(text: str|list[str]):
+    if isinstance(text, str):
+        return normalize(text, latinize=True, ascii=True)
+    elif isinstance(text, (list, tuple)):
+        return [my_normalize(word) for word in text]
+    else:
+        raise Exception(f"Text has unsupported dtype {type(text)}")
+
+def is_in_collection(orig: str, collection: list[str], thr=0.8):
+    """Returns True if orig is similar enough to any of the words in the collection"""
+    orig = my_normalize(orig)
+    collection = my_normalize(tuple(collection)) # to tuple for caching
+    for word in collection:
+        score = bigram_similarity(orig, word)
+        if score >= thr:
+            print(f"{orig} matches {word}!")
+            return True
+    return False
+
+
+def group_similar_words(words: list[str]) -> list[list[str]]:
+    groups = []
+    for word in words:
+        placed = False
+        for group in groups:
+            if is_in_collection(word, group, thr=0.85):
+                group.append(word)
+                placed = True
+                break
+        if not placed:
+            groups.append([word])
+    return groups
 
 # Taken from pandas._libs.tslibs.dtypes.OFFSET_TO_PERIOD_FREQSTR
 offset_alias_to_period_alias = {

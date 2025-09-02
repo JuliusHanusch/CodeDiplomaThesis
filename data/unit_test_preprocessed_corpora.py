@@ -56,12 +56,7 @@ if __name__ == "__main__":
 
     corpora = [("Kaggle", kaggle_corpus), ("Kaggle Split", kaggle_corpus_split), ("UCI", uci_corpus), ("UCI Split", uci_corpus_split)]
 
-    # Check Total Length (Fuzzy because Data is not 100% stable due to legal constraints)
-    # TODO assert 24_000 > len(kaggle_corpus) >= 23_000, f"Only {len(kaggle_corpus)} of 23_441 original  TS in Time Corpus some seem to have gone missing, small changes are expected though as data is not completly stable" #19_507 -> 22_507
-    # TODO assert 2_000 > len(uci_corpus) >= 1_900, f"Only {len(uci_corpus)} of 1_914 original TS in UCI Corpus some seem to have gone missing, small changes are expected though as data is not completly stable" # 2_328, by 90% equidistant thr 1_857 (5 less) -> 1_862
-    print("Enough TS per Corpus")
-
-    # Check for Same Naming Conventions as Chronos 
+    # Check for Same Naming Conventions as Chronos + Expected Num Rows
     for name, corpus in corpora:
         print(f"\n{name}:")
         cols = corpus.column_names

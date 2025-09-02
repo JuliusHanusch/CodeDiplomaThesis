@@ -1,0 +1,20 @@
+training_folder: "/data/horse/ws/jipo020b-AION/AION/data/train"
+seed: 123
+model_ids: 
+- "google/t5-efficient-tiny"
+limit_model_size: 1 # Enforce that tiny remains tiny
+trial_walltime_limit: 345_600 # 4D 
+number_trials: 10_000 # Many will stop early because model won't be tiny anymore
+min_budget: 960_000 # 30k * 32 Samples per batch (We found this to have high correlation with much longer training) 
+
+# 2M Steps * 256 <= 960_000 * eta^x 
+# such that x is an int (s.t. smac uses min and max as given) and x is minimal to satisfy this equation
+# In simple words we wanted at least 10x the original duration and a multiple of eta times our min budget 
+max_budget: 699_840_000 # 2_733_750 Steps with batch size 256 ~ Exact value doesn't matter because we retrain incumbent for 10M Steps
+eta: 3
+memory: "160G"
+worker_walltime: "4-00:00:00" 
+account: "p_llm_timeseries"
+job_extra_directives: "['--gres=gpu:1']"
+worker_count: 20 
+max_batch_size: 32

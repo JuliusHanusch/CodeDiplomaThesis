@@ -24,11 +24,13 @@ from functools import cache
 from autogluon.timeseries import TimeSeriesPredictor, TimeSeriesDataFrame
 from utils import load_val_data
 import json
-from chronos import ChronosPipeline
+from chronos_pkg.src.chronos import ChronosPipeline
 from chronos_pkg.src.chronos.chronos_bolt import ChronosBoltPipeline
 import re
 from math import log
 from utils import get_model_size
+from warnings import warn
+import math
 
 app = typer.Typer(pretty_exceptions_enable=False)
 
@@ -77,7 +79,7 @@ def main(
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
     bolt: bool = False,
-):
+) -> pd.DataFrame:
     if isinstance(torch_dtype, str):
         torch_dtype = getattr(torch, torch_dtype)
     assert isinstance(torch_dtype, torch.dtype)
@@ -99,13 +101,23 @@ def main(
 
     result_rows = []
     for config in backtest_configs:
+        aok = True
         targets = config.pop("targets", ["target"])
         for target in targets:
             dataset_name = config["name"]
             prediction_length = config["prediction_length"]
 
-            logger.info(f"Loading {dataset_name}")
+            # Check If Trivial Time Series by seeing how AG behaves (Very Quick through Caching)
+            baseline_score_sample = eval_ag(config_hashable=json.dumps(config, sort_keys=True), target=target, metric="MASE")
+            if baseline_score_sample <= 0.0000001 or pd.isna(baseline_score_sample) or math.isinf(baseline_score_sample):
+                # Skip Trivial Time Series (Here already to save compute)
+                continue
+
+            logger.info(f"Loading {target} from {dataset_name}")
             test_data = load_val_data(config=config, target=target)
+            if test_data is None: # Catch DS Not Found
+                logger.info(f"Failed locating Target {target} in {dataset_name}")
+                continue 
 
             logger.info(
                 f"Generating forecasts for {dataset_name} "
@@ -117,10 +129,6 @@ def main(
                     pipeline=pipeline,
                     prediction_length=prediction_length,
                     batch_size=batch_size,
-                    #num_samples=num_samples,
-                    # temperature=temperature,
-                    # top_k=top_k,
-                    # top_p=top_p,
                 )
             else:
                 sample_forecasts = generate_sample_forecasts(
@@ -160,15 +168,20 @@ def main(
             # Get Baseline for Normaliasation & Comparability
             metrics = metrics[0]
             results = {"parameters": get_model_size(pipeline.model)}
+            pseudocount = 1e-12 # Laplace Smoothing to avoid taking log of 0
             for metric_name, value in metrics.items():
                 metric_name_norm = normalize_metric_name(metric_name=metric_name)
                 baseline_score = eval_ag(config_hashable=json.dumps(config, sort_keys=True), target=target, metric=metric_name_norm.upper())
-                results[metric_name_norm] = log(value / baseline_score)
+                if baseline_score <= 0.0000001 or pd.isna(baseline_score) or math.isinf(baseline_score):
+                    # Skip special cases when metrics fail i.e. when time series is constant
+                    aok = False
+                    continue
+                results[metric_name_norm] = log((value+pseudocount) / (baseline_score+pseudocount))
                 logger.info(f"\nMetric: {metric_name} -> {metric_name_norm}\nOriginal: {value}\nBaseline: {baseline_score}\nNew: {results[metric_name_norm]}")
-
-            result_rows.append(
-                {"dataset": dataset_name, "model": chronos_model_id, **results}
-            )
+            if aok:
+                result_rows.append(
+                    {"dataset": dataset_name, "model": chronos_model_id, **results}
+                )
 
     # Save results to a CSV file
     results_df = (
@@ -183,46 +196,48 @@ def eval_ag(
         config_hashable: str,
         target: str,
         metric: str,
-        force_return: bool = False, # Returns 1 if not found (for metrics not supported by AG)
 ) -> float:
+    """
+    Cacheable Function to train a ZeroShot baseline model quickly via AutoGluon
+    AG is used as it automates preprocessing and model selection delivering strong baselines across varied datasets
+
+    Args:
+        _config_hashable_ is the dataset config as a json-string (for caching it is important that configs are hashable)
+        _target_ the target TS to use of the given dataset 
+        _metric_ AutoGluon Metric to use
+    Raises:
+        "IndexError('single positional indexer is out-of-bounds')" ~ When Metric does not exist
+    Returns the value of the best found model using the given metric on the given dataset as a float 
+    """
     config = json.loads(config_hashable)
-    # Note Use double caching (outer cache avoids read from CSV, inner cache avoids retraining for each metric)
+    # Note: Uses double caching (outer cache avoids read from CSV, inner cache avoids retraining for each metric and each worker)
     cache_path = Path("./cache/AG_Scores.csv")
     dataset_name = config["name"]
     prediction_length = config["prediction_length"]
+
+    def get_relevant_scores(df, dataset_name, target, metric) -> pd.DataFrame:
+        """Just a simple df lookup that is used repeatedly"""
+        return df[
+            (df["ds_name"] == dataset_name) &
+            (df["target"] == str(target)) &
+            (df["metric"] == metric)
+        ]
+
+    def chop_tail(df, pred_len):
+        return df.groupby("item_id").apply(lambda g: g.iloc[:-pred_len]).reset_index(drop=True)
     
     # Check Cache
     if cache_path.exists():
         cached_scores = pd.read_csv(cache_path)
-        relevant_scores = cached_scores[
-            (cached_scores["ds_name"] == dataset_name) &
-            (cached_scores["target"] == target) &
-            (cached_scores["metric"] == metric)
-        ]
+        relevant_scores = get_relevant_scores(cached_scores, dataset_name=dataset_name, target=target, metric=metric)
         if len(relevant_scores) > 0:
             return relevant_scores["value"].iloc[0]
-        elif force_return: # Return default if metric not supported
-            logger.warning(f"Metric {metric} not found for {dataset_name} and {target} AG might not support the metric. Return 1 due to force_return")
-            # Cache Default
-            if cache_path.exists():
-                cached_scores = pd.read_csv(cache_path)
-                def_row = pd.DataFrame([{
-                    "ds_name": dataset_name, 
-                    "target": target, 
-                    "metric": metric, 
-                    "value": 1.0, # AG inverts all metrics s.t. larger is better we don't
-                }])
-                results = pd.concat([cached_scores, def_row], ignore_index=True)
-            results.to_csv(cache_path, index=False)
-            return 1.0
     else:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         
     # load data
     test_data = load_val_data(config=config, target=target, autogluon_format=True)
     test_data['target'] = pd.to_numeric(test_data['target'], errors='coerce')
-    def chop_tail(df, pred_len):
-        return df.groupby("item_id").apply(lambda g: g.iloc[:-pred_len]).reset_index(drop=True)
 
     train_like = chop_tail(test_data.reset_index(drop=False), pred_len=prediction_length)
     train_like = TimeSeriesDataFrame(
@@ -238,7 +253,7 @@ def eval_ag(
         eval_metric="MASE",
     )
 
-    # Select and Train best Zeroshot and Statisitical Models they require less train data and are robust to test set leakage due to overlap btwn samples
+    # Train and Select best Zeroshot/Statisitical Model 
     predictor.fit(
         train_data=train_like,
         presets="medium_quality",
@@ -255,6 +270,7 @@ def eval_ag(
             ],
         }
     )
+
     # Eval AG
     scores: dict = predictor.evaluate(
         test_data,
@@ -262,12 +278,12 @@ def eval_ag(
         use_cache=False
         )
     
-    # Write ALL metrics to tall table
+    # Write ALL metrics to tall table (for caching)
     results = []
     for my_metric in scores.keys():
         results.append({
             "ds_name": dataset_name, 
-            "target": target, 
+            "target": str(target), 
             "metric": my_metric, 
             "value": -1*scores[my_metric], # AG inverts all metrics s.t. larger is better we don't
             "model": predictor.model_best # if Chronos is best (we should be able to beat it) else it might be a weak point of the old chr 
@@ -276,11 +292,14 @@ def eval_ag(
     if cache_path.exists():
         cached_scores = pd.read_csv(cache_path)
         results = pd.concat([cached_scores, results], ignore_index=True)
-    print(results)
     results.to_csv(cache_path, index=False)
 
-    # Call again now that entry exists (if still not exists return 1)
-    return eval_ag(config_hashable, target=target, metric=metric, force_return=True)
+    relevant_scores = get_relevant_scores(results, dataset_name=dataset_name, target=target, metric=metric)
+    if relevant_scores.empty:
+        warn(f"Evaluation failed somehow for {dataset_name}, {target}, {metric}")
+        return 0
+
+    return relevant_scores["value"].iloc[0]
 
 
 @cache

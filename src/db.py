@@ -77,34 +77,52 @@ def insertTable(table_name: str, row_data: dict, db_path: str = "AION.db"):
     creates table if not exists
     """
     row_data = make_dict_storable(row_data)
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
+    try: 
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
 
-        # Check if the table exists
-        cursor.execute("""
-            SELECT name FROM sqlite_master WHERE type='table' AND name=?;
-        """, (table_name,))
-        exists = cursor.fetchone()
+            # Check if the table exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master WHERE type='table' AND name=?;
+            """, (table_name,))
+            exists = cursor.fetchone()
 
-        if not exists:
-            # Create table with inferred types
-            columns_sql = ", ".join([
-                f"{col} {getType(val)}" for col, val in row_data.items()
-            ])
-            create_sql = f"""
-                CREATE TABLE {table_name} (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    {columns_sql}
-                );
+            if not exists:
+                # Create table with inferred types
+                columns_sql = ", ".join([
+                    f"{col} {getType(val)}" for col, val in row_data.items()
+                ])
+                create_sql = f"""
+                    CREATE TABLE {table_name} (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        {columns_sql}
+                    );
+                """
+                cursor.execute(create_sql)
+
+            # Prepare INSERT statement
+            columns = ", ".join(row_data.keys())
+            placeholders = ", ".join(["?"] * len(row_data))
+            insert_sql = f"""
+                INSERT INTO {table_name} ({columns})
+                VALUES ({placeholders});
             """
-            cursor.execute(create_sql)
-
-        # Prepare INSERT statement
-        columns = ", ".join(row_data.keys())
-        placeholders = ", ".join(["?"] * len(row_data))
-        insert_sql = f"""
-            INSERT INTO {table_name} ({columns})
-            VALUES ({placeholders});
-        """
-        cursor.execute(insert_sql, tuple(row_data.values()))
-        conn.commit()
+            cursor.execute(insert_sql, tuple(row_data.values()))
+            conn.commit()
+    except sqlite3.OperationalError as e:
+        # Inject missing Column
+        with sqlite3.connect(db_path) as conn:
+            if "no column named" in str(e).lower():
+                print("A column seems to be missing try to insert it now")
+                cursor = conn.cursor()
+                # check if column exists
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                cols = [info[1] for info in cursor.fetchall()]
+                missing_cols = [col for col in row_data.keys() if col not in cols]
+                for missing_col in missing_cols:
+                    print(f"Inserted {missing_col} into {table_name}")
+                    cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {missing_col} {getType(row_data[missing_col])}")
+                conn.commit()
+                insertTable(table_name=table_name, row_data=row_data, db_path=db_path)
+            else:
+                raise 

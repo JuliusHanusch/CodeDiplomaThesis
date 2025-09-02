@@ -107,7 +107,7 @@ def get_next_coarser_freq(series: pd.Series) -> str:
     one_quarter = pd.Timedelta('90D')
     one_year = pd.Timedelta('365D')  # approx
 
-    # Coarsening logic #TODO If min delta is smaller allow median to be equal 
+    # Coarsening logic 
     if is_below_thr(median_delta, min_delta, one_ms):
         return '1ms'
     elif is_below_thr(median_delta, min_delta, ten_ms):

@@ -1,0 +1,9 @@
+alpha: 0.0001444318425
+corpora:
+- Time_Corpus_Processed
+- Time_Corpus_Processed_Split
+- UCI_Corpus_Processed
+- UCI_Corpus_Processed_Split
+k: 6.0
+length: 4096.0
+small_ts_share: 2.0015137369585

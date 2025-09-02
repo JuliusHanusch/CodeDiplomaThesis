@@ -17,9 +17,13 @@ def all_subsets(collection: list):
 def build_search_space(seed: Optional[int] = None) -> ConfigurationSpace:
     cs = ConfigurationSpace(seed=seed)
 
-    corpora = [ # TODO Add cut and uncut ones
+    corpora = [ 
+        # Our Corpora
         "Time_Corpus_Processed",
+        "Time_Corpus_Processed_Split",
         "UCI_Corpus_Processed",
+        "UCI_Corpus_Processed_Split",
+        # Old Corpora
         "Lotsa_Corpus",
         "Chronos_Corpus",
         "Chronos_Corpus_Kernel_Synth",
@@ -36,11 +40,11 @@ def build_search_space(seed: Optional[int] = None) -> ConfigurationSpace:
     )
     cs.add(Integer("k", (1, 6), default=3))
     cs.add(Integer("length_expo", (7, 12), default=9))
-    cs.add(Float("alpha", (1e-3, 25.0), log=True, default=1))
-    cs.add(Float("small_ts_share", (0.05, 0.5), default=0.1))
-    cs.add(Categorical("deduplication", [1, 0], default=0))
+    cs.add(Float("alpha", (1e-4, 25.0), log=True, default=1))
+    cs.add(Float("small_ts_share", (0.001, 3), log=True, default=0.1))
 
     return cs
+
 
 @app.command()
 def main(
@@ -48,7 +52,7 @@ def main(
     seed: Optional[int] = typer.Option(None, "--seed", help="Random seed"),
 ):
     """
-    Sample `count` random configurations from the defined search space
+    Sample `count` many random configurations from the defined search space
     and print each as YAML.
     """
     cs = build_search_space(seed)
@@ -60,6 +64,7 @@ def main(
         config = {key: val if not isinstance(val, numbers.Number) else float(val) for key, val in config.items()}
         with open(f"./data/data_configs/{i}.yml", "w") as file:
             yaml.safe_dump(config, file)
+
 
 if __name__ == "__main__":
     app()
