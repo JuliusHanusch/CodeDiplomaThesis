@@ -41,6 +41,47 @@
             "program": "./data/download_data.py",
             "console": "integratedTerminal",
             "args": ["--corpus-name", "kaggle"]
+        },
+        {
+            "name": "Train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "./src/train.py",
+            "console": "integratedTerminal",
+            "args": ["--config", "C:/Users/Jimmy/Documents/UNI/Projects/AION/chronos_pkg/scripts/training/configs/dev.yaml"]
+        },
+        {
+            "name": "Validate",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "./src/autogluon_validation_files.py",
+            "console": "integratedTerminal",
+            "args": ["--config-path", "./uci-zero-shot.yaml"]
+        },
+        {
+            "name": "Scaling Laws",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "./analysis/scaling_laws.py",
+            "console": "integratedTerminal",
+            "args": []
+        },
+        {
+            "name": "Parallel Coordinates",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "./analysis/hp_analysis.py",
+            "console": "integratedTerminal",
+            "args": []
+        },
+        {
+            "name": "Search Space",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "./analysis/search_space_to_table.py",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.venv/Scripts/python",
+            "args": []
         }
     ]
 }
