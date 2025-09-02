@@ -107,6 +107,12 @@ def main(
             dataset_name = config["name"]
             prediction_length = config["prediction_length"]
 
+            # Check If Trivial Time Series by seeing how AG behaves (Very Quick through Caching)
+            baseline_score_sample = eval_ag(config_hashable=json.dumps(config, sort_keys=True), target=target, metric="MASE")
+            if baseline_score_sample <= 0.0000001 or pd.isna(baseline_score_sample) or math.isinf(baseline_score_sample):
+                # Skip Trivial Time Series (Here already to save compute)
+                continue
+
             logger.info(f"Loading {target} from {dataset_name}")
             test_data = load_val_data(config=config, target=target)
             if test_data is None: # Catch DS Not Found

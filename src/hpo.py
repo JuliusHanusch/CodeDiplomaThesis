@@ -32,6 +32,7 @@ from datetime import datetime
 from src.db import insertTable
 from src.utils import ModelTooBig, make_dict_storable
 import pandas as pd
+from math import ceil
 
 
 pd.options.display.max_columns = None
@@ -79,6 +80,7 @@ def main(
         seed=seed,
         use_default_config=True,
         objectives=OBJECTIVES,  
+        n_workers=worker_count
     )
 
     # Some Nodes on HPC are sometimes broken --> we try to track and avoid them
@@ -111,7 +113,7 @@ def main(
             "which python",
             "python --version",
         ],
-        death_timeout=600
+        death_timeout=None # TODO Check if works
     )
 
     print(cluster.job_script())
@@ -121,7 +123,7 @@ def main(
 
 
     # Start with a few random configs + the default
-    initial_design = MFFacade.get_initial_design(scenario, n_configs=5) #, additional_configs=[configs_space.get_default_configuration()])
+    initial_design = MFFacade.get_initial_design(scenario, n_configs=worker_count*2) #, additional_configs=[configs_space.get_default_configuration()])
 
     # Create our intensifier
     intensifier = Hyperband(scenario, incumbent_selection="highest_budget", seed=seed, eta=eta)
@@ -228,6 +230,7 @@ def train(
         print(f"Free (inside reserved): {free / 1e9:.2f} GB")
 
     try:
+        budget = ceil(budget)
         # Hash Config (incl. budget) to get exactly one model per config
         config_dict = dict(config)
         config_dict["seed"] = seed
@@ -236,7 +239,7 @@ def train(
         config_dict["num_devices"] = torch.cuda.device_count()
         real_bs = config_dict["per_device_train_batch_size"] * config_dict["num_devices"]
         config_dict["gradient_accumulation_steps"] = (config_dict["batch_size"] + (real_bs - 1)) // (real_bs) 
-        training_steps = (int(budget) + config_dict["batch_size"] -1) // config_dict["batch_size"]  # Convert #Training Samples to number training steps
+        training_steps = (budget + config_dict["batch_size"] -1) // config_dict["batch_size"]  # Convert #Training Samples to number training steps
         config_dict["training_steps"] = training_steps
         config_hash = hash(frozenset([(key, str(val)) for key, val in config_dict.items()]))
         output_path =  Path(BASE_OUTPATH / f"chronos_{config_hash}")
