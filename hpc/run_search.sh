@@ -3,12 +3,12 @@
 #SBATCH --gres=gpu:1 # The Master Job actually doesn't need one but HPC demands it else we can't schedule workers with GPU
 #SBATCH --nodes=1
 #SBATCH --mem=160G # Working Memory
-#SBATCH --time=4-00:00:00  # Runtime HH:MM:SS
+#SBATCH --time=24:00:00  # Runtime HH:MM:SS
 #SBATCH --account=p_llm_timeseries
 #SBATCH --job-name=aion-bolt
 #SBATCH --output=hpc/logs/aion-dev-%j.out  # Output Address 
 #SBATCH --error=hpc/logs/aion-dev-%j.err  # Output Address
-#SBATCH --array=0-2%1 # Run thrice in series for extra long search beyond 1 Job limit
+#SBATCH --array=0-10%1 # Run thrice in series for extra long search beyond 1 Job limit
 # Load all Modules
 
 source ./hpc/modules.sh

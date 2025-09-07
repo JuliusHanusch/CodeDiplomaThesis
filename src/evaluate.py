@@ -108,7 +108,7 @@ def main(
             prediction_length = config["prediction_length"]
 
             # Check If Trivial Time Series by seeing how AG behaves (Very Quick through Caching)
-            baseline_score_sample = eval_ag(config_hashable=json.dumps(config, sort_keys=True), target=target, metric="MASE")
+            baseline_score_sample = eval_ag(config_hashable=json.dumps(config, sort_keys=True), target=target, metric="MAE")
             if baseline_score_sample <= 0.0000001 or pd.isna(baseline_score_sample) or math.isinf(baseline_score_sample):
                 # Skip Trivial Time Series (Here already to save compute)
                 continue
@@ -247,10 +247,11 @@ def eval_ag(
         )
     
     # Train AG (Note: Does not need to be perfect, indication how diff to predict a given target suffices)
+    # TODO pass eval metric as param and optimize for each independently else MASE is especially good while others are meh
     predictor = TimeSeriesPredictor(
         target="target",
         prediction_length=prediction_length,
-        eval_metric="MASE",
+        eval_metric=metric,
     )
 
     # Train and Select best Zeroshot/Statisitical Model 
@@ -274,7 +275,7 @@ def eval_ag(
     # Eval AG
     scores: dict = predictor.evaluate(
         test_data,
-        metrics=["SQL", "WQL", "MAE", "MASE", "WAPE", "MSE", "RMSE", "RMSLE", "RMSSE", "MAPE", "SMAPE"],
+        metrics=[metric], #["SQL", "WQL", "MAE", "MASE", "WAPE", "MSE", "RMSE", "RMSLE", "RMSSE", "MAPE", "SMAPE"],
         use_cache=False
         )
     
