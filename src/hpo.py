@@ -34,6 +34,9 @@ from src.utils import ModelTooBig, make_dict_storable
 import pandas as pd
 from math import ceil
 import math
+import types
+from src.utils import _get_next_trial_with_size_constraint, get_expected_model_size
+from functools import partial
 
 
 pd.options.display.max_columns = None
@@ -48,10 +51,10 @@ OBJECTIVES = ["RMSE", "MAE", "WQL"]
 @app.command()
 @use_yaml_config(param_name="config")
 def main(
-    training_folder: str = Option("../data/train", help="Folder with all the Training Corpora (in .arrow format) that can be used"),
+    training_folder: str = Option("./data/train", help="Folder with all the Training Corpora (in .arrow format) that can be used"),
     seed: int = Option(0, help="Random seed for reproducibility. -1 for choosing one at random - recommended when starting multiple mains in parallel that communicate via checkpoints (see migration model for evolutionary algorithms)."),
     model_ids: str = Option("['google/t5-efficient-tiny']", help="Which base model to use."),
-    limit_model_size: int = Option(1, help= "Whether to limit model to about the size proposed by model_id or to let it grow indefinetly"),
+    limit_model_size: int = Option(1, help= "Whether to limit model to about the size proposed by model_id or to let it grow indefinetly. Set to two for preemptively stopping them and not even counting them"),
     checkpoint_broken_trials: int = Option(1, help= "When restarting from Checkpoint shall aborted/crashed runs be reloaded into history?"),
     trial_walltime_limit: int = Option(300, help="How long until we stop a trial. (-1 ~ Unlimited)"),
     number_trials: int = Option(5, help="How many trials to run."),
@@ -132,7 +135,7 @@ def main(
     initial_design = MFFacade.get_initial_design(scenario, n_configs=worker_count*2) #, additional_configs=[configs_space.get_default_configuration()])
 
     # Create our intensifier
-    intensifier = Hyperband(scenario, incumbent_selection="highest_budget", seed=seed, eta=eta)
+    intensifier = Hyperband(scenario, incumbent_selection="highest_observed_budget", seed=seed, eta=eta)
 
     # Create our SMAC object and pass the scenario and the train method
     smac = MFFacade(
@@ -147,6 +150,16 @@ def main(
             objective_weights=[1, 0.5, 0.5],  # Equal Weights but MASE & WQL are largely redundant
         ),
     )
+
+    if limit_model_size == 2:
+        # Add Function to Check possible Configs for ModelTooBig Exception before sampling them
+        model_ids_ = literal_eval(model_ids)
+        if len(model_ids_) != 1:
+            raise NotImplementedError("Pre-Early Stopping is currently only supported for search spaces with a single model_id")
+        smac._intensifier._get_next_trials = types.MethodType(
+            partial(_get_next_trial_with_size_constraint, model_size_base=get_expected_model_size(model_ids_[0])),
+            smac._intensifier
+            )
 
     # Load Checkpoints from previous Searches
     if DB_PATH.is_file():
@@ -395,6 +408,6 @@ def train(
 
 if __name__ == "__main__":
     # Go to current file directory
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    os.chdir(Path(__file__).resolve().parent.parent)
 
     app()

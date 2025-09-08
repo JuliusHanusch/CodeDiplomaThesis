@@ -12,4 +12,4 @@
 # Load all Modules
 
 source ./hpc/modules.sh
-python3 ./src/hpo.py --config ./search_configs/tiny_t5.yml
+python3 ./src/hpo.py --config ./src/search_configs/tiny_t5.yml

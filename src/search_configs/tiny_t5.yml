@@ -1,8 +1,8 @@
-training_folder: "/data/horse/ws/jipo020b-AION/AION/data/train"
+training_folder: "./data/train"
 seed: 123
 model_ids: 
 - "google/t5-efficient-tiny"
-limit_model_size: 1 # Enforce that tiny remains tiny
+limit_model_size: 2 # Enforce that tiny remains tiny (and do it as early as possible to really get up to better manage resources)
 checkpoint_broken_trials: 0
 trial_walltime_limit: 345_600 # 4D 
 number_trials: 10_000 # Many will stop early because model won't be tiny anymore
