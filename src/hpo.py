@@ -16,7 +16,7 @@ import logging
 from smac import MultiFidelityFacade as MFFacade
 from smac import Scenario
 from smac.intensifier.hyperband import Hyperband
-from search_space import get_config_space
+from src.search_space import get_config_space
 from smac import HyperparameterOptimizationFacade as HPOFacade
 from dask.distributed import Client
 from dask_jobqueue import SLURMCluster
@@ -35,7 +35,6 @@ import pandas as pd
 from math import ceil
 import math
 import types
-from src.utils import _get_next_trial_with_size_constraint, get_expected_model_size
 from functools import partial
 
 
@@ -150,16 +149,6 @@ def main(
             objective_weights=[1, 0.5, 0.5],  # Equal Weights but MASE & WQL are largely redundant
         ),
     )
-
-    if limit_model_size == 2:
-        # Add Function to Check possible Configs for ModelTooBig Exception before sampling them
-        model_ids_ = literal_eval(model_ids)
-        if len(model_ids_) != 1:
-            raise NotImplementedError("Pre-Early Stopping is currently only supported for search spaces with a single model_id")
-        smac._intensifier._get_next_trials = types.MethodType(
-            partial(_get_next_trial_with_size_constraint, model_size_base=get_expected_model_size(model_ids_[0])),
-            smac._intensifier
-            )
 
     # Load Checkpoints from previous Searches
     if DB_PATH.is_file():
@@ -293,6 +282,7 @@ def train(
         bolt = True if config.pop("bolt", 0) else False
         model_type = "causal" if "gpt" in config["model_id"] else "seq2seq" # TODO expand
         limit_model_size = bool(config.pop("limit_model_size", 1))
+        is_gated_act = bool(config.pop("is_gated_act", 0))
         if bolt:
             config["patch_stride"] = 2 ** config.pop("patch_stride_expo", 4)
             config["patch_size"] = 2 ** config.pop("patch_size_expo", 4)
@@ -334,6 +324,7 @@ def train(
                 min_past=min_past,
                 model_type=model_type,
                 limit_model_size=limit_model_size,
+                is_gated_act=is_gated_act,
                 **config, 
             )
 

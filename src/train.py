@@ -185,10 +185,12 @@ def load_model(
     layer_norm_epsilon = 1e-06,
     is_encoder_decoder = True,
     num_layers = 6,
+    num_decoder_layers = 6,
     num_heads = 8,
     d_ff = 2048,
     d_kv = 64,
     bolt=False,
+    is_gated_act=False,
 ):
     """
     Load the specified HuggingFace model, adjusting the vocabulary
@@ -211,8 +213,10 @@ def load_model(
         config.is_encoder_decoder = is_encoder_decoder
         config.num_heads = num_heads
         config.num_layers = num_layers
+        config.num_decoder_layers = num_decoder_layers
         config.d_ff = d_ff
         config.d_kv = d_kv
+        config.is_gated_act = is_gated_act
         if isinstance(config, T5Config):
             # The default initializer_factor (1.0) in transformers is too large
             config.initializer_factor = 0.05
@@ -574,6 +578,7 @@ def main(
     layer_norm_epsilon: float = 1e-06,
     is_encoder_decoder: bool = True,
     num_layers: int = 6,
+    num_decoder_layers: int = 6,
     num_heads: int = 8,
     d_kv: int = 6,
     d_ff: int = 2048,
@@ -602,6 +607,7 @@ def main(
     patch_stride: int = 16,
     use_reg_token: bool = True,
     limit_model_size: bool = True, # Breaks when model size > 110% of original model size defined by model_id - Goal: Not improve perf simply by scaling
+    is_gated_act=False,
 ):
     if tf32 and not (
         torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
@@ -693,10 +699,12 @@ def main(
         layer_norm_epsilon = layer_norm_epsilon,
         is_encoder_decoder = is_encoder_decoder,
         num_layers = num_layers,
+        num_decoder_layers=num_decoder_layers,
         num_heads = num_heads,
         d_ff = d_ff,
         d_kv = d_kv,
         bolt=bolt,
+        is_gated_act=is_gated_act,
     )
     if bolt: # Then it is a config and we still need to load the model 
         chronos_bolt_config = ChronosBoltConfig(

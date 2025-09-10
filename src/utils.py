@@ -70,6 +70,7 @@ def make_dict_storable(advanced_dictionary: dict)->dict:
     return simple_dict
 
 
+@cache
 def get_expected_model_size(model_id: str):
     """
     Loads model from HF and returns its number of non-embedding HP
@@ -92,17 +93,49 @@ def get_expected_model_size(model_id: str):
     results.to_csv(cache_path, index=False)
     return model_size
 
+
+def compute_t5_size(
+    d_model,
+    d_ff,
+    d_kv,
+    num_heads,
+    num_layers,
+    num_decoder_layers,
+    is_gated_act=False,
+    relative_attention_num_buckets=32,
+):
+  act_fn = 0
+  T5Layer_Norm = d_model
+  if is_gated_act:
+    T5DenseGatedActDense = 3*(d_model * d_ff) + act_fn
+    feed_forward = T5DenseGatedActDense + T5Layer_Norm
+  else:
+    T5DenseActDense = 2 * (d_model * d_ff) + act_fn
+    feed_forward = T5DenseActDense + T5Layer_Norm
+  q = 1
+  inner_dim = num_heads * d_kv 
+  T5Attention = 4 * (d_model*inner_dim)
+  self_attention = T5Attention + T5Layer_Norm
+  cross_attention = T5Attention + T5Layer_Norm
+  relative_attention_bias = num_heads * relative_attention_num_buckets
+  enc = num_layers*(self_attention + feed_forward) + q * relative_attention_bias
+  dec = num_decoder_layers*(self_attention + cross_attention + feed_forward) + q * relative_attention_bias
+  final_size = enc + dec + T5Layer_Norm
+  return final_size
+
+
 @cache
 def estimate_transformer_size(
         d_model_expo, 
         d_ff_expo, 
         num_heads, 
         num_layers,
-        d_kv_expo=None, 
+        num_decoder_layers,
+        d_kv_expo, 
+        is_gated_act,
         feed_forward_proj="relu",
-        vocab_size=0, 
-        context_length_expo=None,
-        is_encoder_decoder=False
+        is_encoder_decoder=False,
+        **kwargs
         ):
     """
     Function to estimate size of a model based on a given config without needing to load it first 
@@ -122,67 +155,19 @@ def estimate_transformer_size(
     Returns:
         _type_: _description_
     """
-    # Convert exponentiated values to actual dimensions
-    d_model = 2**d_model_expo
-    d_ff    = 2**d_ff_expo
-    # If d_kv_expo not given, assume d_model/num_heads
-    if d_kv_expo is not None:
-        d_kv = 2**d_kv_expo
-    else:
-        # default d_kv from d_model/num_heads
-        d_kv = d_model // num_heads
-    # Attention dimension (per head * heads, ideally equals d_model)
-    attn_dim = num_heads * d_kv
     
-    # Embedding parameters
-    embed_params = vocab_size * d_model  # token embedding matrix
-    pos_params = 0
-    if context_length_expo is not None:
-        max_positions = 2**context_length_expo
-        if not is_encoder_decoder:
-            # learned positional embeddings for GPT
-            pos_params = max_positions * d_model
-    
-    # Multi-head attention (self-attention) per layer
-    # We include biases for Q,K,V,O (total 3*attn_dim + d_model biases per MHA)
-    mha_weights = 4 * d_model * attn_dim        # Q,K,V,O weight matrices
-    mha_biases  = 3 * attn_dim + d_model        # biases for Q,K,V + output
-    mha_params_per_layer = mha_weights + mha_biases
-    
-    # Feed-forward network per layer
-    if feed_forward_proj.lower().startswith("gated"):
-        # Gated FFN (e.g. GEGLU)
-        ffn_weights = 3 * d_model * d_ff
-        ffn_biases  = d_model + 2 * d_ff
-    else:
-        # Standard FFN
-        ffn_weights = 2 * d_model * d_ff
-        ffn_biases  = d_model + d_ff
-    ffn_params_per_layer = ffn_weights + ffn_biases
-    
-    # LayerNorm parameters
-    if is_encoder_decoder:
-        # T5 style: no bias in LayerNorm (RMSNorm)
-        ln_params_enc = 2 * d_model   # 2 LN (gain only) in encoder layer
-        ln_params_dec = 3 * d_model   # 3 LN in decoder layer
-    else:
-        # GPT style: LayerNorm with bias and gain
-        ln_params_layer = 2 * d_model * 2  # 2 LN each with (gain + bias) -> 4*d_model
-        ln_params_final = 2 * d_model      # final LayerNorm after last layer
-        ln_params_enc = ln_params_dec = ln_params_layer  # not used if not enc/dec
-    
-    total_params = embed_params + pos_params
-    if is_encoder_decoder:
-        # Sum over all encoder and decoder layers
-        enc_layer_params = mha_params_per_layer + ffn_params_per_layer + ln_params_enc
-        dec_layer_params = (2 * mha_params_per_layer) + ffn_params_per_layer + ln_params_dec
-        total_params += num_layers * (enc_layer_params + dec_layer_params)
-        # (In T5, output embeddings tied, and no final LN outside layers)
-    else:
-        # Decoder-only model
-        layer_params = mha_params_per_layer + ffn_params_per_layer + ln_params_layer
-        total_params += num_layers * layer_params + ln_params_final
-        # (embed weight tied to output, and positions counted above if any)
+    # TODO Support others besides T5
+    total_params = compute_t5_size(
+        d_model=2**d_model_expo,
+        d_ff=2**d_ff_expo,
+        d_kv=2**d_kv_expo,
+        num_heads=num_heads,
+        num_layers=num_layers,
+        num_decoder_layers=num_decoder_layers,
+        is_gated_act=is_gated_act,
+        relative_attention_num_buckets=32,
+    )
+
     return int(total_params)
 
 
@@ -255,11 +240,19 @@ def subdfs_to_rows(df: pd.DataFrame, offset: int, prediction_length: int, n: int
 
 
 def load_via_uci_api(dataset_id):
-    ds = fetch_ucirepo(id=dataset_id)
-    print("Dataset can be fetched directly")
-    print(dataset_id)
+    cache_adr = Path(f"./cache/data/{dataset_id}.parquet")
+    if cache_adr.exists():
+        # Load from cache 
+        data = pd.read_parquet(cache_adr)
+    else:
+        data = fetch_ucirepo(id=dataset_id)
+        data = pd.concat([data.data.features, data.data.targets], axis=1)
+        data = data.loc[:, ~data.columns.duplicated()]
+        data.to_parquet(cache_adr)
+        print("Dataset can be fetched directly")
+        print(dataset_id)
 
-    return pd.concat([ds.data.features, ds.data.targets], axis=1)
+    return data
 
 
 def load_from_link(url, filename, dataset_name):
@@ -492,56 +485,6 @@ def group_similar_words(words: list[str]) -> list[list[str]]:
             groups.append([word])
     return groups
 
-
-def _get_next_trial_with_size_constraint(
-        self,
-        config: Configuration,
-        from_keys: list[InstanceSeedBudgetKey],
-        model_size_base: int,
-    ) -> list[TrialInfo]:
-    """
-    A Method to overwrite the _get_next_trial method of SMAC's intenifieres.
-    Idea: Don't even sample Configs that are too big as else each aborted trial counts as a trial to SMAC 
-    Implying that 1000 trials aren't 1000 succeded trials but also aborted trials
-    Pre-Early Stopping avoids this to only count successes or aborted for other reasons.
-    Con: Selecting the next config becomes much slower and surrogate model doesn't learn which configs to avoid
-    Pro: Less Inf Runs + More Predictable Resource Allocation 
-    Args:
-
-    """
-    rh = self.runhistory
-    evaluated_trials = rh.get_trials(config, highest_observed_budget_only=False)
-    running_trials = rh.get_running_trials(config)
-
-    # skip Too big Models
-    c = dict(config)
-    model_size = estimate_transformer_size(
-        d_model_expo=c["d_model_expo"],
-        d_ff_expo=c["d_ff_expo"],
-        num_heads=c["num_heads"],
-        num_layers=c["num_layers"],
-        d_kv_expo=c["d_kv_expo"],
-        feed_forward_proj=c["feed_forward_proj"],
-        context_length_expo=c["context_length_expo"],
-        is_encoder_decoder=True, #TODO Adjust for GPT Support
-        vocab_size=0, # We consider Embedding less size only
-    )
-    if model_size > model_size_base * 1.1:
-        print(f"Skip: {model_size} > {model_size_base * 1.1}")
-        return []
-    
-
-    next_trials: list[TrialInfo] = []
-    for instance in from_keys:
-        trial = TrialInfo(config=config, instance=instance.instance, seed=instance.seed, budget=instance.budget)
-
-
-        if trial in evaluated_trials or trial in running_trials:
-            continue
-
-        next_trials.append(trial)
-
-    return next_trials
 
 # Taken from pandas._libs.tslibs.dtypes.OFFSET_TO_PERIOD_FREQSTR
 offset_alias_to_period_alias = {
