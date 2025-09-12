@@ -101,6 +101,9 @@ def compute_t5_size(
     num_heads,
     num_layers,
     num_decoder_layers,
+    bolt,
+    patch_size=16,
+    use_layer_norm=False,
     is_gated_act=False,
     relative_attention_num_buckets=32,
 ):
@@ -120,7 +123,17 @@ def compute_t5_size(
   relative_attention_bias = num_heads * relative_attention_num_buckets
   enc = num_layers*(self_attention + feed_forward) + q * relative_attention_bias
   dec = num_decoder_layers*(self_attention + cross_attention + feed_forward) + q * relative_attention_bias
-  final_size = enc + dec + T5Layer_Norm
+
+  if bolt:
+    embedding = (2 * (2 * patch_size) *d_ff) + act_fn + (d_ff * d_model) 
+    if use_layer_norm:
+        embedding += T5Layer_Norm
+  else:
+    embedding = 0 
+  
+
+  final_size = embedding + enc + dec + T5Layer_Norm
+
   return final_size
 
 
@@ -133,6 +146,8 @@ def estimate_transformer_size(
         num_decoder_layers,
         d_kv_expo, 
         is_gated_act,
+        bolt,
+        patch_size=16,
         feed_forward_proj="relu",
         is_encoder_decoder=False,
         **kwargs
@@ -164,6 +179,8 @@ def estimate_transformer_size(
         num_heads=num_heads,
         num_layers=num_layers,
         num_decoder_layers=num_decoder_layers,
+        bolt=bolt,
+        patch_size=patch_size if patch_size >= 0 else 16, # patch_size is conditional HP and might be missing where it gets -inf
         is_gated_act=is_gated_act,
         relative_attention_num_buckets=32,
     )
