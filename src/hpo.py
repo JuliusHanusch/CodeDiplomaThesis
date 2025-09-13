@@ -39,18 +39,23 @@ from functools import partial
 
 
 pd.options.display.max_columns = None
-app = Typer()
+app = Typer(pretty_exceptions_enable=False)
 
 BASE_OUTPATH = Path(__file__).parent.parent / "chronos_models"
 BAD_NODES_TRACKER = Path(__file__).parent.parent / "cache/broken_nodes.txt" # HPC isn't perfect some nodes are flawed and everything goes OOM on them -> Track & avoid
-DB_PATH = Path(__file__).parent.parent / "AION.db"
 OBJECTIVES = ["RMSE", "MAE", "WQL"]
+PREFERENCE_FUNCTION = {
+    "RMSE": 1, 
+    "MAE": 1, 
+    "WQL": 1,
+}
 
 
 @app.command()
 @use_yaml_config(param_name="config")
 def main(
     training_folder: str = Option("./data/train", help="Folder with all the Training Corpora (in .arrow format) that can be used"),
+    db_name: str = Option("AION.db", help="Name of the sqlite database to write to"),
     seed: int = Option(0, help="Random seed for reproducibility. -1 for choosing one at random - recommended when starting multiple mains in parallel that communicate via checkpoints (see migration model for evolutionary algorithms)."),
     model_ids: str = Option("['google/t5-efficient-tiny']", help="Which base model to use."),
     limit_model_size: int = Option(1, help= "Whether to limit model to about the size proposed by model_id or to let it grow indefinetly. Set to two for preemptively stopping them and not even counting them"),
@@ -59,7 +64,7 @@ def main(
     number_trials: int = Option(5, help="How many trials to run."),
     min_budget: int = Option(960_000, help="Minimum number of Training Samples"),
     max_budget: int = Option(512_000_000, help="Maximum number of Training Samples"),
-    eta: int = Option(3, help="Hyperband eta."),
+    eta: float = Option(3, help="Hyperband eta."),
     memory: str = Option("160G", help="Memory to allocate for each worker."),
     worker_walltime: str = Option("01:00:00", help="How long shall each worker live."),
     account: str = Option("chronos_project", help="To which project shall the jobs be assigned. none for no project."),
@@ -67,7 +72,8 @@ def main(
     worker_count: int = Option(1, help="How many workers to use."),
     max_batch_size: int = Option(32, help="How large is the max batch size per device. Note: Larger BS are simulated via Gradient Accumulation"),
 ):
-    """Performance SMAC search for best Chronos Config"""
+    """Performs SMAC search for best Chronos Config"""
+    DB_PATH = Path(__file__).parent.parent / db_name
 
     if seed == -1:
         # Generate Random Seed
@@ -139,14 +145,14 @@ def main(
     # Create our SMAC object and pass the scenario and the train method
     smac = MFFacade(
         scenario=scenario,
-        target_function=train, 
+        target_function=partial(train, DB_PATH=DB_PATH), 
         initial_design=initial_design,
         intensifier=intensifier,
         overwrite=True,
         dask_client=client,
         multi_objective_algorithm=HPOFacade.get_multi_objective_algorithm(
             scenario,
-            objective_weights=[1, 0.5, 0.5],  # Equal Weights but MASE & WQL are largely redundant
+            objective_weights=[PREFERENCE_FUNCTION[obj] for obj in OBJECTIVES],  # Equal Weights 
         ),
     )
 
@@ -211,7 +217,8 @@ def main(
 def train(
     config: Configuration, 
     seed: int = 0, 
-    budget: int = 1
+    budget: int = 1,
+    DB_PATH: Path = None,
     ):
     """
     The actual Trial 
@@ -226,6 +233,8 @@ def train(
     Returns:
         _type_: _description_
     """
+    assert DB_PATH is not None
+
     start_time = time.time()
     if torch.cuda.is_available():
         # Track Resource Consumption for Debugging CUDA
@@ -246,8 +255,8 @@ def train(
         config_dict = dict(config)
         config_dict["seed"] = seed
         config_dict["batch_size"] = 2 ** config_dict["batch_size_expo"] 
-        config_dict["per_device_train_batch_size"] = min(config_dict["max_per_device_train_batch_size"], config_dict["batch_size"])
         config_dict["num_devices"] = torch.cuda.device_count()
+        config_dict["per_device_train_batch_size"] = min(config_dict["max_per_device_train_batch_size"], int(config_dict["batch_size"]//config_dict["num_devices"]))
         real_bs = config_dict["per_device_train_batch_size"] * config_dict["num_devices"]
         config_dict["gradient_accumulation_steps"] = (config_dict["batch_size"] + (real_bs - 1)) // (real_bs) 
         training_steps = (budget + config_dict["batch_size"] -1) // config_dict["batch_size"]  # Convert #Training Samples to number training steps
@@ -351,7 +360,7 @@ def train(
         except ModelTooBig as e:
             print(str(e), flush=True)
             # Rember Which models were too big - to train the surrogate model to not sample them over and over
-            average_errors = {metric: float('inf') for metric in OBJECTIVES + ["MASE", "SMAPE"]} # TODO don't hard code MAE and SMAPE
+            average_errors = {metric: float('inf') for metric in OBJECTIVES + ["MASE", "SMAPE", "Utility"]} # TODO don't hard code MAE and SMAPE
 
 
 
@@ -369,7 +378,9 @@ def train(
             "duration": duration, 
             "cpu_count": os.cpu_count(),
             "gpu_count": torch.cuda.device_count(),
-            **average_errors}, 
+            "Utility": sum([PREFERENCE_FUNCTION[obj] * average_errors[obj] for obj in OBJECTIVES]) / sum(PREFERENCE_FUNCTION.values()),
+            **average_errors
+            }, 
             db_path=DB_PATH,
             )
 

@@ -8,6 +8,6 @@ trial_walltime_limit: 604_800 # 7D
 number_trials: 5_000 # Basically meaningless Hyperband Caps it based on eta and min/max budget
 min_budget: 960_000 # 30k * 32 Samples per batch (We found this to have high correlation with much longer training)  
 max_budget: 512_000_000 # 2M Steps with batch size 256 (10x as long as original Chronos)
-eta: 4.80562282827 # (in 4 steps from 960_000 to 512_000_000 (10x original training))
+eta: 4.80562282826 # (in 4 steps from 960_000 to 512_000_000 (10x original training))
 account: "p_llm_timeseries"
 max_batch_size: 32
