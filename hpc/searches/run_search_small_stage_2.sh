@@ -12,4 +12,4 @@
 # Load all Modules
 
 source ./hpc/modules.sh
-srun python3 ./src/hpo.py --config ./src/search_configs/tiny_t5.yml --worker-walltime "10-00:00:00" --worker-count 10 --job-extra-directives "['--gres=gpu:4']" --memory "640G"
+srun python3 ./src/hpo.py --config ./src/search_configs/small_t5.yml --worker-walltime "10-00:00:00" --worker-count 10 --job-extra-directives "['--gres=gpu:4']" --memory "640G"

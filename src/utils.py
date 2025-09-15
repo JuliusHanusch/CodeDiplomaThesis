@@ -393,17 +393,6 @@ def load_val_data(
 
         # Back to HF
         data = subdfs_to_rows(ts, offset=offset, prediction_length=prediction_length, n=num_rolls)
-        # if autogluon_format:
-        #     # Split Data Manually
-        #     data = subdfs_to_rows(ts, offset=offset, prediction_length=prediction_length, n=num_rolls)
-        # else:
-        #     # let gluonts split it later
-        #     data = pd.DataFrame([
-        #         {
-        #             'timestamp': ts["timestamp"] if "timestamp" in ts.columns else  [str(timestamp) for timestamp in pd.date_range(start='1990-12-01', freq="min", periods=len(ts.index))],
-        #             'target': ts["target"].tolist()
-        #         }
-        #     ])
 
         features = Features({
             #'indices': Sequence(Value('int64')),

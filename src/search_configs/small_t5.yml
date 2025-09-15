@@ -1,13 +1,13 @@
 training_folder: "./data/train"
 seed: 123
 model_ids: 
-- "google/t5-efficient-tiny"
+- "google/t5-efficient-small"
 limit_model_size: 2 # Enforce that tiny remains tiny (and do it as early as possible to really get up to better manage resources)
 checkpoint_broken_trials: 0 # Do not reload crashed trials 
 trial_walltime_limit: 604_800 # 7D 
 number_trials: 5_000 # Basically meaningless Hyperband Caps it based on eta and min/max budget
 min_budget: 960_000 # 30k * 32 Samples per batch (We found this to have high correlation with much longer training)  
 max_budget: 512_000_000 # 2M Steps with batch size 256 (10x as long as original Chronos)
-eta: 4.80562282826 # (in 4 steps from 960_000 to 512_000_000 (10x original training))
+eta: 4.805622828269508562053688 # (in 4 steps from 960_000 to 512_000_000 (10x original training))
 account: "p_llm_timeseries"
 max_batch_size: 32

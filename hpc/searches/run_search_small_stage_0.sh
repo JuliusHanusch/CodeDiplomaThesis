@@ -12,6 +12,6 @@
 # Load all Modules
 
 source ./hpc/modules.sh
-srun python3 ./src/hpo.py --config ./src/search_configs/tiny_t5.yml --worker-walltime "48:00:00" --worker-count 20 --job-extra-directives "['--gres=gpu:1']" --memory "160G"
+srun python3 ./src/hpo.py --config ./src/search_configs/small_t5.yml --worker-walltime "48:00:00" --worker-count 20 --job-extra-directives "['--gres=gpu:1']" --memory "160G"
 
-sbatch --dependency=afterany:$SLURM_JOB_ID ./hpc/searches/run_search_tiny_stage_1.sh
+sbatch --dependency=afterany:$SLURM_JOB_ID ./hpc/searches/run_search_small_stage_1.sh
