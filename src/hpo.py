@@ -35,7 +35,10 @@ import pandas as pd
 from math import ceil
 import math
 import types
+from typing import List
 from functools import partial
+from smac.runhistory.dataclasses import TrialValue, TrialInfo
+from smac.runhistory.enumerations import StatusType
 
 
 pd.options.display.max_columns = None
@@ -49,6 +52,9 @@ PREFERENCE_FUNCTION = {
     "MAE": 1, 
     "WQL": 1,
 }
+
+def map_int_to_nearest_float(x: int, values: List[float]) -> float:
+    return min(values, key=lambda v: abs(v - x))
 
 
 @app.command()
@@ -140,7 +146,7 @@ def main(
     initial_design = MFFacade.get_initial_design(scenario, n_configs=worker_count*2) #, additional_configs=[configs_space.get_default_configuration()])
 
     # Create our intensifier
-    intensifier = Hyperband(scenario, incumbent_selection="highest_observed_budget", seed=seed, eta=eta)
+    intensifier = Hyperband(scenario, incumbent_selection="highest_budget", seed=seed, eta=eta) # ! Must be highest budget others have bug (I think)
 
     # Create our SMAC object and pass the scenario and the train method
     smac = MFFacade(
@@ -166,29 +172,57 @@ def main(
         table_exists = cur.fetchone() is not None
         if table_exists:
             print("Trying to add Previous Runs to History to learn from them...")
-            df = pd.read_sql("SELECT * FROM Results", conn)
+            df = pd.read_sql("SELECT * FROM Results ORDER BY budget ASC", conn)
         else:
             df = pd.DataFrame()
         conn.close()
+        max_it = intensifier._get_max_iterations(eta, max_budget, min_budget)
+        budgets, _ = intensifier._compute_configs_and_budgets_for_stages(
+                eta, max_budget, max_it, max_it
+            )
+        print("Budgets:", budgets)
 
         # Add previous trials to our history if they fit the search space
         for _, row in df.iterrows():
             config: dict = json.loads(row["config"])
             config = {key: config[key] for key in configs_space.keys() if key in config}
+
             try: 
                 if not checkpoint_broken_trials and any(math.isinf(row[metric]) for metric in OBJECTIVES):
                     # TODO Check if this leads to same number broken 1,528/2,330 (Hypothesis: RF learns to avoid inf -> more broken when disabled)
                     continue
-                smac._runhistory.add(
-                    config=Configuration(
-                        configuration_space=configs_space,
-                        values=config
-                        ),
-                    cost=[row[metric] for metric in OBJECTIVES],
-                    time=row["duration"],
-                    cpu_time=row["duration"]*row["cpu_count"],
-                    budget=row["budget"],
-                    seed=row["seed"],
+                info = TrialInfo(
+                    config = Configuration(
+                                configuration_space=configs_space,
+                                values=config
+                            ),
+                    instance = None,
+                    seed = row["seed"],
+                    budget = map_int_to_nearest_float(row["budget"], budgets), # we track budget as ints, smac as floats
+                )
+                value = TrialValue(
+                            cost = [row[metric] for metric in OBJECTIVES],
+                            time = row["duration"],
+                            cpu_time = row["duration"]*row["cpu_count"],
+                            status = StatusType.SUCCESS,
+                            starttime = 0.0,
+                            endtime = 0.0,
+                            additional_info = {}
+                )
+                # smac._runhistory.add(
+                #     config=Configuration(
+                #         configuration_space=configs_space,
+                #         values=config
+                #         ),
+                #     cost=[row[metric] for metric in OBJECTIVES],
+                #     time=row["duration"],
+                #     cpu_time=row["duration"]*row["cpu_count"],
+                #     budget=map_int_to_nearest_float(row["budget"], budgets), # we track budget as ints, smac as floats
+                #     seed=row["seed"],
+                # )
+                smac._optimizer.tell(
+                    info=info,
+                    value=value
                 )
             except IllegalValueError as e:
                 print(f"Wasn't able to add Config:\n{config}\nbecause of: {str(e)}")

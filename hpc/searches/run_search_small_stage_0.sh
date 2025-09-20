@@ -3,7 +3,7 @@
 #SBATCH --gres=gpu:1 # The Master Job actually doesn't need one but HPC demands it else we can't schedule workers with GPU
 #SBATCH --nodes=1
 #SBATCH --mem=160G # Working Memory
-#SBATCH --time=48:00:00  # Runtime HH:MM:SS
+#SBATCH --time=36:00:00  # Runtime HH:MM:SS
 #SBATCH --account=p_llm_timeseries
 #SBATCH --job-name=aion-stage0-tiny
 #SBATCH --output=hpc/logs/aion-tiny-0-%j.out  # Output Address 
@@ -12,6 +12,6 @@
 # Load all Modules
 
 source ./hpc/modules.sh
-srun python3 ./src/hpo.py --config ./src/search_configs/small_t5.yml --worker-walltime "48:00:00" --worker-count 20 --job-extra-directives "['--gres=gpu:1']" --memory "160G"
+srun python3 ./src/hpo.py --config ./src/search_configs/small_t5.yml --worker-walltime "36:00:00" --worker-count 40 --job-extra-directives "['--gres=gpu:1']" --memory "160G"
 
 sbatch --dependency=afterany:$SLURM_JOB_ID ./hpc/searches/run_search_small_stage_1.sh
