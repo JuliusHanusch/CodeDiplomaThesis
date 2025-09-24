@@ -39,6 +39,8 @@ from typing import List
 from functools import partial
 from smac.runhistory.dataclasses import TrialValue, TrialInfo
 from smac.runhistory.enumerations import StatusType
+from smac.main.config_selector import ConfigSelector
+from collections import defaultdict
 
 
 pd.options.display.max_columns = None
@@ -55,6 +57,82 @@ PREFERENCE_FUNCTION = {
 
 def map_int_to_nearest_float(x: int, values: List[float]) -> float:
     return min(values, key=lambda v: abs(v - x))
+
+def get_checkpoints_from_db(DB_PATH: Path):
+    if DB_PATH.is_file():
+        conn = sqlite3.connect(DB_PATH)
+
+        # If Table Exists load prev trials from it
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Results';")
+        table_exists = cur.fetchone() is not None
+        if table_exists:
+            print("Trying to add Previous Runs to History to learn from them...")
+            df = pd.read_sql("SELECT * FROM Results ORDER BY budget ASC", conn)
+        else:
+            df = pd.DataFrame()
+        conn.close()
+        return df
+    return pd.DataFrame()
+
+
+def update_tracker(smac: MFFacade, checkpointed_trials: list):
+    """
+    Tells Smac to first evaluate already conducted trials. 
+    Else it uses checkpointed trials only for training but allocates budget starting at bracket 1 
+
+    Returns:
+        _type_: _description_
+    """
+    # TODO Fix Bug to also support meta learning/warmstarting
+    next(smac._optimizer._trial_generator)
+    # Calculate Offset for case that we completed an entire HB loop already
+    trial_count_per_fidelity = defaultdict(int)
+    max_budget = smac._optimizer.intensifier._max_budget
+    for bracket, max_stage in smac._optimizer.intensifier._max_iterations.items():
+        # budget = smac._optimizer.intensifier._get_instance_seed_budget_keys_by_stage(bracket=bracket, stage=max_stage-1, seed=seed)
+        for stage in range(max_stage):
+            trial_count = smac._optimizer.intensifier._n_configs_in_stage[bracket][stage]
+            budget = smac._optimizer.intensifier._get_instance_seed_budget_keys_by_stage(bracket=bracket, stage=stage)[0].budget
+            trial_count_per_fidelity[budget] += trial_count
+    q = len([checkpoint for checkpoint in checkpointed_trials if checkpoint.budget == max_budget]) // trial_count_per_fidelity[max_budget]
+
+    checkpointed_trials_dict = defaultdict(list)
+    for trial in checkpointed_trials:
+        checkpointed_trials_dict[trial.budget].append(trial.config)
+
+    # Skip artifacts of first q runs
+    for budget in checkpointed_trials_dict.keys():
+        startpoint = q * trial_count_per_fidelity[budget]
+        assert startpoint <= len(checkpointed_trials_dict[budget])
+        checkpointed_trials_dict[budget] = checkpointed_trials_dict[budget][startpoint:]
+
+    # Checkpoints are cleaned --> insert into tracker
+    trials_assigned = defaultdict(list)
+    for budget, trials in checkpointed_trials_dict.items():
+        # fill up each stage bracket by bracket
+        for i, trial in enumerate(trials):
+            bracket = 0
+            stage = smac._optimizer.intensifier._budgets_in_stage[bracket].index(budget)
+            trial_count = smac._optimizer.intensifier._n_configs_in_stage[bracket][stage]
+            while i >= trial_count:
+                i -= trial_count 
+                bracket += 1
+                if budget in smac._optimizer.intensifier._budgets_in_stage[bracket]:
+                    stage = smac._optimizer.intensifier._budgets_in_stage[bracket].index(budget)
+                    trial_count = smac._optimizer.intensifier._n_configs_in_stage[bracket][stage]
+                else: 
+                    break
+            trials_assigned[(bracket,stage)].append(trial)
+    for key, trials in trials_assigned.items():
+        if len(smac.intensifier._tracker[key]) > 0:
+            smac.intensifier._tracker[key][0][1][:len(trials)] = trials
+        else:
+            smac.intensifier._tracker[key].append((0, trials))
+
+            
+
+
 
 
 @app.command()
@@ -77,9 +155,11 @@ def main(
     job_extra_directives: str = Option("['--gres=gpu:1']", help="Extra directives to be passed to the job scheduler."),
     worker_count: int = Option(1, help="How many workers to use."),
     max_batch_size: int = Option(32, help="How large is the max batch size per device. Note: Larger BS are simulated via Gradient Accumulation"),
+    checkpointing: str = Option("official", help="Which Checkpointing Mode to use 'official' for save behaviour, 'db' to load previous trials from database, 'none' to start from scratch"),
 ):
     """Performs SMAC search for best Chronos Config"""
     DB_PATH = Path(__file__).parent.parent / db_name
+    checkpoints = get_checkpoints_from_db(DB_PATH=DB_PATH)
 
     if seed == -1:
         # Generate Random Seed
@@ -143,10 +223,21 @@ def main(
     client = Client(address=cluster)
 
     # Start with a few random configs + the default
-    initial_design = MFFacade.get_initial_design(scenario, n_configs=worker_count*2) #, additional_configs=[configs_space.get_default_configuration()])
+    seed_set_size = worker_count*2
+    if len(checkpoints) < seed_set_size:
+        initial_design = MFFacade.get_initial_design(scenario, n_configs=seed_set_size-len(checkpoints)) 
+    else:
+        initial_design = None
 
     # Create our intensifier
     intensifier = Hyperband(scenario, incumbent_selection="highest_budget", seed=seed, eta=eta) # ! Must be highest budget others have bug (I think)
+
+    config_selector = ConfigSelector(
+        scenario=scenario,
+        retrain_after=8,
+        retries=16,
+        min_trials=16, # Assumption longer training behaves very stably --> can rely on lower budgets for longer
+    )
 
     # Create our SMAC object and pass the scenario and the train method
     smac = MFFacade(
@@ -156,6 +247,7 @@ def main(
         intensifier=intensifier,
         overwrite=True,
         dask_client=client,
+        config_selector=config_selector,
         multi_objective_algorithm=HPOFacade.get_multi_objective_algorithm(
             scenario,
             objective_weights=[PREFERENCE_FUNCTION[obj] for obj in OBJECTIVES],  # Equal Weights 
@@ -163,19 +255,7 @@ def main(
     )
 
     # Load Checkpoints from previous Searches
-    if DB_PATH.is_file():
-        conn = sqlite3.connect(DB_PATH)
-
-        # If Table Exists load prev trials from it
-        cur = conn.cursor()
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Results';")
-        table_exists = cur.fetchone() is not None
-        if table_exists:
-            print("Trying to add Previous Runs to History to learn from them...")
-            df = pd.read_sql("SELECT * FROM Results ORDER BY budget ASC", conn)
-        else:
-            df = pd.DataFrame()
-        conn.close()
+    if len(checkpoints) > 0:
         max_it = intensifier._get_max_iterations(eta, max_budget, min_budget)
         budgets, _ = intensifier._compute_configs_and_budgets_for_stages(
                 eta, max_budget, max_it, max_it
@@ -183,7 +263,8 @@ def main(
         print("Budgets:", budgets)
 
         # Add previous trials to our history if they fit the search space
-        for _, row in df.iterrows():
+        checkpointed_trials = []
+        for _, row in checkpoints.iterrows():
             config: dict = json.loads(row["config"])
             config = {key: config[key] for key in configs_space.keys() if key in config}
 
@@ -209,23 +290,20 @@ def main(
                             endtime = 0.0,
                             additional_info = {}
                 )
-                # smac._runhistory.add(
-                #     config=Configuration(
-                #         configuration_space=configs_space,
-                #         values=config
-                #         ),
-                #     cost=[row[metric] for metric in OBJECTIVES],
-                #     time=row["duration"],
-                #     cpu_time=row["duration"]*row["cpu_count"],
-                #     budget=map_int_to_nearest_float(row["budget"], budgets), # we track budget as ints, smac as floats
-                #     seed=row["seed"],
-                # )
-                smac._optimizer.tell(
+                smac.tell(
                     info=info,
                     value=value
                 )
+                
+                checkpointed_trials.append(info)
             except IllegalValueError as e:
                 print(f"Wasn't able to add Config:\n{config}\nbecause of: {str(e)}")
+
+        # Update tracker to resume counting
+        update_tracker(smac=smac, checkpointed_trials=checkpointed_trials)
+        print("Budgets in History: ", {run_key.budget for run_key in smac._config_selector._runhistory_encoder._runhistory if run_key.budget is not None})
+        x, y, confs = smac._config_selector._collect_data()
+        print("Dimensions: ", x.shape, y.shape, confs.shape, flush=True)
 
     # Wait to get Scheduled
     client.wait_for_workers(1) 
@@ -285,6 +363,7 @@ def train(
 
     try:
         budget = ceil(budget)
+        print("Budget: ", budget)
         # Hash Config (incl. budget) to get exactly one model per config
         config_dict = dict(config)
         config_dict["seed"] = seed

@@ -372,7 +372,7 @@ def load_val_data(
         else:
             try:
                 df = load_via_uci_api(dataset_id=config["id"])
-            except DatasetNotFoundError:
+            except:
                 df = load_from_link(
                         url = config["link"],
                         filename = config.get("filename"),
