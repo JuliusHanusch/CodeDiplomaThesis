@@ -21,6 +21,7 @@ chronos_pkg/*
 *.ipynb
 *ipynb_checkpoints/*
 chronos_models/*
+chronos_models_old/*
 data/tmp/*
 AutogluonModels/*
 !AG_Scores.csv
