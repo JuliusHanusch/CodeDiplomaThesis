@@ -125,7 +125,6 @@ class ForbidTooBig(ForbiddenRelation):
                 mask.append(True)
             else:
                 mask.append(False)
-        print(mask) # TODO Remove
         return mask
     
 
