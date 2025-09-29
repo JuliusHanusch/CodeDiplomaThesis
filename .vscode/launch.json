@@ -82,6 +82,24 @@
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/.venv/Scripts/python",
             "args": []
+        },
+        {
+            "name": "optimization curves",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "./analysis/optimization_curves.py",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.venv/Scripts/python",
+            "args": []
+        },
+        {
+            "name": "Sanitizing History",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "./src/sanitizing_history.py",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/.venv/Scripts/python",
+            "args": []
         }
     ]
 }

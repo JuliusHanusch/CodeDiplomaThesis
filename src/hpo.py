@@ -43,6 +43,7 @@ from smac.runhistory.enumerations import StatusType
 from smac.main.config_selector import ConfigSelector
 from collections import defaultdict
 from smac.constants import MAXINT
+from src.sanitizing_history import sanitize
 
 
 pd.options.display.max_columns = None
@@ -115,11 +116,25 @@ def main(
     # Get Search Space
     configs_space = get_config_space(training_folder=training_folder, model_ids=model_ids, max_batch_size=max_batch_size, limit_model_size=limit_model_size)
 
+
+    output_dir = root_dir / "hpc/logs/smac3_output"
+    scenario_name = f"{literal_eval(model_ids)[0].replace('/', '_')}" if checkpointing.lower() == "official" else f"{literal_eval(model_ids)[0].replace('/', '_')}_{uuid.uuid4()}"
+
+    if checkpointing.lower() == "official" and (output_dir/scenario_name).exists():
+        # remove flawed checkpoints
+        sanitize(
+            path=output_dir/scenario_name,
+            seed=seed,
+            min_budget=min_budget, # TODO Replace with Actual Min budget not just desired min budget
+            eta=eta,
+            max_budget=max_budget,
+        )
+
     # Define environment variables
     scenario = Scenario(
         configspace=configs_space,
-        name=f"{literal_eval(model_ids)[0].replace('/', '_')}" if checkpointing.lower() == "official" else f"{literal_eval(model_ids)[0].replace('/', '_')}_{uuid.uuid4()}",
-        output_directory=root_dir / "hpc/logs/smac3_output",
+        name=scenario_name,
+        output_directory=output_dir,
         trial_walltime_limit=trial_walltime_limit if trial_walltime_limit > 0 else None,  
         n_trials=number_trials,  
         min_budget=min_budget,  
