@@ -28,7 +28,7 @@ def get_tracker_length(tracker: dict):
     return length
 
 
-def sanitize(path: Path, seed, min_budget, eta, max_budget):
+def sanitize(path: Path, seed, min_budget, eta, max_budget, cs: ConfigurationSpace):
     # Duplicate Old Checkpoint
     backup_pth = path.parent / (path.name + datetime.now().strftime("%Y%m%d_%H%M"))
     shutil.copytree(path, backup_pth)
@@ -75,6 +75,25 @@ def sanitize(path: Path, seed, min_budget, eta, max_budget):
                         cfgs.remove(config)
                         removed_counter += 1
                         print(f"removed {removed_counter} configs from intensifier")
+
+    
+    # The intensifier contains additional Configs (which somehow didnt go through the CS Constraints)
+    # Check and remove them if necessary
+    removed_counter_extra = 0
+    for key, value in tracker.items():
+        bracket, stage = key.split(",")
+
+        # remove config if existent at this budget level
+        for seed, cfgs in value:
+            for config in cfgs:
+                try:
+                    config_ = Configuration(cs, values=config)
+                except:
+                    # Config is invalid
+                    cfgs.remove(config)
+                
+                    removed_counter_extra += 1
+                    print(f"removed {removed_counter}+{removed_counter_extra} configs from intensifier")
                     
 
     runhistory["data"] = meta_data
@@ -91,8 +110,9 @@ def sanitize(path: Path, seed, min_budget, eta, max_budget):
 
 
 
-if __name__ == "__main__":
-    os.chdir(Path(__file__).resolve().parent.parent)
-    sanitize(Path("./hpc/logs/smac3_output/google_t5-efficient-small"), seed=123, min_budget=960_000, eta=4.805622828269508562053688, max_budget=512_000_000)
+# if __name__ == "__main__":
+#     os.chdir(Path(__file__).resolve().parent.parent)
+    
+#     sanitize(Path("./hpc/logs/smac3_output/google_t5-efficient-small"), seed=123, min_budget=960_000, eta=4.805622828269508562053688, max_budget=512_000_000)
 
     

@@ -128,6 +128,7 @@ def main(
             min_budget=min_budget, # TODO Replace with Actual Min budget not just desired min budget
             eta=eta,
             max_budget=max_budget,
+            cs=configs_space,
         )
 
     # Define environment variables
