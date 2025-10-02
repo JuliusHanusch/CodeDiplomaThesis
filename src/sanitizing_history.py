@@ -30,7 +30,7 @@ def get_tracker_length(tracker: dict):
 
 def sanitize(path: Path, seed, min_budget, eta, max_budget):
     # Duplicate Old Checkpoint
-    backup_pth = path.parent / (path.name + datetime.now().strftime("%Y%m%d_%H%M"))
+    backup_pth = path.parent / (path.name + "_" + datetime.now().strftime("%Y%m%d_%H%M"))
     shutil.copytree(path, backup_pth)
     # Load all files
     intensifier_path = path/str(seed)/"intensifier.json"
