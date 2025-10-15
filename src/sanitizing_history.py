@@ -42,22 +42,26 @@ def sanitize(path: Path, seed, min_budget, eta, max_budget, cs: ConfigurationSpa
     meta_data = []
     configs = {}
     origins = {}
+    update_id = {}
     config_id = 1
     tracker = intensifier["state"]["tracker"]
     removed_counter = 0
+    walltime = 0
     for meta in runhistory["data"]:
         old_id = meta["config_id"]
         config = runhistory["configs"][str(old_id)]
         try:
             _ = Configuration(cs, values=config)
         except:
-            # Mark as crashed if config is illegal but still went through somehow
+            # Mark as crashed if config is illegal but still went through somehow TODO Find out why
             meta["status"] = 2 
         if meta["status"] == 1:
+            update_id[old_id] = config_id
             meta["config_id"] = config_id
             origins[str(config_id)] = runhistory["config_origins"][str(old_id)]
             configs[str(config_id)] = config
             meta_data.append(meta)
+            walltime += meta["time"]
 
             config_id += 1
         else:
@@ -119,6 +123,14 @@ def sanitize(path: Path, seed, min_budget, eta, max_budget, cs: ConfigurationSpa
                             "running": 0
                         }
     intensifier["state"]["tracker"] = tracker
+    intensifier["incumbent_ids"] = [update_id[i] for i in intensifier["incumbent_ids"]]
+    trajectory = []
+    for entry in intensifier["trajectory"]:
+        entry["config_ids"] = [update_id[i] for i in entry["config_ids"]]
+        entry["trial"] = len(configs)
+        entry["walltime"] = walltime
+        trajectory.append(entry)
+    intensifier["trajectory"] = trajectory
     write_json(runhistory_path, runhistory)
     write_json(intensifier_path, intensifier)
 
