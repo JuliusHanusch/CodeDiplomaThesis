@@ -1,0 +1,6 @@
+alpha: 1.0
+corpora:
+- Chronos_Corpus
+k: 3.0
+length: 512.0
+small_ts_share: 0.1

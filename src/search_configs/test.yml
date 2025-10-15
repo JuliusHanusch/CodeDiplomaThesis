@@ -1,0 +1,17 @@
+training_folder: "/data/horse/ws/jipo020b-AION/AION/data/train"
+seed: 42
+model_ids: 
+- "google/t5-efficient-tiny"
+# - "openai-community/gpt2"
+limit_model_size: 1
+trial_walltime_limit: 86400 # 1D TODO Incr
+number_trials: 100
+min_budget: 9600
+max_budget: 76800 # 30k Steps * 256 batch size TODO Incr to 10M steps 
+eta: 3
+memory: "160G"
+worker_walltime: "24:00:00" # TODO Incr
+account: "p_llm_timeseries"
+job_extra_directives: "['--gres=gpu:1']"
+worker_count: 1 # TODO Increase
+max_batch_size: 32

@@ -16,3 +16,10 @@ joblib
 scikit-learn
 tensorboard
 ConfigSpace
+smac
+dask
+dask-jobqueue
+autogluon
+ucimlrepo
+deepspeed
+normality

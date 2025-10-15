@@ -1,0 +1,8 @@
+alpha: 0.876173616349
+corpora:
+- UCI_Corpus_Processed
+- Chronos_Corpus
+- Chronos_Corpus_Kernel_Synth
+k: 3.0
+length: 512.0
+small_ts_share: 0.3024170776432

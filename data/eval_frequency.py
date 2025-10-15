@@ -1,10 +1,9 @@
 import pandas as pd
 from dateutil.relativedelta import *
 from datetime import timedelta
+import numpy as np
 
-# needed for further calculations with time
-# relative delta will have non-exact values like "month"
-# time delta is an absolute value
+
 def relative_delta_to_time_delta(relative_delta: relativedelta) -> timedelta:
     return timedelta(
         # months are approximated as an average of 30d10h
@@ -16,37 +15,63 @@ def relative_delta_to_time_delta(relative_delta: relativedelta) -> timedelta:
         microseconds=relative_delta.microseconds % 1000,
     )
 
+
+def make_equidistant_with_nans(df: pd.DataFrame, time_column: str, freq: str) -> pd.DataFrame:
+    df_ = df.copy()
+    df_[time_column] = pd.to_datetime(df_[time_column])
+    df_ = df_.sort_values(time_column)
+    
+    full_index = pd.date_range(start=df_[time_column].min(),
+                               end=df_[time_column].max(),
+                               freq=freq)
+    
+    return df_.set_index(time_column).reindex(full_index).rename_axis(time_column).reset_index()
+
+
 # returns true if temporal points can be considered to be equidistant (adjust thresholds as needed)
-def eval_frequency(df: pd.DataFrame, debug=False) -> (bool, list):
-    if debug: print(">>> eval_frequency DEBUG OUTPUT")
+def eval_frequency(df: pd.DataFrame, time_column='datetime', min_df_len=128, fix=False, debug=False)-> (bool, list):
+    """
+    Checks if the given DF is equidistant
+    If fix is true then it also checks whether snippets can be found inside that are equidistant 
+    If some of sufficient length are found returns a list of those equidistant dfs   
 
-    amount_threshold = 0.9 # minimal share of precisely equidistant time data points
-    total_time_ratio_threshold = 0.9 # ratio of most common time difference to average time difference
-    amount_threshold_fixable = 0.8
-    min_df_len = 64
+    """
+    if fix:
+        amount_threshold_fixable = 0.50 # If below 50% are Restorable -> Try luck with aggregation instead
+        amount_threshold = 0.9 # minimal share of precisely equidistant time data points
+        total_time_ratio_threshold = 0.9 # ratio of most common time difference to average time difference
+    else:
+        amount_threshold_fixable = 2# Disabke 0.99 # Don't restore except in exceptions where there is 1 large gap or so
+        # We are a bit more forgiving when we cant fix
+        total_time_ratio_threshold = 0.90 # ratio of most common time difference to average time difference 
+        amount_threshold = 0.90 # minimal share of precisely equidistant time data points
 
-    date_time = df['datetime']
-    if len(date_time) < 2:
-        if debug: print("Dataset too short")
+    date_time = df[time_column]
+    max_sample_count = len(date_time) # TODO Remove (Currently it just deactivates max_sample limit)
+
+    if (len(date_time) < 2):
         return True, []
-    date_time = sorted(date_time)
+    date_time: pd.Series = sorted(date_time)
+    date_time = np.array(date_time, dtype='datetime64[ms]')
+
 
     # ensure a sufficient share of time points is equally spaced
     ## count the number of occurrences of each time difference
     time_diff_dict: dict = {}
-    for x in range(len(date_time)-1):
-        relative_delta = relativedelta(date_time[x+1], date_time[x])
+    sample_count = min(len(date_time)-1, max_sample_count) # if it is not clear after 10k we wont know it after 50k, 100k, ...
+    for x in range(sample_count): 
+        dt1 = date_time[x].astype('M8[ms]').astype('O')  # object = datetime.datetime
+        dt2 = date_time[x+1].astype('M8[ms]').astype('O')
+        relative_delta = relativedelta(dt2, dt1)
         time_diff_dict[relative_delta] = time_diff_dict.get(relative_delta, 0) + 1
 
     time_diff_dict = dict(sorted(time_diff_dict.items(), key=lambda item: item[1], reverse=True))
     most_common_time_diff = list(time_diff_dict.keys())[0]
 
-    if debug: print("Pre-Clustering", time_diff_dict)
     # If most common timediff == 0
     if most_common_time_diff == relativedelta():
         if debug: print("Dataset malformed: most common time diff 0")
         return False, []
-
     # cluster time deltas that are close to most common time diff
     to_del = []
     most_common_time_diff_time_delta = relative_delta_to_time_delta(most_common_time_diff)
@@ -62,7 +87,8 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> (bool, list):
                 if debug: print("NOT clustering", most_common_time_diff_time_delta, "item:", ditem, relative_delta_to_time_delta(ditem))
     for del_item in to_del:
         del time_diff_dict[del_item]
-    amount_share = time_diff_dict[most_common_time_diff] / max(len(date_time) - 1, 1)
+    amount_share = time_diff_dict[most_common_time_diff] / max(sample_count, 1)
+
 
     # ensure we don't have too many gaps in the data
     ## calculate ratio of (most common time difference) / (average time delta per data point)
@@ -70,57 +96,72 @@ def eval_frequency(df: pd.DataFrame, debug=False) -> (bool, list):
     last_time = date_time[-1]
 
     if first_time == last_time:
-        if debug: print("Dataset malformed: first and last time are equal")
         return False, []
         #raise Exception("Dataset malformed")
 
     if isinstance(first_time, pd.Timestamp):
-        average_time_diff_per_data_point = (last_time.to_pydatetime() - first_time.to_pydatetime()) / max(len(date_time) - 1, 1)
+        average_time_diff_per_data_point = (last_time.to_pydatetime() - first_time.to_pydatetime()) / max(sample_count, 1)
     else:
-        average_time_diff_per_data_point = (last_time - first_time) / max(len(date_time) - 1, 1)
+        average_time_diff_per_data_point = (last_time - first_time) / max(sample_count, 1)
+    
+    average_time_diff_per_data_point = max(
+        np.timedelta64(1, 'ms'),
+        average_time_diff_per_data_point
+    )
 
-    time_diff_ratio = most_common_time_diff_time_delta / average_time_diff_per_data_point
+    time_diff_ratio = relative_delta_to_time_delta(most_common_time_diff) / average_time_diff_per_data_point.astype('O')
 
     if debug:
-        #print("date_time", date_time)
+        print(">>> eval_frequency DEBUG OUTPUT")
+        print("date_time", date_time)
         print("time_diff_dict", time_diff_dict)
         print("Amount share",amount_share, ("above" if (amount_share>amount_threshold) else "below"), "threshold")
         print("Timediff ratio", time_diff_ratio, ("above" if (time_diff_ratio > total_time_ratio_threshold) else "below"), "threshold")
         print("Reciprocal Timediff ratio", 1/max(time_diff_ratio,1E-5), ("above" if ((1/max(time_diff_ratio,1E-5)) > total_time_ratio_threshold) else "below"),
           "threshold")
-
+        
+	
     # find fixable time series:
     # share of most frequent time distance is high enough,
-    # but total time doesnt match
+    # but total time doesnt match (and ts is shorter as max_sample_count to avoid cutting already cutted TS)
     if (amount_share > amount_threshold_fixable
             and (time_diff_ratio < total_time_ratio_threshold or 1/max(time_diff_ratio,1E-5) < total_time_ratio_threshold))\
-            and (time_diff_ratio != 0.0):
+            and (time_diff_ratio != 0.0) and len(date_time) - 1  < max_sample_count:
         # attempting fix
-
         print("Fixable?")
-
         split_series = []
-
         tempdf_index = 0
+        fixed_amount = 0
         for x in range(len(df) - 1):
-            relative_delta = relativedelta(df['datetime'][x + 1], df['datetime'][x])
+            relative_delta = relativedelta(df[time_column][x + 1], df[time_column][x])
             if not (relative_delta == most_common_time_diff
                     or relative_delta == most_common_time_diff * 2 # single gaps are OK
+                    or relative_delta == most_common_time_diff * 3 # double gaps are too
                     or relative_delta in to_del): #in to_del means it got clustered
                 # split detected
-                if x+1 - tempdf_index > min_df_len:
-                    split_series.append(df.iloc[tempdf_index:x+1].reset_index(drop=True))
+                fixed_df = df.iloc[tempdf_index:x+1].reset_index(drop=True)
+                if len(fixed_df) > min_df_len:
+                    fixed_df_equi_max = make_equidistant_with_nans(fixed_df, time_column=time_column, freq=most_common_time_diff_time_delta)
+                    split_series.append(fixed_df_equi_max)
+                    fixed_amount += len(fixed_df)
                 tempdf_index = x+1
+        # TODO DRY
+        fixed_df = df.iloc[tempdf_index:len(df)].reset_index(drop=True)
+        if len(fixed_df) > min_df_len:
+            fixed_df_equi_max = make_equidistant_with_nans(fixed_df, time_column=time_column, freq=most_common_time_diff_time_delta)
+            split_series.append(fixed_df_equi_max)
+            fixed_amount += len(fixed_df)
+        # fixed_series = pd.concat(split_series).sort_values(by=time_column, inplace=False)
 
-        if len(df) - tempdf_index > min_df_len:
-            split_series.append(df.iloc[tempdf_index:len(df)].reset_index(drop=True))
-
-        return False, split_series
-
+        # Check if we were truly able to fixe the desired amount (after applying min length)
+        if fixed_amount / len(df) >= amount_threshold_fixable:
+            return False, split_series
+        else: # Try to equidise instead
+            return False, []
 
 
     # true if both are above threshold
-    return (amount_share > amount_threshold
-            and time_diff_ratio > total_time_ratio_threshold
-            and 1/max(time_diff_ratio,1E-5) > total_time_ratio_threshold), []
+    return (amount_share >= amount_threshold
+            and time_diff_ratio >= total_time_ratio_threshold
+            and 1/max(time_diff_ratio,1E-5) >= total_time_ratio_threshold), []
 

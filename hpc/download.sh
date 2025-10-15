@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --cpus-per-task=4 # CPU Count
 #SBATCH --nodes=1
-#SBATCH --mem=320G # Working Memory
+#SBATCH --mem=800G # Working Memory
 #SBATCH --time=12:00:00  # Runtime HH:MM:SS
 #SBATCH --account=p_automl  
 #SBATCH --job-name=download_data
-#SBATCH --array=0-2
+#SBATCH --array=0-3
 #SBATCH --output=./hpc/logs/data_downloader_%A_%a.out  # Output Address 
 #SBATCH --error=./hpc/logs/data_downloader_%A_%a.err  # Output Address
   
@@ -15,7 +15,13 @@ source ./hpc/modules_cpu.sh
 case $SLURM_ARRAY_TASK_ID in
   0) corpus="kaggle" ;;
   1) corpus="chronos" ;;
-  2) corpus="lotsa" ;;
+  2)
+    corpus="lotsa"
+    cd data || exit 1
+    huggingface-cli download Salesforce/lotsa_data --repo-type=dataset --local-dir data_sets_raw/Lotsa_Corpus
+    cd ..
+    ;;
+  3) corpus="uci" ;;
 esac
   
 srun python ./data/download_data.py --corpus-name "$corpus"

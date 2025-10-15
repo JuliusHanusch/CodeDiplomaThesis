@@ -17,3 +17,9 @@ tensorboard
 kaggle
 pyarrow
 ConfigSpace
+normality
+altair
+vl-convert-python
+kaleido
+openpyxl
+ucimlrepo
