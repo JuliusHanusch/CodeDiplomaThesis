@@ -48,6 +48,11 @@ def sanitize(path: Path, seed, min_budget, eta, max_budget, cs: ConfigurationSpa
     for meta in runhistory["data"]:
         old_id = meta["config_id"]
         config = runhistory["configs"][str(old_id)]
+        try:
+            _ = Configuration(cs, values=config)
+        except:
+            # Mark as crashed if config is illegal but still went through somehow
+            meta["status"] = 2 
         if meta["status"] == 1:
             meta["config_id"] = config_id
             origins[str(config_id)] = runhistory["config_origins"][str(old_id)]
@@ -80,6 +85,7 @@ def sanitize(path: Path, seed, min_budget, eta, max_budget, cs: ConfigurationSpa
     # The intensifier contains additional Configs (which somehow didnt go through the CS Constraints)
     # Check and remove them if necessary
     removed_counter_extra = 0
+    empty_brackets = []
     for key, value in tracker.items():
         bracket, stage = key.split(",")
 
@@ -95,6 +101,14 @@ def sanitize(path: Path, seed, min_budget, eta, max_budget, cs: ConfigurationSpa
                     removed_counter_extra += 1
                     print(f"removed {removed_counter}+{removed_counter_extra} configs from intensifier")
                     
+        # If bracket/stage now empty remove it --> else leads to problems
+        config_cnt = sum([len(entry) for entry in tracker[key][0] if isinstance(entry, (list, tuple))])
+        if config_cnt == 0:
+            empty_brackets.append(key)
+    
+    for key in empty_brackets:
+        tracker.pop(key, None)
+
 
     runhistory["data"] = meta_data
     runhistory["configs"] = configs

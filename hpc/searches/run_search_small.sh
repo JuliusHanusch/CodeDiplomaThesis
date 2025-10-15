@@ -6,18 +6,23 @@
 #SBATCH --time=4-00:00:00  # Runtime HH:MM:SS
 #SBATCH --account=p_llm_timeseries
 #SBATCH --job-name=aion-small
-#SBATCH --output=hpc/logs/aion-small-%j.out  # Output Address 
-#SBATCH --error=hpc/logs/aion-small-%j.err  # Output Address
+#SBATCH --output=hpc/logs/aion-small-%j-%a.out  # Output Address 
+#SBATCH --error=hpc/logs/aion-small-%j-%a.err  # Output Address
 #SBATCH --array=0-5%1
 # Load all Modules
 
 # Every 8 days increase resources to finish slowest in reasonable time
-if (( SLURM_ARRAY_TASK_ID % 3 == 2 )); then
+if (( SLURM_ARRAY_TASK_ID % 2 == 1 )); then
     job_extra="['--gres=gpu:4']"
 else
     job_extra="['--gres=gpu:1']"
 fi
 
+# environment variables
+export DASK_DISTRIBUTED__COMM__TIMEOUTS__CONNECT=1800s
+export DASK_DISTRIBUTED__COMM__TIMEOUTS__TCP=1800s
+export DASK_DISTRIBUTED__SCHEDULER__WORKER_TTL=1800s
+export DASK_DISTRIBUTED__WORKER__HEARTBEAT__INTERVAL=300s
 
 
 source ./hpc/modules.sh

@@ -181,7 +181,8 @@ def main(
     )
 
     print(cluster.job_script())
-    cluster.scale(jobs=worker_count)  # Ask for 1 job
+    # cluster.scale(jobs=worker_count)  # Ask for 1 job
+    cluster.adapt(minimum=worker_count, maximum=worker_count, wait_count=200) # Replace dead workers if necessary
     client = Client(address=cluster)
 
 
@@ -229,7 +230,7 @@ def main(
 
     client.close()
     cluster.close()
-    print(f"All Done!!! {len(smac.runhistory.get_configs("cost"))} Evaluated")
+    print(f'All Done!!! {len(smac.runhistory.get_configs("cost"))} Evaluated')
     print(f"You can find all the trials and their results in {DB_PATH}")
 
 
