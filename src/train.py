@@ -33,10 +33,13 @@ import transformers
 from transformers import (
     AutoModelForSeq2SeqLM,
     AutoModelForCausalLM,
+    AutoModelForCausalLM,
     AutoConfig,
     T5Config,
+    BertConfig,
     Trainer,
-    TrainingArguments,
+    TrainingArguments,  
+    AutoModelForMaskedLM,
 )
 
 import accelerate
@@ -56,7 +59,7 @@ from gluonts.transform import (
 from src.utils import make_dict_storable, get_expected_model_size, get_model_size, ModelTooBig
 
 
-from chronos_pkg.src.chronos import ChronosConfig, ChronosTokenizer
+from chronos_pkg.src.chronos import ChronosConfig, ChronosTokenizer, ChronosPipeline
 from chronos_pkg.src.chronos.chronos_bolt import ChronosBoltModelForForecasting, ChronosBoltConfig
 # import torch._dynamo
 # torch._dynamo.config.suppress_errors = True
@@ -171,67 +174,128 @@ def get_next_path(
 
 
 #modified load model fúnction to implement additional hyperparameter
-def load_model( 
+def load_model(
     model_id="google/t5-efficient-tiny",
     model_type="seq2seq",
+    vocab_size=4096,
     random_init=False,
     tie_embeddings=False,
-    pad_token_id=0,
-    eos_token_id=1,
-    vocab_size=4096,
-    d_model = 512,
-    dropout_rate = 0.1,
-    feed_forward_proj = "relu",
-    layer_norm_epsilon = 1e-06,
-    is_encoder_decoder = True,
-    num_layers = 6,
-    num_decoder_layers = 6,
-    num_heads = 8,
-    d_ff = 2048,
-    d_kv = 64,
-    bolt=False,
-    is_gated_act=False,
+    pad_token_id = 0,
+    bos_token_id = 1,
+    eos_token_id = 2,
+    mask_token_id = 3, 
+    config_overrides=None,
+    hidden_size = 768,
+    num_hidden_layers = 12,
+    num_attention_heads = 12,
+    intermediate_size = 3072,
+    hidden_act = "gelu",
+    hidden_dropout_prob = 0.1,
+    attention_probs_dropout_prob = 0.1,
+    layer_norm_eps = 1e-12,
+    bolt = False,
+    is_gated_act= False,
+    task="mlm",
+    num_labels=6,
+    context_length = 512,
+
 ):
     """
-    Load the specified HuggingFace model, adjusting the vocabulary
-    size, special token IDs, and initialization options.
+    Load a HuggingFace model, adjusting vocab size, token IDs, and config overrides.
 
-    This allows to set a model up for training on a new vocabulary
-    of tokens.
+    Compatible with both pretrained and randomly initialized models.
     """
-    assert model_type in ["seq2seq", "causal"]
-    AutoModelClass = (
-        AutoModelForSeq2SeqLM if model_type == "seq2seq" else AutoModelForCausalLM
-    )
+
+    
+
+    assert model_type in ["seq2seq", "causal", "mlm"]
+
+    if model_type == "mlm":
+        AutoModelClass = AutoModelForMaskedLM
+    elif model_type == "seq2seq":
+        AutoModelClass = AutoModelForSeq2SeqLM
+    elif model_type == "causal":
+        AutoModelClass = AutoModelForCausalLM
+    else:
+        raise ValueError(f"Unknown model_type: {model_type}")
+    
+
+    # Load from scratch
     if random_init:
         log_on_main("Using random initialization", logger)
         config = AutoConfig.from_pretrained(model_id)
-        config.d_model = d_model
-        config.dropout_rate = dropout_rate
-        config.feed_forward_proj = feed_forward_proj
-        config.layer_norm_epsilon = layer_norm_epsilon
-        config.is_encoder_decoder = is_encoder_decoder
-        config.num_heads = num_heads
-        config.num_layers = num_layers
-        config.num_decoder_layers = num_decoder_layers
-        config.d_ff = d_ff
-        config.d_kv = d_kv
-        config.is_gated_act = is_gated_act
+        
+        '''
+        Params are not set in search space. For optimal results use defautl values from Auto Config.
+        '''
+        # config.hidden_size = hidden_size
+        # config.num_hidden_layers = num_hidden_layers
+        # config.num_attention_heads = num_attention_heads
+        # config.intermediate_size = intermediate_size
+        # config.hidden_dropout_prob = hidden_dropout_prob
+        # config.hidden_act = hidden_act
+        # config.attention_probs_dropout_prob = attention_probs_dropout_prob
+        # config.layer_norm_eps = layer_norm_eps
+        # config.hidden_act = hidden_act
+        # config.is_gated_act = is_gated_act
+        #config.max_position_embeddings = context_length
+
+        print("Config:", print(type(config).__name__))
+
         if isinstance(config, T5Config):
-            # The default initializer_factor (1.0) in transformers is too large
             config.initializer_factor = 0.05
+            print("Config: Confirmed T5")
+        if isinstance(config, BertConfig):
+            config.initializer_range = 0.05
+            print("Config: Confirmed BERT")
+
         config.tie_word_embeddings = tie_embeddings
+
+        if config_overrides:
+            log_on_main(f"Overriding config: {config_overrides}", logger)
+            config.update_from_string(config_overrides)
+
         if bolt:
             return config
+
         model = AutoModelClass.from_config(config)
+
+    # Load from pretrained
     else:
         log_on_main(f"Using pretrained initialization from {model_id}", logger)
-        model = AutoModelClass.from_pretrained(model_id)
+        if config_overrides:
+            raise ValueError("--config_overrides cannot be used with pretrained models")
+
+        if task == "classification":
+            log_on_main("Loading classification model via ChronosPipeline", logger)
+
+            pipeline = ChronosPipeline.from_pretrained(
+                model_id,
+                task="classification",
+                num_labels=num_labels
+            )
+            model = pipeline.model
 
 
-    model.resize_token_embeddings(vocab_size)
-    model.config.pad_token_id = model.generation_config.pad_token_id = pad_token_id
-    model.config.eos_token_id = model.generation_config.eos_token_id = eos_token_id
+        else:
+            # ✅ Standard HF loading for MLM / seq2seq / causal
+            model = AutoModelClass.from_pretrained(model_id)
+
+
+    # Resize token embeddings to match vocab size
+    target_model = model.model if hasattr(model, "model") else model
+
+    if hasattr(target_model, "resize_token_embeddings"):
+        target_model.resize_token_embeddings(vocab_size)
+
+
+    # Set special token IDs (on the HF backbone!)
+    hf_config = target_model.config
+    hf_config.pad_token_id = pad_token_id
+    hf_config.eos_token_id = eos_token_id
+    hf_config.mask_token_id = mask_token_id
+    hf_config.bos_token_id = bos_token_id
+
 
     return model
 
@@ -352,12 +416,18 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         imputation_method: Optional[MissingValueImputation] = None,
         mode: str = "training",
         np_dtype=np.float32,
+        span_masking: bool = False,
+        mean_span_length: int = 3,
+        masking_prob: float = 0.15,
+        task: str = "mlm",
+
+
     ) -> None:
         super().__init__()
 
         assert len(probabilities) == len(datasets)
         assert mode in ("training", "validation", "test")
-        assert model_type in ("seq2seq", "causal")
+        assert model_type in ("seq2seq", "causal", "mlm")
 
         self.datasets = datasets
         self.probabilities = probabilities
@@ -370,23 +440,38 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         self.imputation_method = imputation_method or LeavesMissingValues()
         self.mode = mode
         self.np_dtype = np_dtype
+        self.span_masking = span_masking
+        self.mean_span_length = mean_span_length
+        self.masking_prob = masking_prob
+        self.task = task
 
     def preprocess_entry(self, entry: dict, mode: str) -> dict:
-        entry = {f: entry[f] for f in ["start", "target"]}
-        entry["target"] = np.asarray(entry["target"], dtype=self.np_dtype)
-        assert entry["target"].ndim == 1, f"got {entry['target'].ndim=}, expected 1"
+        #logger.info(f"RAW ENTRY KEYS: {list(entry.keys())}")
 
+        # CLASSIFICATION PATH
+        if self.task == "classification":
+            assert "label" in entry, f"Missing label. Keys: {list(entry.keys())}"
+
+            return {
+                "target": np.asarray(entry["target"], dtype=self.np_dtype),
+                "label": int(entry["label"]),
+            }
+        # FORECASTING / MLM PATH
+        entry = {
+            "start": entry["start"],
+            "target": np.asarray(entry["target"], dtype=self.np_dtype),
+        }
+
+        assert entry["target"].ndim == 1
+
+        # causal handling
         if self.model_type == "causal":
-            # Causal models do not play nice with missing values, so it is
-            # recommended to use an imputation method, e.g., LastValueImputation
             entry["target"] = self.imputation_method(entry["target"])
 
         if mode == "training" and self.drop_prob > 0:
             target = entry["target"].copy()
             drop_p = np.random.uniform(low=0.0, high=self.drop_prob)
-            mask = np.random.choice(
-                [True, False], size=len(target), p=[drop_p, 1 - drop_p]
-            )
+            mask = np.random.choice([True, False], size=len(target), p=[drop_p, 1 - drop_p])
             target[mask] = np.nan
             entry["target"] = target
 
@@ -418,6 +503,9 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         )
 
     def create_training_data(self, data):
+        if self.task == "classification":
+            return data
+        # forecasting path (unchanged)
         data = Cyclic(data)
         split_transform = self._create_instance_splitter(
             "training"
@@ -436,54 +524,103 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         return data
 
     def to_hf_format(self, entry: dict) -> dict:
-        past_target = torch.tensor(entry["past_target"]).unsqueeze(0)
+        if self.task == "mlm":
+            return self._to_mlm(entry)
+        elif self.task == "classification":
+            return self._to_classification(entry)
+        else:
+            raise ValueError(f"Unknown task: {self.task}")
+        
+    # def _to_classification(self, entry):
+    #     raise RuntimeError(f"ENTRY KEYS: {list(entry.keys())}")
+    
+    def _to_classification(self, entry: dict) -> dict:
+        target = np.asarray(entry["target"], dtype=np.float32)
+
+        context = torch.tensor(target[-self.context_length:]).unsqueeze(0)
+
+        input_ids, attention_mask, _ = self.tokenizer.context_input_transform(context)
+
+        return {
+            "input_ids": input_ids.squeeze(0),
+            "attention_mask": attention_mask.squeeze(0),
+            "labels": entry["label"],
+        }
+        
+        
+    def _to_mlm(self, entry: dict) -> dict:
+        max_len = self.context_length
+        context = torch.concat([torch.tensor(entry["past_target"]), torch.tensor(entry["future_target"])])[-max_len:].unsqueeze(0)
         input_ids, attention_mask, scale = self.tokenizer.context_input_transform(
-            past_target
+            context
         )
-        future_target = torch.tensor(entry["future_target"]).unsqueeze(0)
-        labels, labels_mask = self.tokenizer.label_input_transform(future_target, scale)
-        labels[labels_mask == 0] = -100
+        if False:
+            pass
+        
+        elif self.model_type == "mlm":            
+            # --- ensure mask token exists ---
+            if not hasattr(self.tokenizer.config, "mask_token_id"):
+                self.tokenizer.config.mask_token_id = self.tokenizer.config.n_special_tokens 
+                self.tokenizer.config.n_special_tokens += 1
+                self.tokenizer.config.n_tokens += 1
+                print(f"Added <mask> token with id {self.tokenizer.config.mask_token_id}")
 
-        if self.model_type == "causal":
-            # The InstanceSplitter pads time series on the left to be equal to the
-            # context_length. However, certain models (e.g., GPT2) with absolute
-            # position embeddings should not be trained with left padding.
-            # The following piece of code moves padding from left to right.
-
-            assert input_ids.shape[-1] == entry["past_is_pad"].shape[0]
-
-            # Find the index where padding starts
-            pad_start_idx = np.searchsorted(1 - entry["past_is_pad"], 1)
-            padded_input_ids, obs_input_ids = torch.tensor_split(
-                input_ids, [pad_start_idx], dim=-1
-            )
-            padded_attention_mask, obs_attention_mask = torch.tensor_split(
-                attention_mask, [pad_start_idx], dim=-1
-            )
-
-            # Move padding to the right
-            input_ids = torch.cat(
-                [
-                    obs_input_ids,
-                    labels,
-                    padded_input_ids,
-                ],
-                axis=-1,
-            )
-            attention_mask = torch.cat(
-                [
-                    obs_attention_mask,
-                    labels_mask,
-                    padded_attention_mask,
-                ],
-                axis=-1,
-            )
-
-            # labels for causal models are same as the input_ids.
-            # Internally transformers shifts the labels by one during training.
             labels = input_ids.clone()
-            input_ids[~attention_mask] = self.tokenizer.config.pad_token_id
-            labels[~attention_mask] = -100
+
+            # --- span masking parameters ---
+            masking_prob = self.masking_prob
+            mask_token_id = self.tokenizer.config.mask_token_id
+            mean_span_length = self.mean_span_length
+
+            special_tokens_mask = input_ids < self.tokenizer.config.n_special_tokens 
+            valid_positions = ~special_tokens_mask
+            
+            # --- compute number of tokens to mask ---
+            n_tokens = valid_positions.sum().item()
+            n_to_mask = int(masking_prob * n_tokens)
+            mask = torch.zeros_like(input_ids, dtype=torch.bool)
+
+            valid_indices = valid_positions.nonzero(as_tuple=True)[1]
+
+            total_masked = 0
+
+            while total_masked < n_to_mask:
+                span_len = max(1, int(torch.poisson(torch.tensor(mean_span_length, dtype=torch.float32)).item()))
+                if total_masked + span_len > n_to_mask:
+                    span_len = n_to_mask - total_masked
+
+                # pick random start
+                start_idx = valid_indices[torch.randint(0, len(valid_indices), (1,))].item()
+                end_idx = min(start_idx + span_len, input_ids.size(1))
+
+                if mask[0, start_idx:end_idx].any():
+                    continue
+
+                mask[0, start_idx:end_idx] = True
+                total_masked += span_len
+            # ensure we never mask special tokens
+            mask &= valid_positions
+            random_prob = torch.rand_like(input_ids.float())
+            # 80% [MASK]
+            input_ids[mask & (random_prob < 0.8)] = mask_token_id
+        
+
+        random_mask = mask & (random_prob >= 0.8) & (random_prob < 0.9)
+        if random_mask.any():
+            #print("random_mask", random_mask)
+            indices = torch.nonzero(random_mask, as_tuple=False)
+            for idx_pair in indices:
+                idx = int(idx_pair[1].item())  # token index only
+                low = max(0, idx - 10)
+                high = min(input_ids.size(1) - 1, idx + 10)
+                nearby_tokens = input_ids[0, low:high+1]
+                if nearby_tokens.numel() > 0:
+                    replacement = nearby_tokens[torch.randint(0, nearby_tokens.numel(), (1,), device=input_ids.device)]
+                    input_ids[0, idx] = replacement
+
+        # loss only computed on masked positions
+        labels[~mask] = -100
+
 
         return {
             "input_ids": input_ids.squeeze(0),
@@ -492,27 +629,39 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         }
 
     def __iter__(self) -> Iterator:
-        preprocessed_datasets = [
-            Map(
-                partial(self.preprocess_entry, mode=self.mode),
-                dataset,
-            )
-            for dataset in self.datasets
-        ]
+        if self.task == "classification":
+            preprocessed_datasets = self.datasets
+        else:
+            preprocessed_datasets = [
+                Map(
+                    partial(self.preprocess_entry, mode=self.mode),
+                    dataset,
+                )
+                for dataset in self.datasets
+            ]
 
         if self.mode == "training":
-            iterables = [
-                self.create_training_data(dataset) for dataset in preprocessed_datasets
-            ]
+            if self.task == "classification":
+                iterables = preprocessed_datasets
+            else:
+                iterables = [
+                    self.create_training_data(dataset) for dataset in preprocessed_datasets
+                ]
         elif self.mode == "test":
-            iterables = [
-                self.create_test_data(dataset) for dataset in preprocessed_datasets
-            ]
+            if self.task == "classification":
+                iterables = preprocessed_datasets
+            else:
+                iterables = [
+                    self.create_test_data(dataset) for dataset in preprocessed_datasets
+                ]
         else:
-            iterables = [
-                self.create_validation_data(dataset)
-                for dataset in preprocessed_datasets
-            ]
+            if self.task == "classification":
+                iterables = preprocessed_datasets
+            else:
+                iterables = [
+                    self.create_validation_data(dataset)
+                    for dataset in preprocessed_datasets
+                ]
 
         worker_info = get_worker_info()
         if worker_info is None:
@@ -532,15 +681,17 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             while True:
                 idx = np.random.choice(range(len(iterators)), p=probs)
                 try:
-                    yield self.to_hf_format(next(iterators[idx]))
+                    entry = next(iterators[idx])
+                    yield self.to_hf_format(entry)
+
                 except StopIteration:
                     probs[idx] = 0
                     if sum(probs) == 0:
                         return
-                    probs = [prob / sum(probs) for prob in probs]
-        else:
-            for entry in itertools.chain(*iterators):
-                yield self.to_hf_format(entry)
+                    probs = [p / sum(probs) for p in probs]
+                else:
+                    for entry in itertools.chain(*iterators):
+                        yield self.to_hf_format(entry)
 
 class BoltDataset(ChronosDataset):
     def to_hf_format(self, entry: dict) -> dict:
@@ -572,25 +723,17 @@ def main(
     model_type: str = "seq2seq",
     random_init: bool = False,
     tie_embeddings: bool = False,
-    d_model: int = 512,
-    dropout_rate: float = 0.1,
-    feed_forward_proj: str = "relu",
-    layer_norm_epsilon: float = 1e-06,
-    is_encoder_decoder: bool = True,
-    num_layers: int = 6,
-    num_decoder_layers: int = 6,
-    num_heads: int = 8,
-    d_kv: int = 6,
-    d_ff: int = 2048,
     output_dir: str = "./output/",
     tf32: bool = True,
     torch_compile: bool = True,
     tokenizer_class: str = "MeanScaleUniformBins",
     tokenizer_kwargs: str = "{'low_limit': -15.0, 'high_limit': 15.0}",
     n_tokens: int = 4096,
-    n_special_tokens: int = 2,
+    n_special_tokens: int = 4,
     pad_token_id: int = 0,
-    eos_token_id: int = 1,
+    bos_token_id: int = 1,
+    eos_token_id: int = 2,
+    mask_token_id: int = 3,
     use_eos_token: bool = True,
     lr_scheduler_type: str = "linear",
     warmup_ratio: float = 0.0,
@@ -608,6 +751,43 @@ def main(
     use_reg_token: bool = True,
     limit_model_size: bool = True, # Breaks when model size > 110% of original model size defined by model_id - Goal: Not improve perf simply by scaling
     is_gated_act=False,
+    config_overrides: Optional[str] = None,
+    hidden_size: int = 768,
+    num_hidden_layers: int = 12,
+    num_attention_heads: int = 12,
+    intermediate_size: int = 3072,
+    hidden_act: str = "gelu",
+    hidden_dropout_prob: float = 0.1,
+    attention_probs_dropout_prob: float = 0.1,
+    layer_norm_eps: float = 1e-12,
+    span_masking: bool = False,
+    mean_span_length: int = 3,
+    masking_prob: float = 0.15,
+    individual_dropout:float =0.05,
+    perturbation_prob: float=0.05,
+    perturbation_strength: float=0.1, 
+    unchanged_patch_prob: float =0.05, 
+    patch_perturbation_prob: float=0.1,
+    patch_perturbation_scale_strength: float=0.1,
+    patch_perturbation_noise_strength:float=0.1,
+    debug_patching: bool = False,
+    debug_batch_idx: int = 0,
+    debug_max_patches: int = 3,
+    task: str = "mlm",
+    num_labels: int = 6,
+
+
+    #T5 Parameter, not available in BERT
+    #d_model: int = 512,
+    #dropout_rate: float = 0.1,
+    #feed_forward_proj: str = "relu",
+    #layer_norm_epsilon: float = 1e-06,
+    #is_encoder_decoder: bool = True,
+    #num_layers: int = 6,
+    #num_decoder_layers: int = 6,
+    #num_heads: int = 8,
+    #d_kv: int = 6,
+    #d_ff: int = 2048,
 ):
     if tf32 and not (
         torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
@@ -653,7 +833,7 @@ def main(
         tokenizer_kwargs = ast.literal_eval(tokenizer_kwargs)
     assert isinstance(tokenizer_kwargs, dict)
 
-    assert model_type in ["seq2seq", "causal"]
+    assert model_type in ["seq2seq", "causal", "mlm"]
 
     output_dir = get_next_path("run", base_dir=output_dir, file_type="")
 
@@ -683,6 +863,7 @@ def main(
 
     log_on_main("Initializing model", logger)
 
+    print("model_id", model_id)
 
 
     model_or_config = load_model( # TODO Go find a cleaner solution instead of model_OR_config
@@ -692,19 +873,37 @@ def main(
         random_init=random_init,
         tie_embeddings=tie_embeddings,
         pad_token_id=pad_token_id,
+        bos_token_id = bos_token_id,
         eos_token_id=eos_token_id,
-        d_model=d_model,
-        dropout_rate = dropout_rate,
-        feed_forward_proj = feed_forward_proj,
-        layer_norm_epsilon = layer_norm_epsilon,
-        is_encoder_decoder = is_encoder_decoder,
-        num_layers = num_layers,
-        num_decoder_layers=num_decoder_layers,
-        num_heads = num_heads,
-        d_ff = d_ff,
-        d_kv = d_kv,
+        mask_token_id= mask_token_id,
+        config_overrides=config_overrides,
         bolt=bolt,
         is_gated_act=is_gated_act,
+        hidden_size = hidden_size,
+        num_hidden_layers = num_hidden_layers,
+        num_attention_heads = num_attention_heads,
+        intermediate_size = intermediate_size,
+        hidden_act = hidden_act,
+        hidden_dropout_prob = hidden_dropout_prob,
+        attention_probs_dropout_prob =attention_probs_dropout_prob,
+        layer_norm_eps = layer_norm_eps,
+        task=task,
+        num_labels = num_labels,
+        context_length = context_length,
+        
+
+        #T5 Options
+        #d_model=d_model,
+        #dropout_rate = dropout_rate,
+        #feed_forward_proj = feed_forward_proj,
+        #layer_norm_epsilon = layer_norm_epsilon,
+        #is_encoder_decoder = is_encoder_decoder,
+        #num_layers = num_layers,
+        #num_decoder_layers=num_decoder_layers,
+        #num_heads = num_heads,
+        #d_ff = d_ff,
+        #d_kv = d_kv,
+
     )
     if bolt: # Then it is a config and we still need to load the model 
         chronos_bolt_config = ChronosBoltConfig(
@@ -713,9 +912,27 @@ def main(
             input_patch_size=patch_size,
             input_patch_stride=patch_stride, 
             quantiles=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
-            use_reg_token=use_reg_token,  
+            use_reg_token=use_reg_token,
+            individual_dropout = individual_dropout,
+            masking_prob = masking_prob,
+            perturbation_prob = perturbation_prob,
+            perturbation_strength = perturbation_strength,
+            unchanged_patch_prob = unchanged_patch_prob,
+            patch_perturbation_prob = patch_perturbation_prob,
+            patch_perturbation_scale_strength = patch_perturbation_scale_strength,
+            patch_perturbation_noise_strength = patch_perturbation_noise_strength,
+            model_id=model_id,
+            debug_patching = debug_patching,
+            debug_batch_idx = debug_batch_idx,
+            debug_max_patches=debug_max_patches,
+            
+
+
         )
         model_or_config.chronos_config = chronos_bolt_config.__dict__
+
+        print("model_or_config" )
+
         model = ChronosBoltModelForForecasting(model_or_config)
     else:
         chronos_config = ChronosConfig(
@@ -725,6 +942,8 @@ def main(
             n_special_tokens=n_special_tokens,
             pad_token_id=pad_token_id,
             eos_token_id=eos_token_id,
+            mask_token_id = mask_token_id,
+            bos_token_id = bos_token_id,
             use_eos_token=use_eos_token,
             model_type=model_type,
             context_length=context_length,
@@ -741,12 +960,12 @@ def main(
     model_size = get_model_size(model)
     print("Number Non-Embedding Params: ", model_size)
     expected_model_size = get_expected_model_size(model_id=model_id)
-    if model_size > expected_model_size * 1.1 and limit_model_size:
-        raise ModelTooBig(
-            f"""ModelTooBig 
-            The model may only be 10% larger than the config allows else it's not an instance of {model_id} anymore
-            But: {model_size} >> {expected_model_size}
-            """)
+    # if model_size > expected_model_size * 1.1 and limit_model_size:
+    #     raise ModelTooBig(
+    #         f"""ModelTooBig 
+    #         The model may only be 10% larger than the config allows else it's not an instance of {model_id} anymore
+    #         But: {model_size} >> {expected_model_size}
+    #         """)
 
     if bolt:
         DatasetClass = BoltDataset
@@ -764,6 +983,10 @@ def main(
         imputation_method=LastValueImputation() if model_type == "causal" else None,
         mode="training",
         drop_prob=drop_prob,
+        span_masking = span_masking,
+        mean_span_length = mean_span_length,
+        masking_prob=masking_prob,
+        task=task
     ).shuffle(shuffle_buffer_length=shuffle_buffer_length)
 
     print("Steps:", max_steps)
@@ -790,6 +1013,7 @@ def main(
         torch_compile=torch_compile,
         ddp_find_unused_parameters=False,
         remove_unused_columns=False,
+        save_safetensors=False,
     )
     if "min_lr" in lr_scheduler_type:
         training_args.lr_scheduler_kwargs = {
@@ -811,12 +1035,24 @@ def main(
     trainer.train()
 
     if is_main_process():
-        model.save_pretrained(output_dir / "checkpoint-final")
+        save_path = output_dir / "checkpoint-final"
+
+        if task == "classification":
+            model.model.save_pretrained(save_path)
+            torch.save(
+                model.classifier.state_dict(),
+                save_path / "classifier.pt"
+            )
+
+        else:
+            model.save_pretrained(save_path)
+
         save_training_info(
-            output_dir / "checkpoint-final", training_config=raw_training_config
+            save_path,
+            training_config=raw_training_config
         )
 
-        return output_dir / "checkpoint-final"
+        return save_path
 
 
 if __name__ == "__main__":

@@ -332,6 +332,7 @@ def load_val_data(
     name = config["name"]
 
     if "hf_repo" in config:
+        print("Chronos Dataset")
         hf_repo = config["hf_repo"]
         trust_remote_code = True if hf_repo == "autogluon/chronos_datasets_extra" else False
 
@@ -408,6 +409,7 @@ def load_val_data(
 
     ds.set_format("numpy")
     if autogluon_format:
+        print("Autogluon Dataset")
         df = ds.to_pandas()
         df['item_id'] = df.index
         df = df.explode(["timestamp", "target"]).reset_index(drop=True)
@@ -421,7 +423,14 @@ def load_val_data(
             print(f"n_ids: {len(item_ids)}", flush=True)
             lengths = [len(validation_data.loc[iid]) for iid in item_ids]
     else:
+        print("No Autogluon Dataset")
         gts_dataset = to_gluonts_univariate(ds)
+        train_data = []
+        for entry in gts_dataset:
+            train_data.append({
+                "target": np.array(entry["target"], dtype=np.float32),
+                "start": entry["start"]
+            })
 
         # "Split" dataset for evaluation (or pseudo-split because we already split manually for the AG version) 
         # TODO Replace Gluonts splitting it behaves strangely (large negative numbers are taken once modulo for reasons)
@@ -436,8 +445,7 @@ def load_val_data(
         v2 = deepcopy(validation_data)
         n_samples = sum(1 for _ in v2)
         print(f"Offset {offset}\nPredictionLength {prediction_length}\nNumRolls {num_rolls}\nname {name}\nN_samples {n_samples}\nLengths {lengths}", flush=True)
-    return validation_data
-
+    return validation_data, train_data
 
 # Utils #
 

@@ -3,12 +3,13 @@ seed: 123
 model_ids: 
 - "prajjwal1/bert-small"
 limit_model_size: 0 # Enforce that tiny remains tiny (and do it as early as possible to really get up to better manage resources)
-trial_walltime_limit: 86_400 # 1D 
-number_trials: 2 # Basically meaningless Hyperband Caps it based on eta and min/max budget
+checkpoint_broken_trials: 0 # Do not reload crashed trials 
+trial_walltime_limit: 86_000 # 1D 
+number_trials: 50 # Basically meaningless Hyperband Caps it based on eta and min/max budget
 min_budget: 568888 # Fidelity 9 * 32 Samples per batch 
 max_budget: 5120000 # 200k Steps with batch size 32 
-eta: 3 # (in 4 steps from 960_000 to 512_000_000 (10x original training))
+eta: 3 # (in 3 steps)
 account: "p_llm_timeseries"
 max_batch_size: 32
-worker_walltime: "18:00:00" # TODO Incr
-worker_count: 1
+worker_walltime: "24:00:00"
+worker_count: 10

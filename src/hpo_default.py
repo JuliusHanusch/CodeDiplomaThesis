@@ -97,7 +97,7 @@ def add_running_trial(self: RunHistory, trial: TrialInfo) -> None:
 @use_yaml_config(param_name="config")
 def main(
     training_folder: str = Option("./data/train", help="Folder with all the Training Corpora (in .arrow format) that can be used"),
-    db_name: str = Option("AION_Default.db", help="Name of the sqlite database to write to"),
+    db_name: str = Option("RobertaBase.db", help="Name of the sqlite database to write to"),
     seed: int = Option(0, help="Random seed for reproducibility. -1 for choosing one at random - recommended when starting multiple mains in parallel that communicate via checkpoints (see migration model for evolutionary algorithms)."),
     model_ids: str = Option("['google/t5-efficient-tiny']", help="Which base model to use."),
     limit_model_size: int = Option(1, help= "Whether to limit model to about the size proposed by model_id or to let it grow indefinetly. Set to two for preemptively stopping them and not even counting them"),
@@ -125,7 +125,7 @@ def main(
         seed ^= int(time.time_ns())
 
 
-    # Get Search SpaceFtrain
+    # Get Search Space
     configs_space = get_config_space(training_folder=training_folder, model_ids=model_ids, max_batch_size=max_batch_size, limit_model_size=limit_model_size)
 
 
@@ -291,9 +291,9 @@ def train(
         config_dict["seed"] = seed
 
         #set to default 
-        #config_dict["batch_size"] = config_dict["batch_size"]
+        config_dict["batch_size"] = config_dict["batch_size"]
 
-        config_dict["batch_size"] = 2 ** config_dict["batch_size_expo"]
+        #config_dict["batch_size"] = 2 ** config_dict["batch_size_expo"]
 
 
         config_dict["num_devices"] = torch.cuda.device_count()
@@ -301,14 +301,14 @@ def train(
         real_bs = config_dict["per_device_train_batch_size"] * config_dict["num_devices"]
         
         #set to default 
-        #config_dict["gradient_accumulation_steps"] = 1 
+        config_dict["gradient_accumulation_steps"] = 1 
 
-        config_dict["gradient_accumulation_steps"] = (config_dict["batch_size"] + (real_bs - 1)) // (real_bs) 
+        #config_dict["gradient_accumulation_steps"] = (config_dict["batch_size"] + (real_bs - 1)) // (real_bs) 
 
         #set to default
-        #training_steps = 1000
+        training_steps = 1000
 
-        training_steps = (budget + config_dict["batch_size"] -1) // config_dict["batch_size"]  # Convert #Training Samples to number training steps
+        #training_steps = (budget + config_dict["batch_size"] -1) // config_dict["batch_size"]  # Convert #Training Samples to number training steps
         
         config_dict["training_steps"] = training_steps
         config_hash = hash(frozenset([(key, str(val)) for key, val in config_dict.items()]))
@@ -334,10 +334,10 @@ def train(
         d_model = 2 ** config.pop("d_model_expo", 9)
 
         #set to defalut
-        #min_past = config["min_past"]
-        #config.pop("min_past")
+        min_past = config["min_past"]
+        config.pop("min_past")
 
-        min_past = 2 ** config.pop("min_past_expo", 6)
+        #min_past = 2 ** config.pop("min_past_expo", 6)
 
         bolt = True if config.pop("bolt", 0) else False
         model_type = config.pop("model_type")
@@ -358,8 +358,8 @@ def train(
             #print(f"Tokenizer Kwargs: {config["tokenizer_kwargs"]}")
 
         # Update/Remove Complex HPs that were calculated at beginning for experiment tracking
-        #config.pop("batch_size")
-        config.pop("batch_size_expo")
+        config.pop("batch_size")
+        #config.pop("batch_size_expo")
         config.pop("max_per_device_train_batch_size")
         config["per_device_train_batch_size"] = config_dict["per_device_train_batch_size"]
         config["gradient_accumulation_steps"] = config_dict["gradient_accumulation_steps"]

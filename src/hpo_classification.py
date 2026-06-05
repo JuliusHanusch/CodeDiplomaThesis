@@ -301,14 +301,12 @@ def train(
         real_bs = config_dict["per_device_train_batch_size"] * config_dict["num_devices"]
         
         #set to default 
-        #config_dict["gradient_accumulation_steps"] = 1 
+        config_dict["gradient_accumulation_steps"] = 1
 
-        config_dict["gradient_accumulation_steps"] = (config_dict["batch_size"] + (real_bs - 1)) // (real_bs) 
+        #config_dict["gradient_accumulation_steps"] = (config_dict["batch_size"] + (real_bs - 1)) // (real_bs) 
 
-        #set to default
-        #training_steps = 1000
 
-        training_steps = (budget + config_dict["batch_size"] -1) // config_dict["batch_size"]  # Convert #Training Samples to number training steps
+        training_steps = config_dict["training_steps"]
         
         config_dict["training_steps"] = training_steps
         config_hash = hash(frozenset([(key, str(val)) for key, val in config_dict.items()]))
@@ -318,7 +316,7 @@ def train(
 
         # Import Scripts to set their loggers (TODO make less dirty)
         import src.train as trainer
-        import src.evaluate as evaluater
+        import src.finetuning.evaluate_calssification as evaluater
         # Set Missing Global Variables
         logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         logger = logging.getLogger(__file__)
@@ -326,12 +324,8 @@ def train(
         trainer.logger = logger
         evaluater.logger = logger
 
-        # Compute Complex HPs (especially parameters that are powers of 2)
-        d_kv = 2 ** config.pop("d_kv", 6)
-        d_ff = 2 ** config.pop("d_ff_expo", 12)
-        #context_length = 2 ** config.pop("context_length_expo", 9)
+
         prediction_length = 2 ** config.pop("prediction_length_expo", 6)
-        d_model = 2 ** config.pop("d_model_expo", 9)
 
         #set to defalut
         #min_past = config["min_past"]
@@ -349,13 +343,10 @@ def train(
             config["use_reg_token"] = True if config.pop("use_reg_token", 1) else False
 
             #remove constant non-bolt params
-            #config.pop("n_tokens_expo")
             config.pop("tokenizer_limit")
         else:
-            #config["n_tokens"] = 2 ** config.pop("n_tokens_expo", 9)
             tokenizer_limit = config.pop("tokenizer_limit", 15)
             config["tokenizer_kwargs"] = f"{{'low_limit': -{tokenizer_limit:.3f}, 'high_limit': {tokenizer_limit:.3f}}}"
-            #print(f"Tokenizer Kwargs: {config["tokenizer_kwargs"]}")
 
         # Update/Remove Complex HPs that were calculated at beginning for experiment tracking
         #config.pop("batch_size")

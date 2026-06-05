@@ -168,13 +168,13 @@ def _encode_forbidden_model_too_big(
 def get_config_space(training_folder: str, model_ids: str = '["google/t5-efficient-tiny"]', max_batch_size=32, limit_model_size=1) -> ConfigurationSpace:
     # Find all Corpora in training_folder
     datasets = []
-    training_folder_ = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/train/")
+    training_folder_ = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/")
     for file in training_folder_.iterdir():
        if file.is_file() and file.suffix == '.arrow':
             datasets.append(file)
     # For Tracking which HPs are "just" datasets and which are for algorithm tuning
     training_data_paths = str([str(corpus.resolve()) for corpus in datasets])
-    probability = str([(0.9), (0.1)])
+    probability = str([(1.0)])
 
 
     # Fixed parameters to be added as constants
@@ -182,15 +182,18 @@ def get_config_space(training_folder: str, model_ids: str = '["google/t5-efficie
         "training_data_paths": training_data_paths,
         "probability": probability,
         "max_per_device_train_batch_size": max_batch_size,
-        "save_steps": 200_000,
+        "save_steps": 1000,
         "log_steps": 500,
         "num_samples": 20,
         "shuffle_buffer_length": 100_000,
-        "model_id": "prajjwal1/bert-small",#"huggingface/CodeBERTa-small-v1",#FacebookAI/roberta-base",
+        #Best High Fidelity
+        #"model_id": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/chronos_models/chronos_-3602688458924966023/run-0/checkpoint-final",
+        #Best Overall
+        "model_id": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/chronos_models/chronos_-3602688458924966023",
         "model_type": "mlm",
-        "task": "mlm",
+        "task": "classification",
         "fp16":True,
-        "random_init": True,
+        "random_init": False,
         "tf32": True,
         "torch_compile": True,
         "dataloader_num_workers": 0,
@@ -202,7 +205,7 @@ def get_config_space(training_folder: str, model_ids: str = '["google/t5-efficie
         "bos_token_id": 1,
         "eos_token_id": 2,
         "mask_token_id": 3,
-        "bolt": 1,    #TODO True or False
+        "bolt": 0,    #TODO True or False
         "context_length": 512,
 
         "hidden_size": 512,
@@ -225,16 +228,16 @@ def get_config_space(training_folder: str, model_ids: str = '["google/t5-efficie
 
 
         #set to default fixed config
-        # "batch_size": 32,
-        # "learning_rate": 1e-4,
-        # "warmup_ratio": 0.01,
-        # "optim": "adamw_torch_fused",
-        # "max_missing_prop": 0.9,
-        # "drop_prob": 0.2,
-        # "lr_scheduler_type": "linear",
-        # "min_past": 60,
-        # "mean_span_length": 20,
-        # "masking_prob": 0.25,
+        "batch_size": 32,
+        #"learning_rate": 1e-4,
+        #"warmup_ratio": 0.01,
+        "optim": "adamw_torch_fused",
+        "max_missing_prop": 0.9,
+        "drop_prob": 0.2,
+        "lr_scheduler_type": "linear",
+        "min_past": 60,
+        "mean_span_length": 20,
+        "masking_prob": 0.25,
 
 
     }
@@ -329,16 +332,17 @@ def get_config_space(training_folder: str, model_ids: str = '["google/t5-efficie
     # Search Space
     cs.add(Float("learning_rate", (0.00005,  0.01), log = True, default=0.001))
     cs.add(Float("warmup_ratio",(1e-7, 0.1), log = True, default=1e-7))
-    cs.add(Categorical("optim", ["adamw_torch_fused", "adafactor"], default="adamw_torch_fused"))
-    cs.add(Integer("batch_size_expo", (1, 11), log = False, default=5))
-    cs.add(Float("max_missing_prop", (0.8, 1.0), log = True, default=0.9))
-    cs.add(Float("drop_prob", (0.0, 0.5), log = False, default=0.2))
-    cs.add(Categorical("lr_scheduler_type", ["linear", "cosine"],default="linear")) # "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "cosine_with_min_lr
-    cs.add(Integer("min_past_expo", (4, 10),default=6)) # to default
+    cs.add(Integer("training_steps",(1000, 30000), log = True, default=2000))
+    # cs.add(Categorical("optim", ["adamw_torch_fused", "adafactor"], default="adamw_torch_fused"))
+    # cs.add(Integer("batch_size_expo", (1, 5), log = False, default=5))
+    # cs.add(Float("max_missing_prop", (0.8, 1.0), log = True, default=0.9))
+    # cs.add(Float("drop_prob", (0.0, 0.5), log = False, default=0.2))
+    # cs.add(Categorical("lr_scheduler_type", ["linear", "cosine"],default="linear")) # "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "cosine_with_min_lr
+    # cs.add(Integer("min_past_expo", (4, 10),default=6)) # to default
     
     # #SpanMasking Params
-    cs.add(Integer("mean_span_length", (1, max_mean_span_length), default=def_mean_span_length))
-    cs.add(Float("masking_prob", (0.1, 0.3), log = False, default=def_mask_prob))
+    # cs.add(Integer("mean_span_length", (1, max_mean_span_length), default=def_mean_span_length))
+    # cs.add(Float("masking_prob", (0.1, 0.3), log = False, default=def_mask_prob))
 
 
     #cs.add(Categorical("model_id", model_ids, default=model_ids[0]))
