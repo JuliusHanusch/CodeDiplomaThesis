@@ -1,0 +1,734 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Authors: Abdul Fatir Ansari <ansarnd@amazon.com>, Caner Turkmen <atturkm@amazon.com>, Lorenzo Stella <stellalo@amazon.com>
+# Original source:
+# https://github.com/autogluon/autogluon/blob/f57beb26cb769c6e0d484a6af2b89eab8aee73a8/timeseries/src/autogluon/timeseries/models/chronos/pipeline/chronos_bolt.py
+
+import copy
+import logging
+import warnings
+from dataclasses import dataclass
+from typing import List, Optional, Tuple, Union
+
+import torch
+import torch.nn as nn
+from transformers import AutoConfig
+from transformers.models.t5.modeling_t5 import (
+    ACT2FN,
+    T5Config,
+    T5LayerNorm,
+    T5PreTrainedModel,
+    T5Stack,
+)
+from transformers import BertConfig, PreTrainedModel, BertPreTrainedModel
+
+from transformers.models.roberta.modeling_roberta import (
+    RobertaEncoder
+)
+from transformers.utils import ModelOutput
+
+from .base import BaseChronosPipeline, ForecastType
+
+logger = logging.getLogger(__file__)
+
+
+@dataclass
+class ChronosBoltConfig:
+    context_length: int
+    prediction_length: int
+    input_patch_size: int
+    input_patch_stride: int
+    quantiles: List[float]
+    use_reg_token: bool = False
+    individual_dropout: float = 0.0
+    masking_prob: float = 0.0
+    perturbation_prob: float = 0.0
+    perturbation_strength: float = 0.0
+    unchanged_patch_prob: float = 0.0
+    patch_perturbation_prob: float = 0.0
+    patch_perturbation_scale_strength: float = 0.0
+    patch_perturbation_noise_strength: float = 0.0
+    model_id: str = "T5"  # "RoBERTa" or "T5"
+
+
+@dataclass
+class ChronosBoltOutput(ModelOutput):
+    loss: Optional[torch.Tensor] = None
+    quantile_preds: Optional[torch.Tensor] = None
+    attentions: Optional[torch.Tensor] = None
+    cross_attentions: Optional[torch.Tensor] = None
+
+
+class Patch(nn.Module):
+    def __init__(self, patch_size: int, patch_stride: int) -> None:
+        super().__init__()
+        self.patch_size = patch_size
+        self.patch_stride = patch_stride
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        length = x.shape[-1]
+
+        if length % self.patch_size != 0:
+            padding_size = (
+                *x.shape[:-1],
+                self.patch_size - (length % self.patch_size),
+            )
+            padding = torch.full(
+                size=padding_size, fill_value=torch.nan, dtype=x.dtype, device=x.device
+            )
+            x = torch.concat((padding, x), dim=-1)
+
+        x = x.unfold(dimension=-1, size=self.patch_size, step=self.patch_stride)
+        return x
+
+
+class InstanceNorm(nn.Module):
+    """
+    See, also, RevIN. Apply standardization along the last dimension.
+    """
+
+    def __init__(self, eps: float = 1e-5) -> None:
+        super().__init__()
+        self.eps = eps
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        loc_scale: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        if loc_scale is None:
+            loc = torch.nan_to_num(torch.nanmean(x, dim=-1, keepdim=True), nan=0.0)
+            scale = torch.nan_to_num(
+                torch.nanmean((x - loc).square(), dim=-1, keepdim=True).sqrt(), nan=1.0
+            )
+            scale = torch.where(scale == 0, self.eps, scale)
+        else:
+            loc, scale = loc_scale
+
+        return (x - loc) / scale, (loc, scale)
+
+    def inverse(
+        self, x: torch.Tensor, loc_scale: Tuple[torch.Tensor, torch.Tensor]
+    ) -> torch.Tensor:
+        loc, scale = loc_scale
+        return x * scale + loc
+
+
+class ResidualBlock(nn.Module):
+    def __init__(
+        self,
+        in_dim: int,
+        h_dim: int,
+        out_dim: int,
+        act_fn_name: str,
+        dropout_p: float = 0.0,
+        use_layer_norm: bool = False,
+    ) -> None:
+        super().__init__()
+
+        self.dropout = nn.Dropout(dropout_p)
+        self.hidden_layer = nn.Linear(in_dim, h_dim)
+        self.act = ACT2FN[act_fn_name]
+        self.output_layer = nn.Linear(h_dim, out_dim)
+        self.residual_layer = nn.Linear(in_dim, out_dim)
+
+        self.use_layer_norm = use_layer_norm
+        if use_layer_norm:
+            self.layer_norm = T5LayerNorm(out_dim)
+
+    def forward(self, x: torch.Tensor):
+        hid = self.act(self.hidden_layer(x))
+        out = self.dropout(self.output_layer(hid))
+        res = self.residual_layer(x)
+
+        out = out + res
+
+        if self.use_layer_norm:
+            return self.layer_norm(out)
+        return out
+
+
+class ChronosBoltModelForForecasting(PreTrainedModel):
+    _keys_to_ignore_on_load_missing = [  # type: ignore
+        r"input_patch_embedding\.",
+        r"output_patch_embedding\.",
+    ]
+    _keys_to_ignore_on_load_unexpected = [r"lm_head.weight"]  # type: ignore
+    _tied_weights_keys = ["encoder.embed_tokens.weight", "decoder.embed_tokens.weight"]  # type: ignore
+
+    def __init__(self, config):
+        assert hasattr(config, "chronos_config"), "Not a Chronos config file"
+
+        super().__init__(config)
+
+        # Naming difference in BERT models
+        self.model_dim = config.hidden_size
+
+        self.chronos_config = ChronosBoltConfig(**config.chronos_config)
+
+        # Only decoder_start_id (and optionally REG token)
+        config.mask_token_id = 1
+        if self.chronos_config.use_reg_token:
+            config.reg_token_id = 1
+            config.mask_token_id = 2
+
+        config.vocab_size = 3 if self.chronos_config.use_reg_token else 2 # Added one for [MASK] token
+        self.shared = nn.Embedding(config.vocab_size, config.hidden_size)
+
+        # Input patch embedding layer
+        self.input_patch_embedding = ResidualBlock(
+            in_dim=self.chronos_config.input_patch_size * 2,
+            h_dim=config.intermediate_size,
+            out_dim=config.hidden_size,
+            act_fn_name=config.hidden_act,
+            dropout_p=config.hidden_dropout_prob,
+        )
+
+        # patching layer
+        self.patch = Patch(
+            patch_size=self.chronos_config.input_patch_size,
+            patch_stride=self.chronos_config.input_patch_stride,
+        )
+
+        # instance normalization, also referred to as "scaling" in Chronos and GluonTS
+        self.instance_norm = InstanceNorm()
+
+        
+        print("model_id_chronos_config", self.chronos_config.model_id)
+
+        encoder_config = copy.deepcopy(config)
+        if self.chronos_config.model_id == "FacebookAI/roberta-base":
+            roberta_config = AutoConfig.from_pretrained("FacebookAI/roberta-base") # TODO allow custom configs
+            for key, value in encoder_config.__dict__.items():
+                if hasattr(roberta_config, key):
+                    setattr(roberta_config, key, value)
+            roberta_config.hidden_size = config.hidden_size
+            roberta_config.num_attention_heads = config.num_attention_heads
+            roberta_config.num_hidden_layers = config.num_hidden_layers
+            roberta_config.intermediate_size = config.intermediate_size
+            roberta_config.hidden_dropout_prob = config.hidden_dropout_prob
+            roberta_config.hidden_act = config.hidden_act
+            roberta_config.max_position_embeddings = config.chronos_config["context_length"] # TODO Divided by Patch size????
+            roberta_config.layer_norm_eps = config.layer_norm_eps
+            roberta_config.is_decoder = False
+            self.encoder = RobertaEncoder(roberta_config)
+
+        if self.chronos_config.model_id == "prajjwal1/bert-small": # TODO BERT Base
+            bert_config = AutoConfig.from_pretrained("prajjwal1/bert-small")
+            for key, value in encoder_config.__dict__.items():
+                if hasattr(bert_config, key):
+                    setattr(bert_config, key, value)
+            bert_config.hidden_size = config.hidden_size
+            bert_config.num_attention_heads = config.num_attention_heads
+            bert_config.num_hidden_layers = config.num_hidden_layers
+            bert_config.intermediate_size = config.intermediate_size
+            bert_config.hidden_dropout_prob = config.hidden_dropout_prob
+            bert_config.hidden_act = config.hidden_act
+            bert_config.max_position_embeddings = config.chronos_config["context_length"] # TODO Divided by Patch size????
+            bert_config.layer_norm_eps = config.layer_norm_eps
+            bert_config.is_decoder = False
+            self.encoder = RobertaEncoder(bert_config)
+
+        else:
+            encoder_config.is_decoder = False
+            encoder_config.use_cache = False
+            encoder_config.is_encoder_decoder = False
+            self.encoder = T5Stack(encoder_config, self.shared)
+
+
+        self.num_quantiles = len(self.chronos_config.quantiles)
+        quantiles = torch.tensor(self.chronos_config.quantiles, dtype=self.dtype)
+        self.register_buffer("quantiles", quantiles, persistent=False)
+
+        self.output_patch_embedding = ResidualBlock(
+            in_dim=config.hidden_size,
+            h_dim=config.intermediate_size,
+            out_dim=self.num_quantiles * self.chronos_config.input_patch_size,
+            act_fn_name=config.hidden_act,
+            dropout_p=config.hidden_dropout_prob,
+        )
+
+        # Initialize weights and apply final processing
+        self.post_init()
+
+        # Model parallel
+        self.model_parallel = False
+        self.device_map = None
+
+    def _init_weights(self, module):
+        
+        if isinstance(self.config, T5Config):
+            T5PreTrainedModel._init_weights(self, module)
+        elif isinstance(self.config, BertConfig):
+            BertPreTrainedModel._init_weights(self, module)
+
+        print("Config:", print(type(self.config).__name__))
+
+        if isinstance(self.config, T5Config):
+            factor = self.config.initializer_factor
+            print("Config: Confirmed T5")
+
+        if isinstance(self.config, BertConfig):
+            factor = self.config.initializer_range = 0.05
+            print("Config: Confirmed Bert")
+
+
+        if isinstance(module, (self.__class__)):
+            module.shared.weight.data.normal_(mean=0.0, std=factor * 1.0)
+        elif isinstance(module, ResidualBlock):
+            module.hidden_layer.weight.data.normal_(
+                mean=0.0,
+                std=factor * ((self.chronos_config.input_patch_size * 2) ** -0.5),
+            )
+            if (
+                hasattr(module.hidden_layer, "bias")
+                and module.hidden_layer.bias is not None
+            ):
+                module.hidden_layer.bias.data.zero_()
+
+            module.residual_layer.weight.data.normal_(
+                mean=0.0,
+                std=factor * ((self.chronos_config.input_patch_size * 2) ** -0.5),
+            )
+            if (
+                hasattr(module.residual_layer, "bias")
+                and module.residual_layer.bias is not None
+            ):
+                module.residual_layer.bias.data.zero_()
+
+            module.output_layer.weight.data.normal_(
+                mean=0.0, std=factor * ((self.config.intermediate_size) ** -0.5)
+            )
+            if (
+                hasattr(module.output_layer, "bias")
+                and module.output_layer.bias is not None
+            ):
+                module.output_layer.bias.data.zero_()
+
+    def encode(
+        self, context: torch.Tensor, mask: Optional[torch.Tensor] = None
+    ) -> Tuple[
+        torch.Tensor, Tuple[torch.Tensor, torch.Tensor], torch.Tensor, torch.Tensor
+    ]: # TODO If necessary pass mask and apply all iterations only to patches inside mask --> Remove train_attention_mask
+        mask = (
+            mask.to(context.dtype)
+            if mask is not None
+            else torch.isnan(context).logical_not().to(context.dtype)
+        )
+
+        batch_size, _ = context.shape
+        if context.shape[-1] > self.chronos_config.context_length:
+            context = context[..., -self.chronos_config.context_length :]
+            mask = mask[..., -self.chronos_config.context_length :]
+
+        # scaling
+        context, loc_scale = self.instance_norm(context)
+
+        perturbation_mask = torch.ones_like(mask)
+        if self.training and self.chronos_config.perturbation_prob > 0.0:
+            # individual perturbation
+            perturbation_mask = torch.bernoulli(
+                torch.full_like(mask, 1 - self.chronos_config.perturbation_prob)
+            )
+            noise = torch.randn_like(context) * self.chronos_config.perturbation_strength
+            context = torch.where(
+                perturbation_mask.bool(),
+                context + noise,
+                context,
+            )
+        # the scaling op above is done in 32-bit precision,
+        # then the context is moved to model's dtype
+        context = context.to(self.dtype)
+        orig_mask = mask.clone()
+
+        individual_mask = torch.ones_like(mask)
+        if self.training and self.chronos_config.individual_dropout > 0.0:
+            # mask out individual values
+            individual_mask = torch.bernoulli(torch.full_like(mask, 1 - self.chronos_config.individual_dropout))
+            mask = mask * individual_mask
+        mask = mask.to(self.dtype)
+
+        # patching
+        patched_context = self.patch(context)
+        patched_mask = torch.nan_to_num(self.patch(mask), nan=0.0)
+        patched_context = torch.where(patched_mask > 0.0, patched_context, 0.0)
+        # concat context and mask along patch dim
+        patched_context = torch.cat([patched_context, patched_mask], dim=-1)
+
+        # attention_mask = 1 if at least one item in the patch is observed
+        attention_mask = (
+            patched_mask.sum(dim=-1) > 0
+        )  # (batch_size, patched_seq_length)
+
+        input_embeds = self.input_patch_embedding(patched_context)
+
+        # Mask out entire patches during training
+        patch_mask = torch.ones(input_embeds.shape[:-1], dtype=torch.bool)
+        if self.training and self.chronos_config.masking_prob > 0.0:
+            mask_input_ids = torch.full(
+                (1,1),
+                self.config.mask_token_id,
+                device=input_embeds.device,
+            )
+            patch_mask = torch.bernoulli(torch.full(input_embeds.shape[:-1], 1 - self.chronos_config.masking_prob, device=input_embeds.device)).bool()
+            mask_embeds = self.shared(mask_input_ids)
+            input_embeds = torch.where(
+                patch_mask.unsqueeze(-1),
+                input_embeds,
+                mask_embeds,
+            )
+
+            # To verify: assert (patch_mask == ~(input_embeds == mask_embeds).all(dim=-1)).all()
+
+        # TODO add default masks for when train = False
+        patch_perturbation_mask = torch.ones(input_embeds.shape[:-1], dtype=torch.bool)
+        if self.training and self.chronos_config.patch_perturbation_prob > 0.0:
+            # Perturb entire patches during training
+            patch_perturbation_mask = torch.bernoulli(torch.full(input_embeds.shape[:-1], 1 - self.chronos_config.patch_perturbation_prob, device=input_embeds.device)).bool()
+            # only perturb unmasked patches
+            patch_perturbation_mask = patch_perturbation_mask | (~patch_mask)
+            noise = torch.randn_like(input_embeds) * self.chronos_config.patch_perturbation_noise_strength
+            scalar = 1 + (torch.rand(
+                input_embeds.size(0), input_embeds.size(1), 1,
+                device=input_embeds.device,      # <- ensure same device
+                dtype=input_embeds.dtype          # <- ensure same dtype
+            ) * 2 - 1) * self.chronos_config.patch_perturbation_scale_strength
+            input_embeds = torch.where(
+                patch_perturbation_mask.unsqueeze(-1),
+                input_embeds,
+                (input_embeds + noise) * scalar,
+            )
+
+        train_attention_mask = None
+        if self.training:
+            train_attention_mask = perturbation_mask * individual_mask
+            # patched_predict_mask = torch.nan_to_num(self.patch(prediction_mask), nan=0.0)
+            # train_attention_mask = (patched_predict_mask.min(dim=-1).values == 1).long()
+            train_attention_mask = train_attention_mask * patch_mask.repeat_interleave(self.chronos_config.input_patch_size, dim=-1)
+            # Add unchanged patches to attention mask
+            unchanged_values_to_predict = torch.bernoulli(torch.full(train_attention_mask.shape, 1 - self.chronos_config.unchanged_patch_prob, device=input_embeds.device)).bool().long()
+            train_attention_mask *= unchanged_values_to_predict
+            train_attention_mask *= patch_perturbation_mask.repeat_interleave(self.chronos_config.input_patch_size, dim=-1)
+
+            # TODO Check if we can predict nans (if so remove this)
+            # orig_mask = torch.nan_to_num(self.patch(orig_mask), nan=0.0)
+            # orig_mask = (orig_mask.min(dim=-1).values == 1).long()
+            train_attention_mask = train_attention_mask.int() | (1 - orig_mask.int())
+
+            # TODO Predict those tokens where train_attention_mask == 0
+
+        if self.chronos_config.use_reg_token:
+            # Append [REG]
+            reg_input_ids = torch.full(
+                (batch_size, 1),
+                self.config.reg_token_id,
+                device=input_embeds.device,
+            )
+            reg_embeds = self.shared(reg_input_ids)
+            input_embeds = torch.cat([input_embeds, reg_embeds], dim=-2)
+            attention_mask = torch.cat(
+                [
+                    attention_mask.to(self.dtype),
+                    torch.ones_like(reg_input_ids).to(self.dtype),
+                ],
+                dim=-1,
+            )
+        # TODO Replace encoder with RoBERTa
+        encoder_outputs = self.encoder(
+            input_embeds,
+            # TODO attention_mask=attention_mask,
+        )
+
+        return encoder_outputs[0], loc_scale, input_embeds, attention_mask, train_attention_mask
+
+
+    def forward(
+        self,
+        context: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        target: Optional[torch.Tensor] = None,
+        target_mask: Optional[torch.Tensor] = None,
+    ) -> ChronosBoltOutput:
+        batch_size = context.size(0)
+
+        hidden_states, loc_scale, input_embeds, attention_mask, train_attention_mask = self.encode(
+            context=context, mask=mask
+        )
+
+        quantile_preds_shape = (
+            batch_size,
+            self.num_quantiles,
+            context.shape[-1],
+        )
+        quantile_preds = self.output_patch_embedding(hidden_states).view(
+            *quantile_preds_shape
+        )
+
+        loss = None
+        if target is not None:
+            # normalize target
+            target, _ = self.instance_norm(target, loc_scale)
+            target = target.unsqueeze(1)  # type: ignore
+            # assert self.chronos_config.prediction_length >= target.shape[-1]
+
+            target = target.to(quantile_preds.device)
+            target_mask = (1-train_attention_mask).unsqueeze(1) * (~torch.isnan(target))
+            target[~target_mask] = 0.0
+
+            # # pad target and target_mask if they are shorter than model's prediction_length
+            # if self.chronos_config.prediction_length > target.shape[-1]:
+            #     padding_shape = (
+            #         *target.shape[:-1],
+            #         self.chronos_config.prediction_length - target.shape[-1],
+            #     )
+            #     target = torch.cat(
+            #         [target, torch.zeros(padding_shape).to(target)], dim=-1
+            #     )
+            #     target_mask = torch.cat(
+            #         [target_mask, torch.zeros(padding_shape).to(target_mask)], dim=-1
+            #     )
+
+            loss = (
+                2
+                * torch.abs(
+                    (target - quantile_preds)
+                    * (
+                        (target <= quantile_preds).float()
+                        - self.quantiles.view(1, self.num_quantiles, 1)  # type: ignore
+                    )
+                )
+                * target_mask.float()
+            )
+            loss = loss.mean(dim=-2)  # Mean over prediction horizon
+            loss = loss.sum(dim=-1)  # Sum over quantile levels
+            loss = loss.mean()  # Mean over batch
+
+        # Unscale predictions
+        quantile_preds = self.instance_norm.inverse(
+            quantile_preds.view(batch_size, -1),
+            loc_scale,
+        ).view(*quantile_preds_shape)
+
+        return ChronosBoltOutput(
+            loss=loss,
+            quantile_preds=quantile_preds,
+        )
+
+
+class ChronosBoltPipeline(BaseChronosPipeline):
+    forecast_type: ForecastType = ForecastType.QUANTILES
+    default_context_length: int = 2048
+
+    def __init__(self, model: ChronosBoltModelForForecasting):
+        super().__init__(inner_model=model)  # type: ignore
+        self.model = model
+
+    @property
+    def quantiles(self) -> List[float]:
+        return self.model.config.chronos_config["quantiles"]
+
+    @torch.no_grad()
+    def embed(
+        self, context: Union[torch.Tensor, List[torch.Tensor]]
+    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Get encoder embeddings for the given time series.
+
+        Parameters
+        ----------
+        context
+            Input series. This is either a 1D tensor, or a list
+            of 1D tensors, or a 2D tensor whose first dimension
+            is batch. In the latter case, use left-padding with
+            ``torch.nan`` to align series of different lengths.
+
+        Returns
+        -------
+        embeddings, loc_scale
+            A tuple of two items: the encoder embeddings and the loc_scale,
+            i.e., the mean and std of the original time series.
+            The encoder embeddings are shaped (batch_size, num_patches + 1, d_model),
+            where num_patches is the number of patches in the time series
+            and the extra 1 is for the [REG] token (if used by the model).
+        """
+        context_tensor = self._prepare_and_validate_context(context=context)
+        model_context_length = self.model.config.chronos_config["context_length"]
+
+        if context_tensor.shape[-1] > model_context_length:
+            context_tensor = context_tensor[..., -model_context_length:]
+
+        context_tensor = context_tensor.to(
+            device=self.model.device,
+            dtype=torch.float32,
+        )
+        embeddings, loc_scale, *_ = self.model.encode(context=context_tensor)
+        return embeddings.cpu(), (
+            loc_scale[0].squeeze(-1).cpu(),
+            loc_scale[1].squeeze(-1).cpu(),
+        )
+
+    def predict(  # type: ignore[override]
+        self,
+        context: Union[torch.Tensor, List[torch.Tensor]],
+        prediction_length: Optional[int] = None,
+        limit_prediction_length: bool = False,
+    ) -> torch.Tensor:
+        """
+        Get forecasts for the given time series.
+
+        Refer to the base method (``BaseChronosPipeline.predict``)
+        for details on shared parameters.
+        Additional parameters
+        ---------------------
+        limit_prediction_length
+            Force prediction length smaller or equal than the
+            built-in prediction length from the model. False by
+            default. When true, fail loudly if longer predictions
+            are requested, otherwise longer predictions are allowed.
+
+        Returns
+        -------
+        torch.Tensor
+            Forecasts of shape (batch_size, num_quantiles, prediction_length)
+            where num_quantiles is the number of quantiles the model has been
+            trained to output. For official Chronos-Bolt models, the value of
+            num_quantiles is 9 for [0.1, 0.2, ..., 0.9]-quantiles.
+
+        Raises
+        ------
+        ValueError
+            When limit_prediction_length is True and the prediction_length is
+            greater than model's trainig prediction_length.
+        """
+        context_tensor = self._prepare_and_validate_context(context=context)
+
+        model_context_length = self.model.config.chronos_config["context_length"]
+        model_prediction_length = self.model.config.chronos_config["prediction_length"]
+        if prediction_length is None:
+            prediction_length = model_prediction_length
+
+        if prediction_length > model_prediction_length:
+            msg = (
+                f"We recommend keeping prediction length <= {model_prediction_length}. "
+                "The quality of longer predictions may degrade since the model is not optimized for it. "
+            )
+            if limit_prediction_length:
+                msg += "You can turn off this check by setting `limit_prediction_length=False`."
+                raise ValueError(msg)
+            warnings.warn(msg)
+
+        predictions = []
+        remaining = prediction_length
+
+        # We truncate the context here because otherwise batches with very long
+        # context could take up large amounts of GPU memory unnecessarily.
+        if context_tensor.shape[-1] > model_context_length:
+            context_tensor = context_tensor[..., -model_context_length:]
+
+        # TODO: We unroll the forecast of Chronos Bolt greedily with the full forecast
+        # horizon that the model was trained with (i.e., 64). This results in variance collapsing
+        # every 64 steps.
+        context_tensor = context_tensor.to(
+            device=self.model.device,
+            dtype=torch.float32,
+        )
+        while remaining > 0:
+            with torch.no_grad():
+                prediction = self.model(
+                    context=context_tensor,
+                ).quantile_preds.to(context_tensor)
+
+            predictions.append(prediction)
+            remaining -= prediction.shape[-1]
+
+            if remaining <= 0:
+                break
+
+            central_idx = torch.abs(torch.tensor(self.quantiles) - 0.5).argmin()
+            central_prediction = prediction[:, central_idx]
+
+            context_tensor = torch.cat([context_tensor, central_prediction], dim=-1)
+
+        return torch.cat(predictions, dim=-1)[..., :prediction_length].to(
+            dtype=torch.float32, device="cpu"
+        )
+
+    def predict_quantiles(
+        self,
+        context: Union[torch.Tensor, List[torch.Tensor]],
+        prediction_length: Optional[int] = None,
+        quantile_levels: List[float] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
+        **predict_kwargs,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Refer to the base method (``BaseChronosPipeline.predict_quantiles``).
+        """
+        # shape (batch_size, prediction_length, len(training_quantile_levels))
+        predictions = (
+            self.predict(context, prediction_length=prediction_length, **predict_kwargs)
+            .detach()
+            .swapaxes(1, 2)
+        )
+
+        training_quantile_levels = self.quantiles
+
+        if set(quantile_levels).issubset(set(training_quantile_levels)):
+            # no need to perform intra/extrapolation
+            quantiles = predictions[
+                ..., [training_quantile_levels.index(q) for q in quantile_levels]
+            ]
+        else:
+            # we rely on torch for interpolating quantiles if quantiles that
+            # Chronos Bolt was trained on were not provided
+            if min(quantile_levels) < min(training_quantile_levels) or max(
+                quantile_levels
+            ) > max(training_quantile_levels):
+                logger.warning(
+                    f"\tQuantiles to be predicted ({quantile_levels}) are not within the range of "
+                    f"quantiles that Chronos-Bolt was trained on ({training_quantile_levels}). "
+                    "Quantile predictions will be set to the minimum/maximum levels at which Chronos-Bolt "
+                    "was trained on. This may significantly affect the quality of the predictions."
+                )
+
+            # TODO: this is a hack that assumes the model's quantiles during training (training_quantile_levels)
+            # made up an equidistant grid along the quantile dimension. i.e., they were (0.1, 0.2, ..., 0.9).
+            # While this holds for official Chronos-Bolt models, this may not be true in the future, and this
+            # function may have to be revised.
+            augmented_predictions = torch.cat(
+                [predictions[..., [0]], predictions, predictions[..., [-1]]],
+                dim=-1,
+            )
+            quantiles = torch.quantile(
+                augmented_predictions,
+                q=torch.tensor(quantile_levels, dtype=augmented_predictions.dtype),
+                dim=-1,
+            ).permute(1, 2, 0)
+        # NOTE: the median is returned as the mean here
+        mean = predictions[:, :, training_quantile_levels.index(0.5)]
+        return quantiles, mean
+    
+    
+
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        """
+        Load the model, either from a local path or from the HuggingFace Hub.
+        Supports the same arguments as ``AutoConfig`` and ``AutoModel``
+        from ``transformers``.
+        """
+
+        config = AutoConfig.from_pretrained(*args, **kwargs)
+        assert hasattr(config, "chronos_config"), "Not a Chronos config file"
+
+        architecture = config.architectures[0]
+        class_ = globals().get(architecture)
+
+        if class_ is None:
+            logger.warning(
+                f"Unknown architecture: {architecture}, defaulting to ChronosBoltModelForForecasting"
+            )
+            class_ = ChronosBoltModelForForecasting
+
+        model = class_.from_pretrained(*args, **kwargs)
+        return cls(model=model)
