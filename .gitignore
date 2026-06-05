@@ -1,34 +1,32 @@
-venv/*
-.idea
-credentials.yml
-data/KaggleData/*
-data/cache/*
-data/data_sets_raw/*
-data/data_sets_processed/*
-hpc/logs/*
-hpc/tools/*
-hpc/venvs/*/*
-code/smac3_output/*
-*.out
-*.err
-*.arrow
-*.pyc
-*.csv
-events.out.*
-*/chronos_models/*
-/data/UCIData
-*.db
-chronos_pkg/*
-*.ipynb
-*ipynb_checkpoints/*
-chronos_models/*
-chronos_models_old/*
-data/tmp/*
-AutogluonModels/*
-!AG_Scores.csv
-cache/broken_nodes.txt
-*-checkpoint.py
-cache/*
-data/AutogluonModels/*
-*/.ipynb_checkpoints/*
+# models
+chronos_models/
+FineTunedModels/
+AutogluonModels/
 
+# outputs
+Results/
+metrics/
+cache/
+*.csv
+
+# python
+__pycache__/
+*.pyc
+
+# data (usually too big)
+data/train/
+data/tmp/
+data/finetuning/
+
+# HPC / envs
+hpc/venvs/
+hpc/logs/
+hpc/tools/
+*.o
+*.so
+*.bin
+__pycache__/
+.DS_Store
+
+# misc
+.ipynb_checkpoints/
