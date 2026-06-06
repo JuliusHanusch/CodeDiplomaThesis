@@ -260,14 +260,18 @@ def load_model(
             return config
         
         if task == "classification":
-            log_on_main("Loading classification model via ChronosPipeline", logger)
+            from .chronos_classification import ChronosModelForClassification
 
-            pipeline = ChronosPipeline.from_pretrained(
-                model_id,
-                task="classification",
-                num_labels=num_labels
+
+            config = AutoConfig.from_pretrained(model_id)
+            base_model = AutoModelForMaskedLM.from_config(config)
+
+            model = ChronosModelForClassification(
+                config=ChronosConfig(model_type="mlm"),
+                model=base_model,
+                num_labels=num_labels,
             )
-            model = pipeline.model
+            
         else:
             model = AutoModelClass.from_config(config)
 
