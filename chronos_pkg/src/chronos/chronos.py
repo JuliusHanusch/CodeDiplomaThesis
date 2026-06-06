@@ -24,7 +24,8 @@ from transformers import (
 import chronos.chronos as chronos
 from chronos.base import BaseChronosPipeline, ForecastType
 from chronos.utils import left_pad_and_stack_1D
-#from chronos_pkg.src.chronos.chronos_classification import ChronosModelForClassification
+#from chronos.chronos_classification import ChronosModelForClassification
+#ColabImport
 from .chronos_classification import ChronosModelForClassification
 
 logger = logging.getLogger(__file__)
