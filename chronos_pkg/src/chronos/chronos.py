@@ -26,7 +26,6 @@ from chronos.base import BaseChronosPipeline, ForecastType
 from chronos.utils import left_pad_and_stack_1D
 #from chronos.chronos_classification import ChronosModelForClassification
 #ColabImport
-from .chronos_classification import ChronosModelForClassification
 
 logger = logging.getLogger(__file__)
 
@@ -695,8 +694,8 @@ class ChronosPipeline(BaseChronosPipeline):
             raise ValueError(f"Unknown model_type: {chronos_config.model_type}")
         
         if task == "classification":
-            
-
+            from .chronos_classification import ChronosModelForClassification
+       
             model = ChronosModelForClassification(
                 config=chronos_config,
                 model=inner_model,

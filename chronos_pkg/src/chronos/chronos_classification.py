@@ -3,13 +3,8 @@ import torch.nn as nn
 from typing import Optional
 from transformers import PreTrainedModel
 
-#from .chronos import ChronosModel, ChronosConfig
+from .chronos import ChronosModel, ChronosConfig
 
-#colab
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .chronos import ChronosModel, ChronosConfig
 
 class ChronosModelForClassification(ChronosModel):
     def __init__(
