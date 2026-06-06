@@ -7,14 +7,9 @@ from pathlib import Path
 
 # Include Parent Directory to load packages from
 import sys  
-root_dir = Path(__file__).parent.parent
-sys.path.append(str(root_dir.resolve()))  
-sys.path.append(str((root_dir/"code").resolve()))  
-sys.path.append(str((Path(__file__).parent.parent / "chronos_pkg/src").resolve()))
-
-from transformers import AutoModelForMaskedLM, AutoConfig
 import numpy as np
 import pandas as pd
+
 pd.set_option("display.max_columns", None)
 pd.set_option("display.max_rows", None)
 pd.set_option("display.width", 200)  # optional, for wide display
@@ -22,18 +17,17 @@ pd.set_option("display.max_colwidth", None)
 import torch
 from tqdm.auto import tqdm
 
-sys.path.append(str(Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/chronos_pkg/src").resolve()))
-from chronos import ChronosPipeline, ChronosConfig
-from chronos.chronos_bolt import ChronosBoltPipeline
-from chronos.chronos_bolt import ChronosBoltModelForForecasting, ChronosBoltConfig
+#colab import
+ROOT = "/content/CodeDiplomaThesis"
+sys.path.append(str(Path(ROOT).resolve()))
 
-from math import log
-from utils import get_model_size
-from warnings import warn
+from chronos_pkg.src.chronos import ChronosPipeline
+
+# sys.path.append(str(Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/chronos_pkg/src").resolve()))
+# from chronos_pkg.src.chronos import ChronosPipeline
 
 
 import os
-import numpy as np
 
 def load_uci_har_test(dataset_path, context_length=512):
     X_path = os.path.join(dataset_path, "X_test.txt")
