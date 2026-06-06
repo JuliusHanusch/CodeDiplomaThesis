@@ -240,16 +240,6 @@ def load_model(
         # config.is_gated_act = is_gated_act
         #config.max_position_embeddings = context_length
 
-        if task == "classification":
-            log_on_main("Loading classification model via ChronosPipeline", logger)
-
-            pipeline = ChronosPipeline.from_pretrained(
-                model_id,
-                task="classification",
-                num_labels=num_labels
-            )
-            model = pipeline.model
-
 
         print("Config:", print(type(config).__name__))
 
@@ -268,8 +258,18 @@ def load_model(
 
         if bolt:
             return config
+        
+        if task == "classification":
+            log_on_main("Loading classification model via ChronosPipeline", logger)
 
-        model = AutoModelClass.from_config(config)
+            pipeline = ChronosPipeline.from_pretrained(
+                model_id,
+                task="classification",
+                num_labels=num_labels
+            )
+            model = pipeline.model
+        else:
+            model = AutoModelClass.from_config(config)
 
     # Load from pretrained
     else:
