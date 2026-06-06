@@ -132,8 +132,8 @@ def save_results_to_csv(results, model_path, output_path="evaluation_results.csv
     print(f"Results saved to {output_path}")
 
 if __name__ == "__main__":
-    model_path = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/FineTuned/Classification/10000Steps/checkpoint-final"
-    dataset_path = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCI_HAR/UCI HAR Dataset/test"
+    model_path = "/FineTunedModels/Classification/BertDefault/run-2/checkpoint-final"
+    dataset_path = "data/finetuning/UCI_HAR/UCI HAR Dataset/test"
     num_labels = 6
     batch_size = 32
 
