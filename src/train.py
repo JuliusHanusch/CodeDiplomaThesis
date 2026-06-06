@@ -260,7 +260,7 @@ def load_model(
             return config
         
         if task == "classification":
-            from .chronos_classification import ChronosModelForClassification
+            from chronos_pkg.src.chronos.chronos_classification import ChronosModelForClassification
 
 
             config = AutoConfig.from_pretrained(model_id)
@@ -271,7 +271,7 @@ def load_model(
                 model=base_model,
                 num_labels=num_labels,
             )
-            
+
         else:
             model = AutoModelClass.from_config(config)
 
