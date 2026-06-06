@@ -162,5 +162,5 @@ if __name__ == "__main__":
     save_results_to_csv(
         results,
         model_path,
-        output_path="/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/Classification/uci_har_eval_results.csv"
+        output_path="/Results/Finetuning/Classification/uci_har_eval_results.csv"
     )
