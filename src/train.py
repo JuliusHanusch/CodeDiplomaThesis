@@ -271,7 +271,13 @@ def load_model(
                 model=base_model,
                 num_labels=num_labels,
             )
-
+        elif task == "anomaly":
+            from chronos_pkg.src.chronos.chronos_anomaly import ChronosModelForAnomalyDetection
+       
+            model = ChronosModelForAnomalyDetection(
+                config=ChronosConfig(model_type="mlm"),
+                model=base_model,
+            )
         else:
             model = AutoModelClass.from_config(config)
 
@@ -288,6 +294,15 @@ def load_model(
                 model_id,
                 task="classification",
                 num_labels=num_labels
+            )
+            model = pipeline.model
+
+        if task == "anomaly":
+            log_on_main("Loading anomaly model via ChronosPipeline", logger)
+
+            pipeline = ChronosPipeline.from_pretrained(
+                model_id,
+                task="anomaly",
             )
             model = pipeline.model
 
@@ -471,6 +486,21 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
                 "target": np.asarray(entry["target"], dtype=self.np_dtype),
                 "label": int(entry["label"]),
             }
+        elif self.task == "anomaly":
+            assert "label" in entry, f"Missing timestep mask. Keys: {list(entry.keys())}"
+
+            target = np.asarray(entry["target"], dtype=self.np_dtype)
+            label = np.asarray(entry["label"], dtype=np.float32)  # (T,) binary mask
+
+            # safety checks (important for debugging shape bugs later)
+            assert target.shape[0] == label.shape[0], (
+                f"Target/label length mismatch: {target.shape} vs {label.shape}"
+            )
+
+        return {
+            "target": target,
+            "label": label,   # (T,) float mask for BCEWithLogitsLoss
+        }
         # FORECASTING / MLM PATH
         entry = {
             "start": entry["start"],
@@ -520,6 +550,8 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
     def create_training_data(self, data):
         if self.task == "classification":
             return data
+        elif self.task == "anomaly":
+            return data
         # forecasting path (unchanged)
         data = Cyclic(data)
         split_transform = self._create_instance_splitter(
@@ -543,11 +575,11 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             return self._to_mlm(entry)
         elif self.task == "classification":
             return self._to_classification(entry)
+        elif self.task == "anomaly":
+            return self._to_anomaly(entry)
         else:
             raise ValueError(f"Unknown task: {self.task}")
         
-    # def _to_classification(self, entry):
-    #     raise RuntimeError(f"ENTRY KEYS: {list(entry.keys())}")
     
     def _to_classification(self, entry: dict) -> dict:
         target = np.asarray(entry["target"], dtype=np.float32)
@@ -560,6 +592,21 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             "input_ids": input_ids.squeeze(0),
             "attention_mask": attention_mask.squeeze(0),
             "labels": entry["label"],
+        }
+    
+    def _to_anomaly(self, entry: dict) -> dict:
+        target = np.asarray(entry["target"], dtype=np.float32)
+        label = np.asarray(entry["label"], dtype=np.float32)
+
+        context = torch.tensor(target[-self.context_length:]).unsqueeze(0)
+        label = torch.tensor(label[-self.context_length:]).unsqueeze(0)
+
+        input_ids, attention_mask, _ = self.tokenizer.context_input_transform(context)
+
+        return {
+            "input_ids": input_ids.squeeze(0),
+            "attention_mask": attention_mask.squeeze(0),
+            "labels": label.squeeze(0),   # (T,) binary mask
         }
         
         
@@ -646,6 +693,8 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
     def __iter__(self) -> Iterator:
         if self.task == "classification":
             preprocessed_datasets = self.datasets
+        if self.task == "anomaly":
+            preprocessed_datasets = self.datasets
         else:
             preprocessed_datasets = [
                 Map(
@@ -658,6 +707,8 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         if self.mode == "training":
             if self.task == "classification":
                 iterables = preprocessed_datasets
+            elif self.task == "anomaly":
+                iterables = preprocessed_datasets
             else:
                 iterables = [
                     self.create_training_data(dataset) for dataset in preprocessed_datasets
@@ -665,12 +716,16 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         elif self.mode == "test":
             if self.task == "classification":
                 iterables = preprocessed_datasets
+            elif self.task == "anomaly":
+                iterables = preprocessed_datasets
             else:
                 iterables = [
                     self.create_test_data(dataset) for dataset in preprocessed_datasets
                 ]
         else:
             if self.task == "classification":
+                iterables = preprocessed_datasets
+            if self.task == "anomaly":
                 iterables = preprocessed_datasets
             else:
                 iterables = [
@@ -1057,6 +1112,12 @@ def main(
             torch.save(
                 model.classifier.state_dict(),
                 save_path / "classifier.pt"
+            )
+        if task == "anomaly":
+            model.model.save_pretrained(save_path)
+            torch.save(
+                model.classifier.state_dict(),
+                save_path / "anomaly.pt"
             )
 
         else:

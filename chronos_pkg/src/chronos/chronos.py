@@ -701,6 +701,13 @@ class ChronosPipeline(BaseChronosPipeline):
                 model=inner_model,
                 num_labels=num_labels,
             )
+        elif task == "anomaly":
+            from .chronos_anomaly import ChronosModelForAnomalyDetection
+       
+            model = ChronosModelForAnomalyDetection(
+                config=chronos_config,
+                model=inner_model,
+            )
         else:
             model = ChronosModel(config=chronos_config, model=inner_model)
 
