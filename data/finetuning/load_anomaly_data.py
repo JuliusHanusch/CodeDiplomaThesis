@@ -4,7 +4,7 @@ from tqdm import tqdm
 from gluonts.dataset.arrow import ArrowWriter
 
 
-BASE_DIR = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning")
+BASE_DIR = Path("/content/DiplomaThesis/data/finetuning")
 
 CONTEXT_LENGTH = 512
 STRIDE = 128

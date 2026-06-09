@@ -9,11 +9,16 @@ from pathlib import Path
 
 BASE = Path("data/finetuning/smap_msl/data/data")
 
-TRAIN_DIR = BASE / "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/smap_msl/data/data/train"
-TEST_DIR = BASE / "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/smap_msl/data/data/test"
-CSV_PATH = BASE / "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/smap_msl/data/data/labeled_anomalies.csv"
+# TRAIN_DIR = BASE / "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/smap_msl/data/data/train"
+# TEST_DIR = BASE / "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/smap_msl/data/data/test"
+# CSV_PATH = BASE / "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/smap_msl/data/data/labeled_anomalies.csv"
 
-OUT = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning")
+#colab
+TRAIN_DIR = BASE / "/content/DiplomaThesis/data/finetuning/smap_msl/data/data/train"
+TEST_DIR = BASE / "/content/DiplomaThesis/data/finetuning/smap_msl/data/data/test"
+CSV_PATH = BASE / "/content/DiplomaThesis/data/finetuning/smap_msl/data/data/labeled_anomalies.csv"
+
+OUT = Path("/content/DiplomaThesis/data/finetuning")
 OUT.mkdir(parents=True, exist_ok=True)
 
 # =====================================================
