@@ -180,16 +180,21 @@ def predict_series(
 
             probs = torch.sigmoid(logits)
 
+            print("logits min/max:", logits.min().item(), logits.max().item())
+            print("probs min/max:", probs.min(), probs.max())
+            print("mean prob:", probs.mean())
+
             probs = probs.squeeze(0).cpu().numpy()
 
-            scores[
-                start:start + context_length
-            ] += probs
+            mask = attention_mask.squeeze(0).cpu().numpy().astype(bool)
 
-            counts[
-                start:start + context_length
-            ] += 1
+            scores[start:start + context_length][mask] += probs[mask]
+            counts[start:start + context_length][mask] += 1
 
+        print("score range:", scores.min(), scores.max())
+        print("pred positives:", pred.sum(), "/", len(pred))
+
+    counts[counts == 0] = 1
     scores /= counts
 
     pred = (scores > threshold).astype(np.int32)
@@ -217,9 +222,15 @@ def evaluate_dataset(
     all_gt_pa = []
     all_pred_pa = []
 
+    print(f"\n[DEBUG] Dataset: {dataset_name}")
+    print(f"[DEBUG] Num series: {len(series_list)}")
+    print(f"[DEBUG] Example GT shape: {label_list[0].shape}")
+    print(f"[DEBUG] GT positives total (first 1000 samples): {np.sum(label_list[0][:1000])}")
+    print(f"[DEBUG] GT ratio (first series): {np.mean(label_list[0])}")
+
     for series, gt in zip(series_list, label_list):
 
-        pred, _ = predict_series(
+        pred, scores = predict_series(
             model,
             tokenizer,
             series,
@@ -234,6 +245,12 @@ def evaluate_dataset(
 
         all_gt_pa.extend(gt)
         all_pred_pa.extend(pred_pa)
+
+        print("\n--- Series debug ---")
+        print("GT positives:", np.sum(gt))
+        print("GT ratio:", np.mean(gt))
+        print("Pred positives:", np.sum(pred))
+        print("Score range:", scores.min(), scores.max())
 
     _, _, f1, _ = precision_recall_fscore_support(
         all_gt,
@@ -312,6 +329,7 @@ if __name__ == "__main__":
         print(f"\n{'='*20}")
         print(f"Evaluating {ds}")
         print(f"{'='*20}")
+
 
         metrics = evaluate_dataset(
             model=model,
