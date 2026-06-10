@@ -151,7 +151,6 @@ def predict_series(
     model.eval()
 
     with torch.no_grad():
-
         for start in range(0, len(series) - context_length + 1, stride):
 
             window = series[start:start + context_length]
@@ -168,27 +167,15 @@ def predict_series(
                 attention_mask=attention_mask,
             )
 
-            logits = outputs["logits"]   # (1, T)
-
+            logits = outputs["logits"]
             probs = torch.sigmoid(logits).squeeze(0).cpu().numpy()
 
-            print("logits min/max:", logits.min().item(), logits.max().item())
-            print("probs min/max:", probs.min(), probs.max())
-            print("mean prob:", probs.mean())
+            scores[start:start + context_length] = np.maximum(
+                scores[start:start + context_length],
+                probs
+            )
 
-            mask = attention_mask.squeeze(0).cpu().numpy().astype(bool)
-
-            probs = probs * mask  # safety: ignore padding
-
-            scores[start:start + context_length] += probs
-            counts[start:start + context_length] += mask
-
-    counts = np.clip(counts, 1, None)
-    scores = scores / counts
-
-    print("score range:", scores.min(), scores.max())
-
-    threshold = np.percentile(scores, 99.5)
+    threshold = 0.5  # start simple, not percentile
     pred = (scores > threshold).astype(np.int32)
 
     print("pred positives:", pred.sum(), "/", len(pred))
