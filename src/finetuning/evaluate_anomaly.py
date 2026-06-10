@@ -175,7 +175,7 @@ def predict_series(
                 probs
             )
 
-    threshold = 0.5  # start simple, not percentile
+    threshold = np.median(scores)  # start simple, not percentile
     pred = (scores > threshold).astype(np.int32)
 
     return pred, scores
