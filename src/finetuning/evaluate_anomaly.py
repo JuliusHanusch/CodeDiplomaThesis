@@ -238,11 +238,11 @@ if __name__ == "__main__":
 
     model = pipeline.model
 
-    classifier_path = Path(model_path) / "classifier.pt"
+    anomaly_path = Path(model_path) / "anomaly.pt"
 
     model.classifier.load_state_dict(
         torch.load(
-            classifier_path,
+            anomaly_path,
             map_location="cpu",
         )
     )
