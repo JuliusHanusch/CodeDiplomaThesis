@@ -172,10 +172,11 @@ def predict_series(
 
             scores[start:start + context_length] = np.maximum(
                 scores[start:start + context_length],
-                probs
+                probs * attention_mask
             )
 
     threshold = np.median(scores)  # start simple, not percentile
+    #threshold = np.percentile(scores, 99.0)
     pred = (scores > threshold).astype(np.int32)
 
     return pred, scores
