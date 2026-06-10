@@ -281,6 +281,7 @@ if __name__ == "__main__":
         "/content/CodeDiplomaThesis/FineTunedModels/Anomaly/run-1/checkpoint-final"
     )
 
+    print("Model PATH:", model_path)
     base_dir = Path(
         "/content/CodeDiplomaThesis/data/finetuning/"
     )
