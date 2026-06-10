@@ -4,7 +4,12 @@ from typing import Optional
 from transformers import PreTrainedModel
 import logging
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(message)s"
+)
 
+logger = logging.getLogger(__name__)
 
 from .chronos import ChronosModel, ChronosConfig
 
@@ -40,12 +45,7 @@ class ChronosModelForAnomalyDetection(ChronosModel):
             output_hidden_states=True,
             return_dict=True,
         )
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s | %(message)s"
-        )
-
-        logger = logging.getLogger(__name__)
+ 
 
         hidden = outputs.hidden_states[-1]
         hidden = self.dropout(hidden)
