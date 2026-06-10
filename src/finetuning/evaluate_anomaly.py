@@ -278,7 +278,7 @@ def evaluate_dataset(
 if __name__ == "__main__":
 
     model_path = (
-        "/content/CodeDiplomaThesis/FineTunedModels/Anomaly/run-0/checkpoint-final"
+        "/content/CodeDiplomaThesis/FineTunedModels/Anomaly/run-1/checkpoint-final"
     )
 
     base_dir = Path(
