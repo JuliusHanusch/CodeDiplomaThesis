@@ -14,11 +14,11 @@ BASE = Path("data/finetuning/smap_msl/data/data")
 # CSV_PATH = BASE / "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/smap_msl/data/data/labeled_anomalies.csv"
 
 #colab
-TRAIN_DIR = BASE / "/content/DiplomaThesis/data/finetuning/smap_msl/data/data/train"
-TEST_DIR = BASE / "/content/DiplomaThesis/data/finetuning/smap_msl/data/data/test"
-CSV_PATH = BASE / "/content/DiplomaThesis/data/finetuning/smap_msl/data/data/labeled_anomalies.csv"
+TRAIN_DIR = BASE / "/content/CodeDiplomaThesis/data/finetuning/smap_msl/data/data/train"
+TEST_DIR = BASE / "/content/CodeDiplomaThesis/data/finetuning/smap_msl/data/data/test"
+CSV_PATH = BASE / "/content/CodeDiplomaThesis/data/finetuning/smap_msl/data/data/labeled_anomalies.csv"
 
-OUT = Path("/content/DiplomaThesis/data/finetuning")
+OUT = Path("/content/CodeDiplomaThesis/data/finetuning")
 OUT.mkdir(parents=True, exist_ok=True)
 
 # =====================================================
