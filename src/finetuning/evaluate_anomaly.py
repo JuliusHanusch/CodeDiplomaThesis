@@ -177,8 +177,8 @@ def predict_series(
                 probs * mask
 )
 
-    threshold = np.median(scores)  # start simple, not percentile
-    #threshold = np.percentile(scores, 99.0)
+    #threshold = np.median(scores)  # start simple, not percentile
+    threshold = np.percentile(scores, 90.0)
     pred = (scores > threshold).astype(np.int32)
 
     return pred, scores
