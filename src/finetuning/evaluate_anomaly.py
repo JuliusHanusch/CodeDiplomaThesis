@@ -131,6 +131,8 @@ def load_dataset(dataset_dir, dataset_name):
 
     return series, labels
 
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
 
 
 def predict_series(
@@ -150,23 +152,13 @@ def predict_series(
 
     with torch.no_grad():
 
-        for start in range(
-            0,
-            len(series) - context_length + 1,
-            stride,
-        ):
+        for start in range(0, len(series) - context_length + 1, stride):
 
             window = series[start:start + context_length]
 
-            context = (
-                torch.tensor(window)
-                .float()
-                .unsqueeze(0)
-            )
+            context = torch.tensor(window, dtype=torch.float32).unsqueeze(0)
 
-            input_ids, attention_mask, _ = (
-                tokenizer.context_input_transform(context)
-            )
+            input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
 
             input_ids = input_ids.to(device)
             attention_mask = attention_mask.to(device)
@@ -176,33 +168,31 @@ def predict_series(
                 attention_mask=attention_mask,
             )
 
-            logits = outputs["logits"]
+            logits = outputs["logits"]   # (1, T)
 
-            probs = torch.sigmoid(logits)
+            probs = torch.sigmoid(logits).squeeze(0).cpu().numpy()
 
             print("logits min/max:", logits.min().item(), logits.max().item())
             print("probs min/max:", probs.min(), probs.max())
             print("mean prob:", probs.mean())
 
-            probs = probs.squeeze(0).cpu().numpy()
-
             mask = attention_mask.squeeze(0).cpu().numpy().astype(bool)
 
-            scores[start:start + context_length][mask] += probs[mask]
-            counts[start:start + context_length][mask] += 1
+            probs = probs * mask  # safety: ignore padding
 
-        print("score range:", scores.min(), scores.max())
-        print("pred positives:", pred.sum(), "/", len(pred))
+            scores[start:start + context_length] += probs
+            counts[start:start + context_length] += mask
 
-    counts[counts == 0] = 1
-    scores /= counts
+    counts = np.clip(counts, 1, None)
+    scores = scores / counts
+
+    print("score range:", scores.min(), scores.max())
 
     pred = (scores > threshold).astype(np.int32)
 
+    print("pred positives:", pred.sum(), "/", len(pred))
+
     return pred, scores
-
-
-
 
 def evaluate_dataset(
     model,
@@ -228,15 +218,13 @@ def evaluate_dataset(
     print(f"[DEBUG] GT positives total (first 1000 samples): {np.sum(label_list[0][:1000])}")
     print(f"[DEBUG] GT ratio (first series): {np.mean(label_list[0])}")
 
-    for series, gt in zip(series_list, label_list):
+    for i, (series, gt) in enumerate(zip(series_list, label_list)):
 
-        pred, scores = predict_series(
-            model,
-            tokenizer,
-            series,
-        )
+        pred, scores = predict_series(model, tokenizer, series)
 
-        gt = gt[: len(pred)]
+        min_len = min(len(gt), len(pred))
+        gt = gt[:min_len]
+        pred = pred[:min_len]
 
         all_gt.extend(gt)
         all_pred.extend(pred)
@@ -247,10 +235,18 @@ def evaluate_dataset(
         all_pred_pa.extend(pred_pa)
 
         print("\n--- Series debug ---")
+        print(f"[Series {i}]")
         print("GT positives:", np.sum(gt))
         print("GT ratio:", np.mean(gt))
         print("Pred positives:", np.sum(pred))
+        print("Pred ratio:", np.mean(pred))
         print("Score range:", scores.min(), scores.max())
+        print("Overlap:", np.sum((gt == 1) & (pred == 1)))
+    
+    print("\n=== Dataset summary ===")
+    print("GT anomaly ratio:", np.mean(all_gt))
+    print("Pred anomaly ratio:", np.mean(all_pred))
+    print("Total overlap:", np.sum((np.array(all_gt) == 1) & (np.array(all_pred) == 1)))
 
     _, _, f1, _ = precision_recall_fscore_support(
         all_gt,
@@ -266,6 +262,7 @@ def evaluate_dataset(
         zero_division=0,
     )
 
+
     return {
         "F1": f1,
         "F1PA": f1_pa,
@@ -279,7 +276,7 @@ if __name__ == "__main__":
     )
 
     base_dir = Path(
-        "/content/CodeDiplomaThesis/data/finetuning"
+        "/content/DiplomaThesis/data/finetuning/"
     )
 
     # --------------------------------------------------
