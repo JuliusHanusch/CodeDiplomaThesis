@@ -178,8 +178,6 @@ def predict_series(
     threshold = 0.5  # start simple, not percentile
     pred = (scores > threshold).astype(np.int32)
 
-    print("pred positives:", pred.sum(), "/", len(pred))
-
     return pred, scores
 
 def evaluate_dataset(
@@ -222,15 +220,7 @@ def evaluate_dataset(
         all_gt_pa.extend(gt)
         all_pred_pa.extend(pred_pa)
 
-        print("\n--- Series debug ---")
-        print(f"[Series {i}]")
-        print("GT positives:", np.sum(gt))
-        print("GT ratio:", np.mean(gt))
-        print("Pred positives:", np.sum(pred))
-        print("Pred ratio:", np.mean(pred))
-        print("Score range:", scores.min(), scores.max())
-        print("Overlap:", np.sum((gt == 1) & (pred == 1)))
-    
+   
     print("\n=== Dataset summary ===")
     print("GT anomaly ratio:", np.mean(all_gt))
     print("Pred anomaly ratio:", np.mean(all_pred))
