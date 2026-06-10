@@ -487,10 +487,10 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
                 "label": int(entry["label"]),
             }
         elif self.task == "anomaly":
-            assert "label" in entry, f"Missing timestep mask. Keys: {list(entry.keys())}"
+            assert "anomaly_mask" in entry, f"Missing timestep mask. Keys: {list(entry.keys())}"
 
             target = np.asarray(entry["target"], dtype=self.np_dtype)
-            label = np.asarray(entry["label"], dtype=np.float32)  # (T,) binary mask
+            label = np.asarray(entry["anomaly_mask"], dtype=np.float32)  # (T,) binary mask
 
             # safety checks (important for debugging shape bugs later)
             assert target.shape[0] == label.shape[0], (
@@ -596,7 +596,7 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
     
     def _to_anomaly(self, entry: dict) -> dict:
         target = np.asarray(entry["target"], dtype=np.float32)
-        label = np.asarray(entry["label"], dtype=np.float32)
+        label = np.asarray(entry["anomaly_mask"], dtype=np.float32)
 
         context = torch.tensor(target[-self.context_length:]).unsqueeze(0)
         label = torch.tensor(label[-self.context_length:]).unsqueeze(0)
