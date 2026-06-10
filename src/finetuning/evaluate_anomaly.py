@@ -226,6 +226,13 @@ def evaluate_dataset(
     print("Pred anomaly ratio:", np.mean(all_pred))
     print("Total overlap:", np.sum((np.array(all_gt) == 1) & (np.array(all_pred) == 1)))
 
+    scores = np.array(scores)
+
+    print("GT=0 mean:", scores[gt == 0].mean())
+    print("GT=1 mean:", scores[gt == 1].mean())
+    print("GT=0 std:", scores[gt == 0].std())
+    print("GT=1 std:", scores[gt == 1].std())
+
     _, _, f1, _ = precision_recall_fscore_support(
         all_gt,
         all_pred,
