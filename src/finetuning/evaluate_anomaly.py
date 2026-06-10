@@ -187,13 +187,11 @@ def evaluate_dataset(
     dataset_name,
 ):
 
-    series_list, label_list = load_dataset(
-        dataset_dir,
-        dataset_name,
-    )
+    series_list, label_list = load_dataset(dataset_dir, dataset_name)
 
     all_gt = []
     all_pred = []
+    all_scores = []
 
     all_gt_pa = []
     all_pred_pa = []
@@ -201,41 +199,56 @@ def evaluate_dataset(
     print(f"\n[DEBUG] Dataset: {dataset_name}")
     print(f"[DEBUG] Num series: {len(series_list)}")
     print(f"[DEBUG] Example GT shape: {label_list[0].shape}")
-    print(f"[DEBUG] GT positives total (first 1000 samples): {np.sum(label_list[0][:1000])}")
     print(f"[DEBUG] GT ratio (first series): {np.mean(label_list[0])}")
 
+    # ---------------------------
+    # per-series evaluation
+    # ---------------------------
     for i, (series, gt) in enumerate(zip(series_list, label_list)):
 
         pred, scores = predict_series(model, tokenizer, series)
 
-        min_len = min(len(gt), len(pred))
+        min_len = min(len(gt), len(pred), len(scores))
+
         gt = gt[:min_len]
         pred = pred[:min_len]
+        scores = scores[:min_len]
 
+        # store global arrays
         all_gt.extend(gt)
         all_pred.extend(pred)
+        all_scores.extend(scores)
 
-        pred_pa = point_adjust(pred, gt)
+        # point adjusted
+        pred_pa = point_adjust(pred.copy(), gt)
 
         all_gt_pa.extend(gt)
         all_pred_pa.extend(pred_pa)
 
-   
+
+    all_gt_np = np.array(all_gt)
+    all_pred_np = np.array(all_pred)
+    all_scores_np = np.array(all_scores)
+
+
     print("\n=== Dataset summary ===")
-    print("GT anomaly ratio:", np.mean(all_gt))
-    print("Pred anomaly ratio:", np.mean(all_pred))
-    print("Total overlap:", np.sum((np.array(all_gt) == 1) & (np.array(all_pred) == 1)))
+    print("GT anomaly ratio:", all_gt_np.mean())
+    print("Pred anomaly ratio:", all_pred_np.mean())
+    print("Total overlap:", np.sum((all_gt_np == 1) & (all_pred_np == 1)))
 
-    scores = np.array(scores)
 
-    print("GT=0 mean:", scores[gt == 0].mean())
-    print("GT=1 mean:", scores[gt == 1].mean())
-    print("GT=0 std:", scores[gt == 0].std())
-    print("GT=1 std:", scores[gt == 1].std())
+    print("\n=== Score statistics ===")
+    print("GT=0 mean:", all_scores_np[all_gt_np == 0].mean())
+    print("GT=1 mean:", all_scores_np[all_gt_np == 1].mean())
+    print("GT=0 std:", all_scores_np[all_gt_np == 0].std())
+    print("GT=1 std:", all_scores_np[all_gt_np == 1].std())
 
+    # ---------------------------
+    # F1 scores
+    # ---------------------------
     _, _, f1, _ = precision_recall_fscore_support(
-        all_gt,
-        all_pred,
+        all_gt_np,
+        all_pred_np,
         average="binary",
         zero_division=0,
     )
@@ -247,10 +260,18 @@ def evaluate_dataset(
         zero_division=0,
     )
 
+    # ---------------------------
+    # ROC-AUC (IMPORTANT)
+    # ---------------------------
+    from sklearn.metrics import roc_auc_score
+
+    roc_score = roc_auc_score(all_gt_np, all_scores_np)
+    print("\nROC-AUC:", roc_score)
 
     return {
         "F1": f1,
         "F1PA": f1_pa,
+        "ROC_AUC": roc_score,
     }
 
 
