@@ -170,10 +170,12 @@ def predict_series(
             logits = outputs["logits"]
             probs = torch.sigmoid(logits).squeeze(0).cpu().numpy()
 
+            mask = attention_mask.squeeze(0).cpu().numpy().astype(bool)
+
             scores[start:start + context_length] = np.maximum(
                 scores[start:start + context_length],
-                probs * attention_mask
-            )
+                probs * mask
+)
 
     threshold = np.median(scores)  # start simple, not percentile
     #threshold = np.percentile(scores, 99.0)
