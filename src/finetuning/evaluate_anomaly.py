@@ -10,6 +10,7 @@ pd.set_option("display.max_rows", None)
 pd.set_option("display.width", 200)  # optional, for wide display
 pd.set_option("display.max_colwidth", None)
 import torch
+import ast
 
 #colab import
 ROOT = "/content/CodeDiplomaThesis"
@@ -49,11 +50,48 @@ def point_adjust(pred, gt):
     return pred
 
 
+def intervals_to_mask(intervals, length):
+    mask = np.zeros(length, dtype=np.int32)
+    for start, end in intervals:
+        mask[start:end] = 1
+    return mask
+
+
+def load_label_file(path: Path, length: int):
+    raw = open(path, "r").read().strip()
+
+    # --------------------------
+    # CASE 1: SMD (binary mask)
+    # --------------------------
+    if raw[0] in ["0", "1"] and "[" not in raw:
+        y = np.loadtxt(path, dtype=np.int32).reshape(-1)
+
+        if len(y) < length:
+            y = np.pad(y, (0, length - len(y)))
+        else:
+            y = y[:length]
+
+        return y.astype(np.int32)
+
+    # --------------------------
+    # CASE 2: SMAP / MSL (intervals)
+    # --------------------------
+    try:
+        intervals = ast.literal_eval(raw)
+    except Exception:
+        raise ValueError(f"Cannot parse label file: {path}")
+
+    if len(intervals) == 0:
+        return np.zeros(length, dtype=np.int32)
+
+    return intervals_to_mask(intervals, length)
+
+
 
 def load_dataset(dataset_dir, dataset_name):
 
-    test_dir = dataset_dir / "test"
-    label_dir = dataset_dir / "test_labels"
+    test_dir = Path(dataset_dir) / "test"
+    label_dir = Path(dataset_dir) / "test_labels"
 
     series = []
     labels = []
@@ -63,33 +101,33 @@ def load_dataset(dataset_dir, dataset_name):
         test_files = sorted(test_dir.glob("*.txt"))
         label_files = sorted(label_dir.glob("*.txt"))
 
-        for x_file, y_file in zip(test_files, label_files):
-
-            x = np.loadtxt(x_file, delimiter=",").astype(np.float32)
-
-            if x.ndim > 1:
-                x = x.mean(axis=1)
-
-            y = np.loadtxt(y_file, delimiter=",").astype(np.int32)
-
-            if y.ndim > 1:
-                y = y.max(axis=1)
-
-            series.append(x)
-            labels.append(y)
-
     else:
 
         test_files = sorted(test_dir.glob("*.npy"))
-        label_files = sorted(label_dir.glob("*.npy"))
+        label_files = sorted(label_dir.glob("*.txt"))
 
-        for x_file, y_file in zip(test_files, label_files):
+    for x_file, y_file in zip(test_files, label_files):
 
-            x = np.load(x_file).astype(np.float32).reshape(-1)
-            y = np.load(y_file).astype(np.int32).reshape(-1)
+        # --------------------------
+        # load series
+        # --------------------------
+        if x_file.suffix == ".txt":
+            x = np.loadtxt(x_file, delimiter=",").astype(np.float32)
+        else:
+            x = np.load(x_file).astype(np.float32)
 
-            series.append(x)
-            labels.append(y)
+        if x.ndim > 1:
+            x = x.mean(axis=1)
+
+        x = x.reshape(-1)
+
+        # --------------------------
+        # load labels (FIXED)
+        # --------------------------
+        y = load_label_file(y_file, len(x))
+
+        series.append(x)
+        labels.append(y)
 
     return series, labels
 
