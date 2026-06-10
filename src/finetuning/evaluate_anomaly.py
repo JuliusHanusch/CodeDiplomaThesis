@@ -276,7 +276,7 @@ if __name__ == "__main__":
     )
 
     base_dir = Path(
-        "/content/DiplomaThesis/data/finetuning/"
+        "/content/CodeDiplomaThesis/data/finetuning/"
     )
 
     # --------------------------------------------------
