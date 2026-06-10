@@ -97,6 +97,7 @@ def load_dataset(dataset_dir, dataset_name):
     labels = []
 
     if dataset_name == "SMD":
+        label_dir = Path(dataset_dir) / "test_label"
 
         test_files = sorted(test_dir.glob("*.txt"))
         label_files = sorted(label_dir.glob("*.txt"))
@@ -141,7 +142,6 @@ def predict_series(
     series,
     context_length=512,
     stride=128,
-    threshold=0.5,
 ):
     device = next(model.parameters()).device
 
@@ -188,6 +188,7 @@ def predict_series(
 
     print("score range:", scores.min(), scores.max())
 
+    threshold = np.percentile(scores, 99.5)
     pred = (scores > threshold).astype(np.int32)
 
     print("pred positives:", pred.sum(), "/", len(pred))
