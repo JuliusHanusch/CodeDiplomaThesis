@@ -145,8 +145,8 @@ def predict_series(
 ):
     device = next(model.parameters()).device
 
-    scores = np.zeros(len(series))
-    counts = np.zeros(len(series))
+    scores_sum = np.zeros(len(series), dtype=np.float32)
+    counts = np.zeros(len(series), dtype=np.float32)
 
     model.eval()
 
@@ -170,15 +170,21 @@ def predict_series(
             logits = outputs["logits"]
             probs = torch.sigmoid(logits).squeeze(0).cpu().numpy()
 
-            mask = attention_mask.squeeze(0).cpu().numpy().astype(bool)
+            mask = attention_mask.squeeze(0).cpu().numpy().astype(np.float32)
 
-            scores[start:start + context_length] = np.maximum(
-                scores[start:start + context_length],
-                probs * mask
-)
+            # --------------------------------------------------
+            # accumulate (THIS is the key fix)
+            # --------------------------------------------------
+            scores_sum[start:start + context_length] += probs * mask
+            counts[start:start + context_length] += mask
 
-    #threshold = np.median(scores)  # start simple, not percentile
-    threshold = np.percentile(scores, 90.0)
+    # --------------------------------------------------
+    # normalize overlapping windows
+    # --------------------------------------------------
+    scores = scores_sum / np.maximum(counts, 1e-8)
+
+    # optional: thresholding
+    threshold = np.percentile(scores[counts > 0], 90.0)
     pred = (scores > threshold).astype(np.int32)
 
     return pred, scores
