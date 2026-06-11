@@ -134,232 +134,23 @@ def load_dataset(dataset_dir, dataset_name):
 
     return series, labels
 
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
-
-
-# def predict_series(
-#     model,
-#     tokenizer,
-#     series,
-#     context_length=512,
-#     stride=128,
-# ):
-#     device = next(model.parameters()).device
-
-#     scores_sum = np.zeros(len(series), dtype=np.float32)
-#     counts = np.zeros(len(series), dtype=np.float32)
-
-#     model.eval()
-
-#     with torch.no_grad():
-#         for start in range(0, len(series) - context_length + 1, stride):
-
-#             window = series[start:start + context_length]
-
-#             context = torch.tensor(window, dtype=torch.float32).unsqueeze(0)
-
-#             input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
-
-#             input_ids = input_ids.to(device)
-#             attention_mask = attention_mask.to(device)
-
-#             outputs = model(
-#                 input_ids=input_ids,
-#                 attention_mask=attention_mask,
-#             )
-
-#             logits = outputs["logits"]
-#             probs = torch.sigmoid(logits).squeeze(0).cpu().numpy()
-
-#             mask = attention_mask.squeeze(0).cpu().numpy().astype(np.float32)
-
-#             # --------------------------------------------------
-#             # accumulate (THIS is the key fix)
-#             # --------------------------------------------------
-#             scores_sum[start:start + context_length] += probs * mask
-#             counts[start:start + context_length] += mask
-
-#     # --------------------------------------------------
-#     # normalize overlapping windows
-#     # --------------------------------------------------
-#     scores = scores_sum / np.maximum(counts, 1e-8)
-
-#     # optional: thresholding
-#     threshold = np.percentile(scores[counts > 0], 90.0)
-#     pred = (scores > threshold).astype(np.int32)
-
-#     return pred, scores
-
-# def evaluate_dataset(
-#     model,
-#     tokenizer,
-#     dataset_dir,
-#     dataset_name,
-# ):
-
-#     series_list, label_list = load_dataset(dataset_dir, dataset_name)
-
-#     all_gt = []
-#     all_pred = []
-#     all_scores = []
-
-#     all_gt_pa = []
-#     all_pred_pa = []
-
-#     print(f"\n[DEBUG] Dataset: {dataset_name}")
-#     print(f"[DEBUG] Num series: {len(series_list)}")
-#     print(f"[DEBUG] Example GT shape: {label_list[0].shape}")
-#     print(f"[DEBUG] GT ratio (first series): {np.mean(label_list[0])}")
-
-#     # ---------------------------
-#     # per-series evaluation
-#     # ---------------------------
-#     for i, (series, gt) in enumerate(zip(series_list, label_list)):
-
-#         pred, scores = predict_series(model, tokenizer, series)
-#         print(
-#             f"series={len(series)} "
-#             f"gt={len(gt)} "
-#             f"pred={len(pred)} "
-#             f"scores={len(scores)}"
-#         )
-
-#         print("scores shape:", scores.shape)
-#         print("gt shape:", gt.shape)
-
-#         print("first 20 gt:")
-#         print(gt[:20])
-
-#         print("first 20 scores:")
-#         print(scores[:20])
-
-#         min_len = min(len(gt), len(pred), len(scores))
-
-#         gt = gt[:min_len]
-#         pred = pred[:min_len]
-#         scores = scores[:min_len]
-
-#         # ----------------------------------
-#         # DEBUG ANOMALY LOCATIONS
-#         # ----------------------------------
-#         anomaly_idx = np.where(gt == 1)[0]
-
-#         print("num anomalies:", len(anomaly_idx))
-
-#         if len(anomaly_idx) > 0:
-
-#             print("\nFirst anomaly positions:")
-#             print(anomaly_idx[:20])
-
-#             print("\nScores at anomaly positions:")
-#             for idx in anomaly_idx[:10]:
-#                 print(
-#                     f"idx={idx} "
-#                     f"score={scores[idx]:.4f}"
-#                 )
-
-#             normal_idx = np.where(gt == 0)[0]
-
-#             print("\nScores at normal positions:")
-#             for idx in normal_idx[:10]:
-#                 print(
-#                     f"idx={idx} "
-#                     f"score={scores[idx]:.4f}"
-#                 )
-
-#             # ----------------------------------
-#             # inspect neighbourhood around
-#             # first anomaly
-#             # ----------------------------------
-#             idx = anomaly_idx[0]
-
-#             start = max(0, idx - 20)
-#             end = min(len(gt), idx + 20)
-
-#             print("\nNeighbourhood around first anomaly:")
-#             print("timestep | gt | score")
-
-#             for t in range(start, end):
-#                 print(
-#                     f"{t:6d} | "
-#                     f"{int(gt[t])} | "
-#                     f"{scores[t]:.4f}"
-#                 )
-
-#                 # store global arrays
-#                 all_gt.extend(gt)
-#                 all_pred.extend(pred)
-#                 all_scores.extend(scores)
-
-#                 # point adjusted
-#                 pred_pa = point_adjust(pred.copy(), gt)
-
-#                 all_gt_pa.extend(gt)
-#                 all_pred_pa.extend(pred_pa)
-
-
-#     all_gt_np = np.array(all_gt)
-#     all_pred_np = np.array(all_pred)
-#     all_scores_np = np.array(all_scores)
-
-
-#     print("\n=== Dataset summary ===")
-#     print("GT anomaly ratio:", all_gt_np.mean())
-#     print("Pred anomaly ratio:", all_pred_np.mean())
-#     print("Total overlap:", np.sum((all_gt_np == 1) & (all_pred_np == 1)))
-
-
-#     print("\n=== Score statistics ===")
-#     print("GT=0 mean:", all_scores_np[all_gt_np == 0].mean())
-#     print("GT=1 mean:", all_scores_np[all_gt_np == 1].mean())
-#     print("GT=0 std:", all_scores_np[all_gt_np == 0].std())
-#     print("GT=1 std:", all_scores_np[all_gt_np == 1].std())
-
-#     # ---------------------------
-#     # F1 scores
-#     # ---------------------------
-#     _, _, f1, _ = precision_recall_fscore_support(
-#         all_gt_np,
-#         all_pred_np,
-#         average="binary",
-#         zero_division=0,
-#     )
-
-#     _, _, f1_pa, _ = precision_recall_fscore_support(
-#         all_gt_pa,
-#         all_pred_pa,
-#         average="binary",
-#         zero_division=0,
-#     )
-
-#     # ---------------------------
-#     # ROC-AUC (IMPORTANT)
-#     # ---------------------------
-
-#     roc_score = roc_auc_score(all_gt_np, all_scores_np)
-#     print("\nROC-AUC:", roc_score)
-
-#     return {
-#         "F1": f1,
-#         "F1PA": f1_pa,
-#         "ROC_AUC": roc_score,
-#     }
 def predict_series(
     model,
     tokenizer,
     series,
-    gt_series,   # 👈 ADD THIS
+    gt_series,
     context_length=512,
     stride=128,
 ):
     device = next(model.parameters()).device
     model.eval()
 
-    all_probs = []
-    all_gt = []
+    scores_sum = np.zeros(len(series), dtype=np.float32)
+    counts = np.zeros(len(series), dtype=np.float32)
+    gt_all = np.zeros(len(series), dtype=np.float32)
 
     with torch.no_grad():
+
         for start in range(0, len(series) - context_length + 1, stride):
 
             window = series[start:start + context_length]
@@ -377,18 +168,22 @@ def predict_series(
                 attention_mask=attention_mask,
             )
 
-            logits = outputs["logits"][0]          # (T,)
-            probs = torch.sigmoid(logits)
+            logits = outputs["logits"][0]  # (T,)
+            probs = torch.sigmoid(logits).detach().cpu().numpy()
 
             mask = attention_mask[0].bool().cpu().numpy()
 
-            probs = probs[mask].cpu().numpy()
-            gt = np.array(gt_window)[mask]
+            probs = probs[mask]
 
-            all_probs.append(probs)
-            all_gt.append(gt)
+            scores_sum[start:start + len(probs)] += probs
+            counts[start:start + len(probs)] += 1
 
-    return np.concatenate(all_probs), np.concatenate(all_gt)
+            gt_all[start:start + len(probs)] += np.array(gt_window)[mask]
+
+    scores = scores_sum / np.maximum(counts, 1e-8)
+    gt = (gt_all > 0).astype(np.int32)
+
+    return scores, gt
 
 def evaluate_dataset(
     model,
@@ -396,10 +191,9 @@ def evaluate_dataset(
     dataset_dir,
     dataset_name,
 ):
-
     series_list, label_list = load_dataset(dataset_dir, dataset_name)
 
-    all_probs = []
+    all_scores = []
     all_gt = []
 
     print(f"\n[DEBUG] Dataset: {dataset_name}")
@@ -407,24 +201,27 @@ def evaluate_dataset(
 
     for series, gt in zip(series_list, label_list):
 
-        probs, labels = predict_series(
+        scores, labels = predict_series(
             model,
             tokenizer,
             series,
-            gt
+            gt,
         )
 
-        min_len = min(len(probs), len(labels))
+        min_len = min(len(scores), len(labels))
 
-        all_probs.append(probs[:min_len])
+        all_scores.append(scores[:min_len])
         all_gt.append(labels[:min_len])
 
-    all_probs = np.concatenate(all_probs)
+    all_scores = np.concatenate(all_scores)
     all_gt = np.concatenate(all_gt)
 
-    roc_auc = roc_auc_score(all_gt, all_probs)
+    # -------------------------
+    # metrics
+    # -------------------------
+    roc_auc = roc_auc_score(all_gt, all_scores)
 
-    preds = (all_probs > 0.5).astype(int)
+    preds = (all_scores > np.percentile(all_scores, 90)).astype(int)
 
     f1 = precision_recall_fscore_support(
         all_gt,
@@ -440,14 +237,13 @@ def evaluate_dataset(
     print("Pred ratio:", preds.mean())
 
     print("\nScore stats:")
-    print("pos mean:", all_probs[all_gt == 1].mean())
-    print("neg mean:", all_probs[all_gt == 0].mean())
+    print("pos mean:", all_scores[all_gt == 1].mean())
+    print("neg mean:", all_scores[all_gt == 0].mean())
 
     return {
         "F1": f1,
         "ROC_AUC": roc_auc,
     }
-
 
 if __name__ == "__main__":
 
@@ -520,9 +316,9 @@ if __name__ == "__main__":
             f"F1    : {metrics['F1']:.4f}"
         )
 
-        print(
-            f"F1-PA : {metrics['F1PA']:.4f}"
-        )
+        # print(
+        #     f"F1-PA : {metrics['F1PA']:.4f}"
+        # )
 
         rows.append({
             "dataset": ds,
