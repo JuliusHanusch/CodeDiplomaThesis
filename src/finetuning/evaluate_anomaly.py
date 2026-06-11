@@ -269,7 +269,7 @@ if __name__ == "__main__":
 
     anomaly_path = Path(model_path) / "anomaly.pt"
 
-    model.classifier.load_state_dict(
+    model.scorer.load_state_dict(
         torch.load(
             anomaly_path,
             map_location="cpu",
