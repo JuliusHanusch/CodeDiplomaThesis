@@ -7,11 +7,7 @@ from .chronos import ChronosModel, ChronosConfig
 
 
 class ChronosModelForAnomalyDetection(ChronosModel):
-    def __init__(
-        self,
-        config: ChronosConfig,
-        model: PreTrainedModel,
-    ):
+    def __init__(self, config: ChronosConfig, model):
         super().__init__(config=config, model=model)
 
         hidden_size = (
@@ -19,10 +15,15 @@ class ChronosModelForAnomalyDetection(ChronosModel):
             or getattr(model.config, "d_model")
         )
 
-        self.dropout = nn.Dropout(0.1)
+        # stronger than single linear classifier
+        self.scorer = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_size, 1),
+        )
 
-        # token-level classifier
-        self.classifier = nn.Linear(hidden_size, 1)
+        self.dropout = nn.Dropout(0.1)
 
     def forward(
         self,
@@ -30,7 +31,6 @@ class ChronosModelForAnomalyDetection(ChronosModel):
         attention_mask: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
     ):
-
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -41,47 +41,21 @@ class ChronosModelForAnomalyDetection(ChronosModel):
         hidden = outputs.hidden_states[-1]  # (B, T, H)
         hidden = self.dropout(hidden)
 
-        logits = self.classifier(hidden).squeeze(-1)  # (B, T)
-        probs = torch.sigmoid(logits)
+        logits = self.scorer(hidden).squeeze(-1)  # (B, T)
 
         loss = None
 
         if labels is not None:
-
             labels = labels.float()
 
-            # --------------------------------------------------
-            # 🔥 DEBUG BLOCK (THIS IS WHAT YOU ASKED FOR)
-            # --------------------------------------------------
-            with torch.no_grad():
+            mask = attention_mask.bool()
 
-                mask = attention_mask.bool()
+            # -----------------------------
+            # class balancing (KEEP THIS)
+            # -----------------------------
+            pos = labels[mask].sum()
+            neg = mask.sum() - pos
 
-                pos_mask = (labels == 1) & mask
-                neg_mask = (labels == 0) & mask
-
-                print("\n[DEBUG FORWARD] ---------------------")
-                print("pos tokens:", pos_mask.sum().item())
-                print("neg tokens:", neg_mask.sum().item())
-                print("mask tokens:", mask.sum().item())
-
-                if pos_mask.sum() > 0:
-                    print("pos logits mean:", logits[pos_mask].mean().item())
-                    print("pos probs mean:", probs[pos_mask].mean().item())
-
-                if neg_mask.sum() > 0:
-                    print("neg logits mean:", logits[neg_mask].mean().item())
-                    print("neg probs mean:", probs[neg_mask].mean().item())
-
-                print("global logits mean:", logits.mean().item())
-                print("label ratio:", labels[mask].mean().item())
-
-            # --------------------------------------------------
-            # LOSS (UNCHANGED)
-            # --------------------------------------------------
-
-            pos = labels.sum()
-            neg = labels.numel() - pos
             pos_weight = neg / (pos + 1e-8)
             pos_weight = torch.clamp(pos_weight, 1.0, 50.0)
 
@@ -98,9 +72,7 @@ class ChronosModelForAnomalyDetection(ChronosModel):
 
             loss_per_token = loss_fct(logits, labels)
 
-            loss = (loss_per_token * attention_mask).sum() / (
-                attention_mask.sum() + 1e-8
-            )
+            loss = (loss_per_token * mask).sum() / (mask.sum() + 1e-8)
 
         return {
             "loss": loss,
