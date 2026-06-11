@@ -15,61 +15,86 @@ np.random.seed(42)
 
 def soft_replacement(x, pool):
     x = x.copy()
+
     L = np.random.randint(16, 64)
     s = np.random.randint(0, len(x) - L)
 
+    # external segment
     ext_start = np.random.randint(0, len(pool) - L)
     ext = pool[ext_start:ext_start + L]
 
+    # convert to dynamics (differences)
+    dx = np.diff(x[s:s+L], prepend=x[s])
+    dext = np.diff(ext, prepend=ext[0])
+
     alpha = np.random.uniform(0.2, 0.8)
-    x[s:s+L] = alpha * x[s:s+L] + (1 - alpha) * ext
+
+    mixed_dx = alpha * dx + (1 - alpha) * dext
+
+    # reconstruct signal
+    x[s:s+L] = np.cumsum(mixed_dx) + x[s]
 
     return x, s, L
 
 
 def uniform_replacement(x):
     x = x.copy()
+
     L = np.random.randint(16, 64)
     s = np.random.randint(0, len(x) - L)
 
-    val = np.random.uniform(np.min(x), np.max(x))
-    x[s:s+L] = val
+    segment = x[s:s+L]
+
+    mean = np.mean(segment)
+    std = np.std(segment)
+
+    # collapse variance but keep weak temporal drift
+    noise = np.random.normal(0, std * 0.05, size=L)
+
+    x[s:s+L] = mean + noise
 
     return x, s, L
 
 
 def length_adjustment(x):
     x = x.copy()
+
     L = np.random.randint(32, 128)
     s = np.random.randint(0, len(x) - L)
 
-    seg = x[s:s+L]
+    segment = x[s:s+L]
+
+    # random time warp
     factor = np.random.choice([0.5, 0.75, 1.5, 2.0])
 
-    new_len = max(8, int(L * factor))
+    t_orig = np.linspace(0, 1, L)
+    t_warp = np.linspace(0, 1, int(L * factor))
 
-    warped = np.interp(
-        np.linspace(0, L - 1, new_len),
-        np.arange(L),
-        seg,
-    )
+    warped = np.interp(t_warp, t_orig, segment)
 
-    warped = np.interp(
-        np.linspace(0, new_len - 1, L),
-        np.arange(new_len),
-        warped,
-    )
+    # resample back (destroys phase consistency)
+    warped_back = np.interp(t_orig, np.linspace(0, 1, len(warped)), warped)
 
-    x[s:s+L] = warped
+    x[s:s+L] = warped_back
+
     return x, s, L
 
 
 def peak_noise(x):
     x = x.copy()
-    idx = np.random.randint(0, len(x))
+
+    idx = np.random.randint(1, len(x) - 1)
+
+    # compute local trend
+    prev_val = x[idx - 1]
+    next_val = x[idx + 1]
+
+    local_trend = (next_val - prev_val)
+
     scale = np.std(x) if np.std(x) > 0 else 1.0
 
-    x[idx] += np.random.choice([-1, 1]) * np.random.uniform(3, 8) * scale
+    # inject inconsistency in slope, not raw value
+    x[idx] = prev_val + local_trend * 5 + np.random.randn() * scale
 
     return x, idx, 1
 
