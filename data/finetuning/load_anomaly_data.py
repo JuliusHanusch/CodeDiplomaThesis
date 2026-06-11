@@ -211,7 +211,7 @@ def process(dataset_name):
 
 
 def main():
-    for ds in ["SMAP", "MSL", "SMD"]:
+    for ds in ["SMAP", "MSL"]:
         process(ds)
 
     print("\nDONE")
