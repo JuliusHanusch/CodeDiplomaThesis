@@ -134,116 +134,110 @@ def load_dataset(dataset_dir, dataset_name):
 
     return series, labels
 
-def predict_series(
-    model,
-    tokenizer,
-    series,
-    gt_series,
-    context_length=512,
-    stride=128,
-):
-    device = next(model.parameters()).device
-    model.eval()
+def sliding_window(arr, window_size, stride):
+    """Create overlapping windows."""
+    for start in range(0, len(arr) - window_size + 1, stride):
+        yield start, arr[start:start + window_size]
 
-    scores_sum = np.zeros(len(series), dtype=np.float32)
-    counts = np.zeros(len(series), dtype=np.float32)
-    gt_all = np.zeros(len(series), dtype=np.float32)
-
-    with torch.no_grad():
-
-        for start in range(0, len(series) - context_length + 1, stride):
-
-            window = series[start:start + context_length]
-            gt_window = gt_series[start:start + context_length]
-
-            context = torch.tensor(window, dtype=torch.float32).unsqueeze(0)
-
-            input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
-
-            input_ids = input_ids.to(device)
-            attention_mask = attention_mask.to(device)
-
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-            )
-
-            logits = outputs["logits"][0]  # (T,)
-            probs = torch.sigmoid(logits).detach().cpu().numpy()
-
-            mask = attention_mask[0].bool().cpu().numpy()
-
-            probs = probs[mask]
-
-            scores_sum[start:start + len(probs)] += probs
-            counts[start:start + len(probs)] += 1
-
-            gt_all[start:start + len(probs)] += np.array(gt_window)[mask]
-
-    scores = scores_sum / np.maximum(counts, 1e-8)
-    gt = (gt_all > 0).astype(np.int32)
-
-    return scores, gt
 
 def evaluate_dataset(
     model,
-    tokenizer,
     dataset_dir,
     dataset_name,
+    tokenizer,
+    window_size: int = 512,
+    stride: int = 128,
+    threshold: float = 0.5,
+    device: str = "cuda" if torch.cuda.is_available() else "cpu",
 ):
+
+    model.eval()
+    model.to(device)
+
     series_list, label_list = load_dataset(dataset_dir, dataset_name)
 
-    all_scores = []
-    all_gt = []
+    all_preds = []
+    all_labels = []
 
-    print(f"\n[DEBUG] Dataset: {dataset_name}")
-    print(f"[DEBUG] Num series: {len(series_list)}")
+    with torch.no_grad():
 
-    for series, gt in zip(series_list, label_list):
+        for series, labels in zip(series_list, label_list):
 
-        scores, labels = predict_series(
-            model,
-            tokenizer,
-            series,
-            gt,
-        )
+            series = np.asarray(series)
+            labels = np.asarray(labels)
 
-        min_len = min(len(scores), len(labels))
+            if len(series) != len(labels):
+                raise ValueError(
+                    f"Mismatch: series={len(series)} labels={len(labels)}"
+                )
 
-        all_scores.append(scores[:min_len])
-        all_gt.append(labels[:min_len])
+            window_preds = np.zeros(len(series))
+            window_counts = np.zeros(len(series))
 
-    all_scores = np.concatenate(all_scores)
-    all_gt = np.concatenate(all_gt)
+            # --------------------------
+            # window inference
+            # --------------------------
+            for start, window in sliding_window(series, window_size, stride):
 
-    # -------------------------
+                end = start + window_size
+
+                context = torch.tensor(window, dtype=torch.float32)
+
+                input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
+
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                )
+
+                logits = outputs["logits"].squeeze(0)
+                probs = torch.sigmoid(logits)
+
+                preds = (probs >= threshold).cpu().numpy()
+
+                window_preds[start:end] += preds
+                window_counts[start:end] += 1
+
+            # avoid division issues
+            window_counts[window_counts == 0] = 1
+            final_preds = (window_preds / window_counts) >= 0.5
+
+            # align with labels
+            valid_mask = np.ones_like(labels, dtype=bool)
+
+            all_preds.append(final_preds[valid_mask])
+            all_labels.append(labels[valid_mask])
+
+    # --------------------------
+    # flatten
+    # --------------------------
+    all_preds = np.concatenate(all_preds)
+    all_labels = np.concatenate(all_labels)
+
+    # --------------------------
     # metrics
-    # -------------------------
-    roc_auc = roc_auc_score(all_gt, all_scores)
+    # --------------------------
+    tp = np.sum((all_preds == 1) & (all_labels == 1))
+    fp = np.sum((all_preds == 1) & (all_labels == 0))
+    fn = np.sum((all_preds == 0) & (all_labels == 1))
+    tn = np.sum((all_preds == 0) & (all_labels == 0))
 
-    preds = (all_scores > np.percentile(all_scores, 90)).astype(int)
-
-    f1 = precision_recall_fscore_support(
-        all_gt,
-        preds,
-        average="binary",
-        zero_division=0,
-    )[2]
-
-    print("\n=== TOKEN LEVEL RESULTS ===")
-    print("ROC-AUC:", roc_auc)
-    print("F1:", f1)
-    print("GT ratio:", all_gt.mean())
-    print("Pred ratio:", preds.mean())
-
-    print("\nScore stats:")
-    print("pos mean:", all_scores[all_gt == 1].mean())
-    print("neg mean:", all_scores[all_gt == 0].mean())
+    precision = tp / (tp + fp + 1e-8)
+    recall = tp / (tp + fn + 1e-8)
+    f1 = 2 * precision * recall / (precision + recall + 1e-8)
+    accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
 
     return {
-        "F1": f1,
-        "ROC_AUC": roc_auc,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "accuracy": accuracy,
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
     }
+    
 
 if __name__ == "__main__":
 
@@ -269,7 +263,7 @@ if __name__ == "__main__":
 
     anomaly_path = Path(model_path) / "anomaly.pt"
 
-    model.scorer.load_state_dict(
+    model.classifier.load_state_dict(
         torch.load(
             anomaly_path,
             map_location="cpu",
@@ -304,7 +298,6 @@ if __name__ == "__main__":
         print(f"Evaluating {ds}")
         print(f"{'='*20}")
 
-
         metrics = evaluate_dataset(
             model=model,
             tokenizer=tokenizer,
@@ -312,23 +305,23 @@ if __name__ == "__main__":
             dataset_name=ds,
         )
 
-        print(
-            f"F1    : {metrics['F1']:.4f}"
-        )
+        print(f"Precision : {metrics['precision']:.4f}")
+        print(f"Recall    : {metrics['recall']:.4f}")
+        print(f"F1        : {metrics['f1']:.4f}")
+        print(f"Accuracy  : {metrics['accuracy']:.4f}")
 
-        # print(
-        #     f"F1-PA : {metrics['F1PA']:.4f}"
-        # )
+        print(
+            f"TP: {metrics['tp']} | FP: {metrics['fp']} | "
+            f"FN: {metrics['fn']} | TN: {metrics['tn']}"
+        )
 
         rows.append({
             "dataset": ds,
-            "F1": metrics["F1"],
-            "F1PA": metrics["F1PA"],
+            "precision": metrics["precision"],
+            "recall": metrics["recall"],
+            "F1": metrics["f1"],
+            "accuracy": metrics["accuracy"],
         })
-
-    # --------------------------------------------------
-    # Save results
-    # --------------------------------------------------
 
     results = pd.DataFrame(rows)
 
