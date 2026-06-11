@@ -210,6 +210,21 @@ def evaluate_dataset(
     for i, (series, gt) in enumerate(zip(series_list, label_list)):
 
         pred, scores = predict_series(model, tokenizer, series)
+        print(
+            f"series={len(series)} "
+            f"gt={len(gt)} "
+            f"pred={len(pred)} "
+            f"scores={len(scores)}"
+        )
+
+        print("scores shape:", scores.shape)
+        print("gt shape:", gt.shape)
+
+        print("first 20 gt:")
+        print(gt[:20])
+
+        print("first 20 scores:")
+        print(scores[:20])
 
         min_len = min(len(gt), len(pred), len(scores))
 
@@ -217,16 +232,63 @@ def evaluate_dataset(
         pred = pred[:min_len]
         scores = scores[:min_len]
 
-        # store global arrays
-        all_gt.extend(gt)
-        all_pred.extend(pred)
-        all_scores.extend(scores)
+        # ----------------------------------
+        # DEBUG ANOMALY LOCATIONS
+        # ----------------------------------
+        anomaly_idx = np.where(gt == 1)[0]
 
-        # point adjusted
-        pred_pa = point_adjust(pred.copy(), gt)
+        print("num anomalies:", len(anomaly_idx))
 
-        all_gt_pa.extend(gt)
-        all_pred_pa.extend(pred_pa)
+        if len(anomaly_idx) > 0:
+
+            print("\nFirst anomaly positions:")
+            print(anomaly_idx[:20])
+
+            print("\nScores at anomaly positions:")
+            for idx in anomaly_idx[:10]:
+                print(
+                    f"idx={idx} "
+                    f"score={scores[idx]:.4f}"
+                )
+
+            normal_idx = np.where(gt == 0)[0]
+
+            print("\nScores at normal positions:")
+            for idx in normal_idx[:10]:
+                print(
+                    f"idx={idx} "
+                    f"score={scores[idx]:.4f}"
+                )
+
+            # ----------------------------------
+            # inspect neighbourhood around
+            # first anomaly
+            # ----------------------------------
+            idx = anomaly_idx[0]
+
+            start = max(0, idx - 20)
+            end = min(len(gt), idx + 20)
+
+            print("\nNeighbourhood around first anomaly:")
+            print("timestep | gt | score")
+
+            for t in range(start, end):
+                print(
+                    f"{t:6d} | "
+                    f"{int(gt[t])} | "
+                    f"{scores[t]:.4f}"
+                )
+
+                # store global arrays
+                all_gt.extend(gt)
+                all_pred.extend(pred)
+                all_scores.extend(scores)
+
+                # point adjusted
+                pred_pa = point_adjust(pred.copy(), gt)
+
+                all_gt_pa.extend(gt)
+                all_pred_pa.extend(pred_pa)
 
 
     all_gt_np = np.array(all_gt)
