@@ -1116,7 +1116,7 @@ def main(
         if task == "anomaly":
             model.model.save_pretrained(save_path)
             torch.save(
-                model.classifier.state_dict(),
+                model.scorer.state_dict(),
                 save_path / "anomaly.pt"
             )
 
