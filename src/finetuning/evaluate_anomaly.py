@@ -188,6 +188,9 @@ def evaluate_dataset(
                 input_ids = input_ids.unsqueeze(0)
                 attention_mask = attention_mask.unsqueeze(0)
 
+                input_ids = input_ids.to(device)
+                attention_mask = attention_mask.to(device)
+
                 outputs = model(
                     input_ids=input_ids,
                     attention_mask=attention_mask
