@@ -349,24 +349,25 @@ def predict_series(
     model,
     tokenizer,
     series,
+    gt_series,   # 👈 ADD THIS
     context_length=512,
     stride=128,
 ):
     device = next(model.parameters()).device
-
     model.eval()
 
     all_probs = []
-    all_labels = []
+    all_gt = []
 
     with torch.no_grad():
         for start in range(0, len(series) - context_length + 1, stride):
 
             window = series[start:start + context_length]
+            gt_window = gt_series[start:start + context_length]
 
             context = torch.tensor(window, dtype=torch.float32).unsqueeze(0)
 
-            input_ids, attention_mask, labels = tokenizer.context_input_transform(context)
+            input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
 
             input_ids = input_ids.to(device)
             attention_mask = attention_mask.to(device)
@@ -376,26 +377,18 @@ def predict_series(
                 attention_mask=attention_mask,
             )
 
-            logits = outputs["logits"]              # (1, T)
-            probs = torch.sigmoid(logits)[0]        # (T,)
+            logits = outputs["logits"][0]          # (T,)
+            probs = torch.sigmoid(logits)
 
-            mask = attention_mask[0].bool()         # (T,)
-            labels = labels[0].to(device)           # (T,)
+            mask = attention_mask[0].bool().cpu().numpy()
 
-            # ----------------------------------------
-            # keep ONLY valid tokens
-            # ----------------------------------------
-            probs = probs[mask].detach().cpu().numpy()
-            gt = labels[mask].detach().cpu().numpy()
+            probs = probs[mask].cpu().numpy()
+            gt = np.array(gt_window)[mask]
 
             all_probs.append(probs)
-            all_labels.append(gt)
+            all_gt.append(gt)
 
-    # flatten all tokens
-    all_probs = np.concatenate(all_probs)
-    all_labels = np.concatenate(all_labels)
-
-    return all_probs, all_labels
+    return np.concatenate(all_probs), np.concatenate(all_gt)
 
 def evaluate_dataset(
     model,
@@ -414,23 +407,20 @@ def evaluate_dataset(
 
     for series, gt in zip(series_list, label_list):
 
-        probs, labels = predict_series(model, tokenizer, series)
+        probs, labels = predict_series(
+            model,
+            tokenizer,
+            series,
+            gt
+        )
 
-        # safety alignment
-        min_len = min(len(probs), len(labels), len(gt))
+        min_len = min(len(probs), len(labels))
 
-        probs = probs[:min_len]
-        labels = labels[:min_len]
-
-        all_probs.append(probs)
-        all_gt.append(labels)
+        all_probs.append(probs[:min_len])
+        all_gt.append(labels[:min_len])
 
     all_probs = np.concatenate(all_probs)
     all_gt = np.concatenate(all_gt)
-
-    # -----------------------------------------
-    # METRICS (TOKEN-LEVEL ONLY)
-    # -----------------------------------------
 
     roc_auc = roc_auc_score(all_gt, all_probs)
 
