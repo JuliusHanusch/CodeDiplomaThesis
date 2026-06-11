@@ -185,9 +185,12 @@ def evaluate_dataset(
 
                 input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
 
+                input_ids = input_ids.unsqueeze(0)
+                attention_mask = attention_mask.unsqueeze(0)
+
                 outputs = model(
                     input_ids=input_ids,
-                    attention_mask=attention_mask,
+                    attention_mask=attention_mask
                 )
 
                 logits = outputs["logits"].squeeze(0)
