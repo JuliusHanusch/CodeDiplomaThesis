@@ -139,6 +139,95 @@ def sliding_window(arr, window_size, stride):
     for start in range(0, len(arr) - window_size + 1, stride):
         yield start, arr[start:start + window_size]
 
+def evaluate_dataset_no_windowing(
+    model,
+    dataset_dir,
+    dataset_name,
+    tokenizer,
+    max_length: int = 512,
+    threshold: float = 0.5,
+    device: str = "cuda" if torch.cuda.is_available() else "cpu",
+):
+
+    model.eval()
+    model.to(device)
+
+    series_list, label_list = load_dataset(dataset_dir, dataset_name)
+
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():
+
+        for series, labels in zip(series_list, label_list):
+
+            series = np.asarray(series)
+            labels = np.asarray(labels)
+
+            if len(series) != len(labels):
+                raise ValueError(f"Mismatch: {len(series)} vs {len(labels)}")
+
+            preds_full = np.zeros(len(series))
+
+            # --------------------------------------------------
+            # NO OVERLAP WINDOWING (PURE CHUNKING)
+            # --------------------------------------------------
+            for start in range(0, len(series), max_length):
+
+                end = min(start + max_length, len(series))
+
+                chunk = torch.tensor(series[start:end], dtype=torch.float32)
+
+                input_ids, attention_mask, _ = tokenizer.context_input_transform(chunk)
+
+                input_ids = input_ids.unsqueeze(0).to(device)
+                attention_mask = attention_mask.unsqueeze(0).to(device)
+
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                )
+
+                logits = outputs["logits"].squeeze(0)
+                probs = torch.sigmoid(logits).cpu().numpy()
+
+                preds = (probs >= threshold)
+
+                # align directly (NO overlap voting)
+                preds_full[start:end] = preds[: end - start]
+
+            all_preds.append(preds_full)
+            all_labels.append(labels)
+
+    # --------------------------------------------------
+    # FLATTEN
+    # --------------------------------------------------
+    all_preds = np.concatenate(all_preds)
+    all_labels = np.concatenate(all_labels)
+
+    # --------------------------------------------------
+    # METRICS
+    # --------------------------------------------------
+    tp = np.sum((all_preds == 1) & (all_labels == 1))
+    fp = np.sum((all_preds == 1) & (all_labels == 0))
+    fn = np.sum((all_preds == 0) & (all_labels == 1))
+    tn = np.sum((all_preds == 0) & (all_labels == 0))
+
+    precision = tp / (tp + fp + 1e-8)
+    recall = tp / (tp + fn + 1e-8)
+    f1 = 2 * precision * recall / (precision + recall + 1e-8)
+    accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
+
+    return {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "accuracy": accuracy,
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+    }
 
 def evaluate_dataset(
     model,
@@ -304,7 +393,7 @@ if __name__ == "__main__":
         print(f"Evaluating {ds}")
         print(f"{'='*20}")
 
-        metrics = evaluate_dataset(
+        metrics = evaluate_dataset_no_windowing(
             model=model,
             tokenizer=tokenizer,
             dataset_dir=base_dir / ds,
