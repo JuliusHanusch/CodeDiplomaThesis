@@ -136,6 +136,7 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
     abs_error_model = np.abs(error_model)
     abs_error_naive = np.abs(error_naive)
 
+    series_rows = []
     mae_scaled_series = []
     rmse_scaled_series = []
 
@@ -169,6 +170,25 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
         mae_scaled_series.append(mae_scaled)
         rmse_scaled_series.append(rmse_scaled)
 
+        series_rows.append({
+            "series_index": i,
+            "mae_model": mae_model,
+            "mae_naive": mae_naive,
+            "mae_scaled": mae_scaled,
+            "rmse_model": rmse_model,
+            "rmse_naive": rmse_naive,
+            "rmse_scaled": rmse_scaled,
+            "n_tokens_used": int(np.sum(token_mask)),
+            "fallback_used": np.any(fallback_tokens),
+
+            # NEW
+            "fallback_positions": np.where(fallback_tokens)[0].tolist() if np.any(fallback_tokens) else None,
+            "masked_positions": np.where(mask_array[i])[0].tolist(),
+            "labels_series": labels_array[i].tolist()
+            })
+        
+    print(series_rows)
+    
     mae_scaled_mean = float(np.mean(mae_scaled_series)) if mae_scaled_series else np.nan
     rmse_scaled_mean = float(np.mean(rmse_scaled_series)) if rmse_scaled_series else np.nan
 
@@ -311,7 +331,7 @@ def main(
     torch_dtype: str = "float32",
     batch_size: int = 32,
     num_samples: int = 20,
-    mean_span_length: float = 3.0,
+    mean_span_length: float = 10.0,
     mask_ratio: int = 0.15,
     temperature: Optional[float] = None,
     top_k: Optional[int] = None,
