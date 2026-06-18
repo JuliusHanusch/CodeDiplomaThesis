@@ -252,6 +252,7 @@ def impute_span(
     n_tokens = valid_positions.sum().detach().cpu().item()
     print("n_tokens", n_tokens)
     n_to_mask = int(mask_ratio * n_tokens)
+    print("mask_ratio", mask_ratio)
     print("n_to_mask",n_to_mask)
 
 
