@@ -192,7 +192,7 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
         series_rows.append(series_row)
 
         df = pd.DataFrame(series_rows)
-        df.to_csv("evaluation_results.csv", index=False)
+        #df.to_csv("evaluation_results.csv", index=False)
     
     mae_scaled_mean = float(np.mean(mae_scaled_series)) if mae_scaled_series else np.nan
     rmse_scaled_mean = float(np.mean(rmse_scaled_series)) if rmse_scaled_series else np.nan
@@ -452,7 +452,7 @@ def main(
                 })
 
     results_df = pd.DataFrame(metrics)
-    csv_path = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/Imputation/MSL_3_results.csv")
+    csv_path = Path("/content/CodeDiplomaThesis/Results/Finetuning/Imputation/MSL_32_results.csv")
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     results_df.to_csv(csv_path, index=False)
 
