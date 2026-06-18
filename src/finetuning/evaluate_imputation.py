@@ -241,18 +241,18 @@ def impute_span(
         )
 
     special_token_cutoff = tokenizer.config.n_special_tokens
-    print("special_token_cutoff", special_token_cutoff)
+    #print("special_token_cutoff", special_token_cutoff)
     vocab_size = tokenizer.config.n_tokens
 
     # --- identify valid (non-special) positions ---
     special_tokens_mask = input_ids < special_token_cutoff
-    print("special_tokens_mask", special_tokens_mask)
+    #print("special_tokens_mask", special_tokens_mask)
     valid_positions = ~special_tokens_mask
-    print("valid_positions", valid_positions)
+    #print("valid_positions", valid_positions)
     n_tokens = valid_positions.sum().detach().cpu().item()
-    print("n_tokens", n_tokens)
+    #print("n_tokens", n_tokens)
     n_to_mask = int(mask_ratio * n_tokens)
-    print("mask_ratio", mask_ratio)
+    #print("mask_ratio", mask_ratio)
     print("n_to_mask",n_to_mask)
 
 
@@ -345,7 +345,7 @@ def main(
     batch_size: int = 32,
     num_samples: int = 20,
     mean_span_length: float = 10.0,
-    mask_ratio: int = 0.15,
+    mask_ratio: float = 0.15,
     temperature: Optional[float] = None,
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
