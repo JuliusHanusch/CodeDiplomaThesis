@@ -253,7 +253,7 @@ def impute_span(
     #print("n_tokens", n_tokens)
     n_to_mask = int(mask_ratio * n_tokens)
     #print("mask_ratio", mask_ratio)
-    print("n_to_mask",n_to_mask)
+    #print("n_to_mask",n_to_mask)
 
 
     # --- create boolean mask for spans ---
@@ -280,7 +280,7 @@ def impute_span(
         mask[0, start_idx:end_idx] = True
         total_masked += span_len
     
-    print("n_to_mask", n_to_mask, "total_masked", total_masked)
+    #print("n_to_mask", n_to_mask, "total_masked", total_masked)
 
 
     # Ensure no special tokens are masked
@@ -344,7 +344,7 @@ def main(
     torch_dtype: str = "float32",
     batch_size: int = 32,
     num_samples: int = 20,
-    mean_span_length: float = 10.0,
+    mean_span_length: int = 32.0,
     mask_ratio: float = 0.15,
     temperature: Optional[float] = None,
     top_k: Optional[int] = None,
