@@ -37,7 +37,7 @@ class ChronosModelForAnomalyDetection(ChronosModel):
             output_hidden_states=True,
             return_dict=True,
         )
-        print("ANOMALY FORWARD CALLED")
+        print("ANOMALY FORWARD CALLED 1")
         # print(type(outputs))
         # print(outputs.keys())
         # print(outputs["logits"].mean(), outputs["logits"].std())
@@ -51,6 +51,7 @@ class ChronosModelForAnomalyDetection(ChronosModel):
         loss = None
 
         if labels is not None:
+            print("ANOMALY FORWARD CALLED 2")
 
             labels = labels.float()
 
