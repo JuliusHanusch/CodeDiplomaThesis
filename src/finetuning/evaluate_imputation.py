@@ -306,7 +306,7 @@ def impute_span_bolt():
 @app.command()
 def main(
     config_path: Path,
-    chronos_model_id: str = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/chronos_models/chronos_-6611716250758806883/run-0/checkpoint-final",
+    chronos_model_id: str = "juliushanusch/ChronosBERT-Optimized",
     device: str = "cuda",
     torch_dtype: str = "float32",
     batch_size: int = 32,
