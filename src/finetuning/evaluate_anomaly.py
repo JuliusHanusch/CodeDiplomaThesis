@@ -197,8 +197,6 @@ def evaluate_dataset_no_windowing(
             all_preds.append(preds_full)
             all_labels.append(labels)
     
-    precision, recall, thresholds = precision_recall_curve(label_list, all_preds)
-
 
     # --------------------------------------------------
     # FLATTEN
