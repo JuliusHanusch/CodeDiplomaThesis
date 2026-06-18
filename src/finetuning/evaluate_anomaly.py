@@ -142,7 +142,7 @@ def evaluate_dataset_no_windowing(
     dataset_name,
     tokenizer,
     max_length: int = 512,
-    threshold: float = 0.9999999999,
+    threshold: float = 0.999,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
 ):
 
