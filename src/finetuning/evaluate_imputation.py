@@ -249,6 +249,8 @@ def impute_span(
     n_tokens = valid_positions.sum().item()
     n_to_mask = max(1, int(mask_ratio * n_tokens))
 
+    print("n_to_mask", n_to_mask)
+
     # --- create boolean mask for spans ---
     mask = torch.zeros_like(input_ids, dtype=torch.bool, device=device)
 
@@ -257,7 +259,7 @@ def impute_span(
 
     while total_masked < n_to_mask and len(valid_indices) > 0:
         # Sample a span length from Poisson distribution
-        span_len = max(1, int(torch.poisson(torch.tensor(mean_span_length)).item()))
+        span_len = max(1, np.random.poisson(mean_span_length))
         if total_masked + span_len > n_to_mask:
             span_len = n_to_mask - total_masked
 
@@ -272,6 +274,9 @@ def impute_span(
         # Apply mask
         mask[0, start_idx:end_idx] = True
         total_masked += span_len
+    
+    print("total_masked", total_masked)
+
 
     # Ensure no special tokens are masked
     mask &= valid_positions
