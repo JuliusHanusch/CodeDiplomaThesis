@@ -37,6 +37,7 @@ class ChronosModelForAnomalyDetection(ChronosModel):
             output_hidden_states=True,
             return_dict=True,
         )
+        print("ANOMALY FORWARD CALLED")
         # print(type(outputs))
         # print(outputs.keys())
         # print(outputs["logits"].mean(), outputs["logits"].std())
