@@ -187,12 +187,13 @@ def evaluate_dataset_no_windowing(
                     attention_mask=attention_mask,
                 )
 
-                logits = outputs["logits"]
-                probs = torch.sigmoid(logits)
-
                 print(type(outputs))
                 print(outputs.keys())
                 print(outputs["logits"].mean(), outputs["logits"].std())
+
+
+                logits = outputs["logits"].squeeze(0)
+                probs = torch.sigmoid(logits).cpu().numpy()
 
                 length = end - start
 
