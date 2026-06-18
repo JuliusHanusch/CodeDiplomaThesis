@@ -603,10 +603,6 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
 
         input_ids, attention_mask, _ = self.tokenizer.context_input_transform(context)
 
-        print("context:", context.shape)
-        print("labels :", label.shape)
-        print("input_ids:", input_ids.shape)
-
         return {
             "input_ids": input_ids.squeeze(0),
             "attention_mask": attention_mask.squeeze(0),
