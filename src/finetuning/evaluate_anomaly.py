@@ -189,16 +189,25 @@ def evaluate_dataset_no_windowing(
                 print("Begin Eval")
                 print(type(outputs))
                 print(outputs.keys())
+                print("LOGITS SHAPE:", outputs["logits"].shape)
                 print(outputs["logits"].mean(), outputs["logits"].std())
-                print(outputs["logits"])
+                #print(outputs["logits"])
 
 
 
                 logits = outputs["logits"].squeeze(0)
                 probs = torch.sigmoid(logits).cpu().numpy()
                 print(probs.mean())
-                print(probs)
+                #print(probs)
                 print("End Eval")
+
+                print("MODEL TYPE:", type(model))
+                print("HAS CLASSIFIER:", hasattr(model, "classifier"))
+
+                #logits = model.classifier(model.model(...).hidden_states[-1]).squeeze(-1)
+
+                print("RAW LOGITS:", logits.mean().item(), logits.std().item())
+                print("SIGMOID:", torch.sigmoid(logits).mean().item())
 
 
                 length = end - start
@@ -385,7 +394,7 @@ if __name__ == "__main__":
         )
     )
 
-    print(model.type)
+    #print(model.type)
 
     tokenizer = pipeline.tokenizer
 
