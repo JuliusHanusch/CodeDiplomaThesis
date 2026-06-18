@@ -37,6 +37,9 @@ class ChronosModelForAnomalyDetection(ChronosModel):
             output_hidden_states=True,
             return_dict=True,
         )
+        print(type(outputs))
+        print(outputs.keys())
+        print(outputs["logits"].mean(), outputs["logits"].std())
 
         hidden = outputs.hidden_states[-1]  # (B, T, H)
         hidden = self.dropout(hidden)
@@ -89,7 +92,7 @@ class ChronosModelForAnomalyDetection(ChronosModel):
             )
 
             loss_fct = nn.BCEWithLogitsLoss(
-                #pos_weight=pos_weight_tensor,
+                pos_weight=pos_weight_tensor,
                 reduction="none"
             )
 

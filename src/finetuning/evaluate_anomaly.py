@@ -185,15 +185,15 @@ def evaluate_dataset_no_windowing(
                 outputs = model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
-                    output_hidden_states=True,
-                    return_dict=True,
                 )
 
-                hidden = outputs.hidden_states[-1]
-                hidden = model.dropout(hidden)  # if needed
-
-                logits = model.classifier(hidden).squeeze(-1)
+                logits = outputs["logits"]
                 probs = torch.sigmoid(logits)
+
+                print(type(outputs))
+                print(outputs.keys())
+                print(outputs["logits"].mean(), outputs["logits"].std())
+
                 length = end - start
 
                 scores_full[start:end] = probs[:length]
