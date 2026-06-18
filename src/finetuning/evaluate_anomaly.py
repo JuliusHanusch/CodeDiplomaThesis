@@ -411,7 +411,8 @@ if __name__ == "__main__":
         print(f"Precision : {metrics['precision']:.4f}")
         print(f"Recall    : {metrics['recall']:.4f}")
         print(f"F1        : {metrics['f1']:.4f}")
-        print(f"Accuracy  : {metrics['accuracy']:.4f}")
+        print(f"Accuracy  : {metrics['accuracy']:.4f}") 
+        print(f"Accuracy  : {metrics['pr_curve']:.4f}")
 
         print(
             f"TP: {metrics['tp']} | FP: {metrics['fp']} | "
