@@ -229,6 +229,7 @@ def impute_span(
         series_tensor[:seq_len].unsqueeze(0)
     )
     input_ids = input_ids.to(device)
+    print("input_ids", input_ids)
     attention_mask = attention_mask.to(device)
     scale = scale.to(device)
 
