@@ -382,7 +382,7 @@ def main(
                             num_samples=num_samples,
                             temperature=1.0
                         )
-
+                        all_labels.append(series)
                         all_imputed_values.append(imputed_values)
                         all_masks_imputation.append(mask_positions_imputation)
 
