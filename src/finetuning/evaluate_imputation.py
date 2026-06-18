@@ -21,7 +21,7 @@ import typer
 import yaml
 from gluonts.itertools import batcher
 from tqdm.auto import tqdm
-from utils import load_val_data
+from src.utils import load_val_data
 
 #ColabImport
 ROOT = "/content/CodeDiplomaThesis"
