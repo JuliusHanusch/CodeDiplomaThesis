@@ -2,7 +2,7 @@ import shutil
 import ast
 from pathlib import Path
 
-BASE_DIR = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/MSL")  # adjust if needed
+BASE_DIR = Path("/content/CodeDiplomaThesis/data/finetuning/MSL")  # adjust if needed
 TEST_DIR = BASE_DIR / "test"
 LABEL_DIR = BASE_DIR / "test_labels"
 BACKUP_DIR = BASE_DIR / "backup"
