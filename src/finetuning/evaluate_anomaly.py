@@ -186,10 +186,12 @@ def evaluate_dataset_no_windowing(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                 )
-
+                print("Begin Eval")
                 print(type(outputs))
                 print(outputs.keys())
                 print(outputs["logits"].mean(), outputs["logits"].std())
+                print("End Eval")
+
 
 
                 logits = outputs["logits"].squeeze(0)
