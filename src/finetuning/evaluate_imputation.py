@@ -21,11 +21,11 @@ import typer
 import yaml
 from gluonts.itertools import batcher
 from tqdm.auto import tqdm
-from src.utils import load_val_data
 
 #ColabImport
 ROOT = "/content/CodeDiplomaThesis"
 sys.path.append(str(Path(ROOT).resolve()))
+from src.utils import load_val_data
 from chronos_pkg.src.chronos import ChronosConfig
 from chronos_pkg.src.chronos import ChronosPipeline
 from chronos_pkg.src.chronos.chronos_bolt import ChronosBoltModelForForecasting, ChronosBoltConfig
