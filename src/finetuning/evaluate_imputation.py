@@ -182,7 +182,7 @@ def impute_span(
     tokenizer,
     context_length: int,
     mask_ratio: float = 0.15,
-    mean_span_length: int = 3,
+    mean_span_length: float = 3.0,
     num_samples: int = 10,
     temperature: float = 1.0,
 ):
@@ -311,7 +311,7 @@ def main(
     torch_dtype: str = "float32",
     batch_size: int = 32,
     num_samples: int = 20,
-    mean_span_length: int = 3,
+    mean_span_length: float = 3.0,
     mask_ratio: int = 0.15,
     temperature: Optional[float] = None,
     top_k: Optional[int] = None,
