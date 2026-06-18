@@ -153,6 +153,7 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
             series_scale = np.nanmean(np.abs(labels_array[i, token_mask]))
             print("series_scale", series_scale)
             abs_error_naive[i, fallback_tokens] = max(0.1 * series_scale, 1)
+            print("abs_error_naive", abs_error_naive)
             error_naive[i, fallback_tokens] = abs_error_naive[i, fallback_tokens]
 
         # MAE & RMSE
