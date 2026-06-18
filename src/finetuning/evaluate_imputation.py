@@ -184,7 +184,7 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
             # NEW
             "fallback_positions": np.where(fallback_tokens)[0].tolist() if np.any(fallback_tokens) else None,
             "masked_positions": np.where(mask_array[i])[0].tolist(),
-            "naive_preds": np.where(naive_preds[i])[0].tolist(),
+            "naive_preds_masked": naive_preds[i, mask_array[i]].tolist(),
             "labels_series": labels_array[i].tolist()
             }        
         #print(series_row)
