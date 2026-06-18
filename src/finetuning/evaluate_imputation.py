@@ -151,7 +151,7 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
         fallback_tokens = fallback_flag[i] & token_mask
         if np.any(fallback_tokens):
             series_scale = np.nanmean(np.abs(labels_array[i, token_mask]))
-            abs_error_naive[i, fallback_tokens] = max(series_scale, 1)
+            abs_error_naive[i, fallback_tokens] = max(0.1 * series_scale, 1)
             error_naive[i, fallback_tokens] = abs_error_naive[i, fallback_tokens]
 
         # MAE & RMSE
