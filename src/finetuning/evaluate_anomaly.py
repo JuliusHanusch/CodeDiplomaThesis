@@ -190,12 +190,16 @@ def evaluate_dataset_no_windowing(
                 print(type(outputs))
                 print(outputs.keys())
                 print(outputs["logits"].mean(), outputs["logits"].std())
-                print("End Eval")
+                print(outputs["logits"])
 
 
 
                 logits = outputs["logits"].squeeze(0)
                 probs = torch.sigmoid(logits).cpu().numpy()
+                print(probs.mean())
+                print(probs)
+                print("End Eval")
+
 
                 length = end - start
 
