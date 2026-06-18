@@ -247,9 +247,8 @@ def impute_span(
     special_tokens_mask = input_ids < special_token_cutoff
     valid_positions = ~special_tokens_mask
     n_tokens = valid_positions.sum().item()
-    n_to_mask = max(1, int(mask_ratio * n_tokens))
+    n_to_mask = int(mask_ratio * n_tokens)
 
-    print("n_to_mask", n_to_mask)
 
     # --- create boolean mask for spans ---
     mask = torch.zeros_like(input_ids, dtype=torch.bool, device=device)
@@ -275,7 +274,7 @@ def impute_span(
         mask[0, start_idx:end_idx] = True
         total_masked += span_len
     
-    print("total_masked", total_masked)
+    print("n_to_mask", n_to_mask, "total_masked", total_masked)
 
 
     # Ensure no special tokens are masked
