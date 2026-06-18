@@ -37,9 +37,9 @@ class ChronosModelForAnomalyDetection(ChronosModel):
             output_hidden_states=True,
             return_dict=True,
         )
-        print(type(outputs))
-        print(outputs.keys())
-        print(outputs["logits"].mean(), outputs["logits"].std())
+        # print(type(outputs))
+        # print(outputs.keys())
+        # print(outputs["logits"].mean(), outputs["logits"].std())
 
         hidden = outputs.hidden_states[-1]  # (B, T, H)
         hidden = self.dropout(hidden)
@@ -57,6 +57,16 @@ class ChronosModelForAnomalyDetection(ChronosModel):
             # 🔥 DEBUG BLOCK (THIS IS WHAT YOU ASKED FOR)
             # --------------------------------------------------
             with torch.no_grad():
+                print("\n[ANOMALY SIGNAL DEBUG] ---------------------")
+                print("logits mean:", logits.mean().item())
+                print("logits std :", logits.std().item())
+                print("logits min :", logits.min().item())
+                print("logits max :", logits.max().item())
+
+                print("probs mean :", probs.mean().item())
+                print("probs std  :", probs.std().item())
+                print("probs min  :", probs.min().item())
+                print("probs max  :", probs.max().item())
 
                 mask = attention_mask.bool()
 
