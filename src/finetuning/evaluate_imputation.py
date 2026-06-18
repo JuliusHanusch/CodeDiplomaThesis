@@ -151,7 +151,7 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
         fallback_tokens = fallback_flag[i] & token_mask
         if np.any(fallback_tokens):
             series_scale = np.nanmean(np.abs(labels_array[i, token_mask]))
-            abs_error_naive[i, fallback_tokens] = max(0.01 * series_scale, 1)
+            abs_error_naive[i, fallback_tokens] = max(series_scale, 1)
             error_naive[i, fallback_tokens] = abs_error_naive[i, fallback_tokens]
 
         # MAE & RMSE
@@ -184,6 +184,7 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
             # NEW
             "fallback_positions": np.where(fallback_tokens)[0].tolist() if np.any(fallback_tokens) else None,
             "masked_positions": np.where(mask_array[i])[0].tolist(),
+            "naive_preds": np.where(naive_preds[i])[0].tolist(),
             "labels_series": labels_array[i].tolist()
             }        
         #print(series_row)
@@ -242,18 +243,12 @@ def impute_span(
 
     special_token_cutoff = tokenizer.config.n_special_tokens
     #print("special_token_cutoff", special_token_cutoff)
-    vocab_size = tokenizer.config.n_tokens
 
     # --- identify valid (non-special) positions ---
     special_tokens_mask = input_ids < special_token_cutoff
-    #print("special_tokens_mask", special_tokens_mask)
     valid_positions = ~special_tokens_mask
-    #print("valid_positions", valid_positions)
     n_tokens = valid_positions.sum().detach().cpu().item()
-    #print("n_tokens", n_tokens)
     n_to_mask = int(mask_ratio * n_tokens)
-    #print("mask_ratio", mask_ratio)
-    #print("n_to_mask",n_to_mask)
 
 
     # --- create boolean mask for spans ---
