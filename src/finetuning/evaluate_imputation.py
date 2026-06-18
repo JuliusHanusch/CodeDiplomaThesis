@@ -182,7 +182,7 @@ def impute_span(
     tokenizer,
     context_length: int,
     mask_ratio: float = 0.15,
-    mean_span_length: int = 3.0,
+    mean_span_length: int = 3,
     num_samples: int = 10,
     temperature: float = 1.0,
 ):
