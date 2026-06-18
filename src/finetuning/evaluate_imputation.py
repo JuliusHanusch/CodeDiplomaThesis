@@ -152,7 +152,7 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
         if np.any(fallback_tokens):
             series_scale = np.nanmean(np.abs(labels_array[i, token_mask]))
             print("series_scale", series_scale)
-            abs_error_naive[i, fallback_tokens] = max(0.1 * series_scale, 1)
+            abs_error_naive[i, fallback_tokens] = max(0.5 * series_scale, 1)
             print("abs_error_naive", abs_error_naive)
             error_naive[i, fallback_tokens] = abs_error_naive[i, fallback_tokens]
 
@@ -187,6 +187,7 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
             "fallback_positions": np.where(fallback_tokens)[0].tolist() if np.any(fallback_tokens) else None,
             "masked_positions": np.where(mask_array[i])[0].tolist(),
             "naive_preds_masked": naive_preds[i, mask_array[i]].tolist(),
+            "abs_error_naive_masked": abs_error_naive[i, mask_array[i]].tolist(),
             "labels_series": labels_array[i].tolist()
             }        
         #print(series_row)
