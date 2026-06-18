@@ -412,7 +412,10 @@ if __name__ == "__main__":
         print(f"Recall    : {metrics['recall']:.4f}")
         print(f"F1        : {metrics['f1']:.4f}")
         print(f"Accuracy  : {metrics['accuracy']:.4f}") 
-        print(f"Accuracy  : {metrics['pr_curve']:.4f}")
+        print("PR curve stored (precision, recall, thresholds)")
+        print(f"Precision points: {len(metrics['pr_curve'][0])}")
+        print(f"Recall points   : {len(metrics['pr_curve'][1])}")
+        print(f"Thresholds      : {len(metrics['pr_curve'][2])}")
 
         print(
             f"TP: {metrics['tp']} | FP: {metrics['fp']} | "
