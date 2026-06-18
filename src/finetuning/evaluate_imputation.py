@@ -190,7 +190,7 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
         series_rows.append(series_row)
 
         df = pd.DataFrame(series_rows)
-        display(df)
+        df.to_csv("evaluation_results.csv", index=False)
     
     mae_scaled_mean = float(np.mean(mae_scaled_series)) if mae_scaled_series else np.nan
     rmse_scaled_mean = float(np.mean(rmse_scaled_series)) if rmse_scaled_series else np.nan
