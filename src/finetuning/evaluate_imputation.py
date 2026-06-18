@@ -170,7 +170,7 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
         mae_scaled_series.append(mae_scaled)
         rmse_scaled_series.append(rmse_scaled)
 
-        series_rows.append({
+        series_row = {
             "series_index": i,
             "mae_model": mae_model,
             "mae_naive": mae_naive,
@@ -185,9 +185,9 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
             "fallback_positions": np.where(fallback_tokens)[0].tolist() if np.any(fallback_tokens) else None,
             "masked_positions": np.where(mask_array[i])[0].tolist(),
             "labels_series": labels_array[i].tolist()
-            })
-        
-    print(series_rows)
+            }        
+        print(series_row)
+        series_rows.append(series_row)
     
     mae_scaled_mean = float(np.mean(mae_scaled_series)) if mae_scaled_series else np.nan
     rmse_scaled_mean = float(np.mean(rmse_scaled_series)) if rmse_scaled_series else np.nan
