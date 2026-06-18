@@ -229,7 +229,6 @@ def impute_span(
         series_tensor[:seq_len].unsqueeze(0)
     )
     input_ids = input_ids.to(device)
-    print("input_ids", input_ids)
     attention_mask = attention_mask.to(device)
     scale = scale.to(device)
 
@@ -242,10 +241,12 @@ def impute_span(
         )
 
     special_token_cutoff = tokenizer.config.n_special_tokens
+    print("special_token_cutoff", special_token_cutoff)
     vocab_size = tokenizer.config.n_tokens
 
     # --- identify valid (non-special) positions ---
     special_tokens_mask = input_ids < special_token_cutoff
+    print("special_tokens_mask", special_tokens_mask)
     valid_positions = ~special_tokens_mask
     n_tokens = valid_positions.sum().item()
     n_to_mask = int(mask_ratio * n_tokens)
