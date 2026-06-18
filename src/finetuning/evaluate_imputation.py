@@ -186,8 +186,11 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
             "masked_positions": np.where(mask_array[i])[0].tolist(),
             "labels_series": labels_array[i].tolist()
             }        
-        print(series_row)
+        #print(series_row)
         series_rows.append(series_row)
+
+        df = pd.DataFrame(series_rows)
+        display(df)
     
     mae_scaled_mean = float(np.mean(mae_scaled_series)) if mae_scaled_series else np.nan
     rmse_scaled_mean = float(np.mean(rmse_scaled_series)) if rmse_scaled_series else np.nan
