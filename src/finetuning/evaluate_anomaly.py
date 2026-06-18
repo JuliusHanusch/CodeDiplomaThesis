@@ -142,18 +142,21 @@ def evaluate_dataset_no_windowing(
     dataset_name,
     tokenizer,
     max_length: int = 512,
-    threshold: float = 0.3,
+    threshold: float = 0.5,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
 ):
+
+    import numpy as np
+    import torch
 
     model.eval()
     model.to(device)
 
     series_list, label_list = load_dataset(dataset_dir, dataset_name)
 
-
     all_preds = []
     all_labels = []
+    all_scores = []
 
     with torch.no_grad():
 
@@ -166,10 +169,8 @@ def evaluate_dataset_no_windowing(
                 raise ValueError(f"Mismatch: {len(series)} vs {len(labels)}")
 
             preds_full = np.zeros(len(series))
+            scores_full = np.zeros(len(series))
 
-            # --------------------------------------------------
-            # NO OVERLAP WINDOWING (PURE CHUNKING)
-            # --------------------------------------------------
             for start in range(0, len(series), max_length):
 
                 end = min(start + max_length, len(series))
@@ -189,18 +190,19 @@ def evaluate_dataset_no_windowing(
                 logits = outputs["logits"].squeeze(0)
                 probs = torch.sigmoid(logits).cpu().numpy()
 
-                preds = (probs >= threshold)
+                length = end - start
 
-                # align directly (NO overlap voting)
-                preds_full[start:end] = preds[: end - start]
+                scores_full[start:end] = probs[:length]
+                preds_full[start:end] = (probs[:length] >= threshold)
 
+            all_scores.append(scores_full)
             all_preds.append(preds_full)
             all_labels.append(labels)
-    
 
     # --------------------------------------------------
-    # FLATTEN
+    # FLATTEN (CORRECT ORDER)
     # --------------------------------------------------
+    all_scores = np.concatenate(all_scores)
     all_preds = np.concatenate(all_preds)
     all_labels = np.concatenate(all_labels)
 
@@ -217,6 +219,13 @@ def evaluate_dataset_no_windowing(
     f1 = 2 * precision * recall / (precision + recall + 1e-8)
     accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-8)
 
+    # --------------------------------------------------
+    # OPTIONAL: threshold sweep (VERY IMPORTANT)
+    # --------------------------------------------------
+    from sklearn.metrics import precision_recall_curve
+
+    p, r, t = precision_recall_curve(all_labels, all_scores)
+
     return {
         "precision": precision,
         "recall": recall,
@@ -226,6 +235,7 @@ def evaluate_dataset_no_windowing(
         "fp": fp,
         "fn": fn,
         "tn": tn,
+        "pr_curve": (p, r, t),
     }
 
 def evaluate_dataset(
