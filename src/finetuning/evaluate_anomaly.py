@@ -18,10 +18,7 @@ ROOT = "/content/CodeDiplomaThesis"
 sys.path.append(str(Path(ROOT).resolve()))
 
 from chronos_pkg.src.chronos import ChronosPipeline
-from sklearn.metrics import (
-    precision_recall_fscore_support,
-    roc_auc_score
-)
+from sklearn.metrics import precision_recall_curve
 
 
 def point_adjust(pred, gt):
@@ -145,7 +142,7 @@ def evaluate_dataset_no_windowing(
     dataset_name,
     tokenizer,
     max_length: int = 512,
-    threshold: float = 0.5,
+    threshold: float = 0.3,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
 ):
 
@@ -153,6 +150,7 @@ def evaluate_dataset_no_windowing(
     model.to(device)
 
     series_list, label_list = load_dataset(dataset_dir, dataset_name)
+
 
     all_preds = []
     all_labels = []
@@ -198,6 +196,9 @@ def evaluate_dataset_no_windowing(
 
             all_preds.append(preds_full)
             all_labels.append(labels)
+    
+    precision, recall, thresholds = precision_recall_curve(label_list, all_preds)
+
 
     # --------------------------------------------------
     # FLATTEN
