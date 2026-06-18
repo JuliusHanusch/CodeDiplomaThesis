@@ -248,7 +248,9 @@ def impute_span(
     special_tokens_mask = input_ids < special_token_cutoff
     print("special_tokens_mask", special_tokens_mask)
     valid_positions = ~special_tokens_mask
+    print("valid_positions", valid_positions)
     n_tokens = valid_positions.sum().item()
+    print("n_tokens", n_tokens)
     n_to_mask = int(mask_ratio * n_tokens)
 
 
