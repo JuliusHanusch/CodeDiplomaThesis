@@ -142,7 +142,7 @@ def evaluate_dataset_no_windowing(
     dataset_name,
     tokenizer,
     max_length: int = 512,
-    threshold: float = 0.99,
+    threshold: float = 0.2,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
 ):
 
@@ -346,7 +346,7 @@ def evaluate_dataset(
 if __name__ == "__main__":
 
     model_path = (
-        "/content/CodeDiplomaThesis/FineTunedModels/Anomaly/run-1/checkpoint-final"
+        "/content/CodeDiplomaThesis/FineTunedModels/Anomaly/run-3/checkpoint-final"
     )
 
     print("Model PATH:", model_path)
