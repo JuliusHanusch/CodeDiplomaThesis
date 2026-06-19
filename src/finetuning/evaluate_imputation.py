@@ -335,7 +335,7 @@ def impute_span_bolt():
 @app.command()
 def main(
     config_path: Path,
-    chronos_model_id: str = "/content/CodeDiplomaThesis/FineTunedModels/Imputation/run-2/checkpoint-final",
+    chronos_model_id: str = "/content/CodeDiplomaThesis/FineTunedModels/Imputation/run-0/checkpoint-final",
     device: str = "cuda",
     torch_dtype: str = "float32",
     batch_size: int = 32,
@@ -452,7 +452,7 @@ def main(
                 })
 
     results_df = pd.DataFrame(metrics)
-    csv_path = Path("/content/CodeDiplomaThesis/Results/Finetuning/Imputation/MSL_64_030_results.csv")
+    csv_path = Path("/content/CodeDiplomaThesis/Results/Finetuning/Imputation/MSL_5_015_results.csv")
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     results_df.to_csv(csv_path, index=False)
 
