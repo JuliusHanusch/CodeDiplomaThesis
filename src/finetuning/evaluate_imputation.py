@@ -335,7 +335,7 @@ def impute_span_bolt():
 @app.command()
 def main(
     config_path: Path,
-    chronos_model_id: str = "/content/CodeDiplomaThesis/FineTunedModels/Imputation/run-0/checkpoint-final",
+    chronos_model_id: str = "/content/CodeDiplomaThesis/FineTunedModels/Imputation/run-1/checkpoint-final",
     device: str = "cuda",
     torch_dtype: str = "float32",
     batch_size: int = 32,
