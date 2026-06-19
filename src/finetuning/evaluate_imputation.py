@@ -66,139 +66,186 @@ def load_chronos_bert_bolt(model_path: str, device: str, torch_dtype: torch.dtyp
     return model, tokenizer, context_length
 
 
-def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_path: Path = None):
-    n_series, seq_len = labels_array.shape
-
+def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array):
     # Probabilistic predictions -> median
     if preds_array.ndim == 3:
         preds_median = np.median(preds_array, axis=1)
     else:
         preds_median = preds_array
 
-    # Naive baseline
-    naive_preds = np.full_like(labels_array, np.nan, dtype=np.float32)
-    fallback_flag = np.zeros_like(labels_array, dtype=bool)
-
-    for i in tqdm(range(n_series), desc="Series"):
-        for t in range(seq_len):
-
-            if not mask_array[i, t]:
-                continue
-
-            prev_val = np.nan
-            next_val = np.nan
-
-            # search up to 10 tokens to the left
-            for k in range(1, 11):
-                pos = t - k
-                if pos < 0:
-                    break
-
-                if (
-                    not np.isnan(labels_array[i, pos])
-                    and not mask_array[i, pos]   # cannot use masked targets
-                ):
-                    prev_val = labels_array[i, pos]
-                    break
-
-            # search up to 10 tokens to the right
-            for k in range(1, 11):
-                pos = t + k
-                if pos >= seq_len:
-                    break
-
-                if (
-                    not np.isnan(labels_array[i, pos])
-                    and not mask_array[i, pos]   # cannot use masked targets
-                ):
-                    next_val = labels_array[i, pos]
-                    break
-
-
-            prev_valid = not np.isnan(prev_val)
-            next_valid = not np.isnan(next_val)
-
-            if prev_valid and next_valid:
-                naive_preds[i, t] = 0.5 * (prev_val + next_val)
-            elif prev_valid:
-                naive_preds[i, t] = prev_val
-            elif next_valid:
-                naive_preds[i, t] = next_val
-            else:
-                # No valid tokens within ±10 positions
-                naive_preds[i, t] = np.nan
-                fallback_flag[i, t] = True
-
     valid_mask = mask_array & ~np.isnan(labels_array)
 
     error_model = preds_median - labels_array
-    error_naive = naive_preds - labels_array
     abs_error_model = np.abs(error_model)
-    abs_error_naive = np.abs(error_naive)
 
-    series_rows = []
     mae_scaled_series = []
     rmse_scaled_series = []
 
-    # Compute series-level metrics
-    for i in tqdm(range(n_series), desc="Series"):
+    for i in tqdm(range(labels_array.shape[0]), desc="Series"):
         token_mask = valid_mask[i]
 
         if not np.any(token_mask):
             continue
 
-        # Apply fallback for tokens with missing neighbors
-        fallback_tokens = fallback_flag[i] & token_mask
-        if np.any(fallback_tokens):
-            series_scale = np.nanmean(np.abs(labels_array[i, token_mask]))
-            abs_error_naive[i, fallback_tokens] = max(series_scale, 1)
-            error_naive[i, fallback_tokens] = abs_error_naive[i, fallback_tokens]
+        # Series scale based on ground truth values
+        series_scale = np.nanmean(np.abs(labels_array[i, token_mask]))
 
-        # MAE & RMSE
+        # Prevent division by zero
+        series_scale = max(series_scale, 1.0)
+
         mae_model = np.mean(abs_error_model[i, token_mask])
-        mae_naive = np.mean(abs_error_naive[i, token_mask])
-        rmse_model = np.sqrt(np.mean(error_model[i, token_mask]**2))
-        rmse_naive = np.sqrt(np.mean(error_naive[i, token_mask]**2))
+        rmse_model = np.sqrt(np.mean(error_model[i, token_mask] ** 2))
 
-        # Safe floor if naive metrics too small
-        mae_naive = max(mae_naive, 1)
-        rmse_naive = max(rmse_naive, 1)
+        mae_scaled_series.append(mae_model / series_scale)
+        rmse_scaled_series.append(rmse_model / series_scale)
 
-        mae_scaled = mae_model / mae_naive
-        rmse_scaled = rmse_model / rmse_naive
+    mae_scaled_mean = (
+        float(np.mean(mae_scaled_series))
+        if mae_scaled_series
+        else np.nan
+    )
 
-        mae_scaled_series.append(mae_scaled)
-        rmse_scaled_series.append(rmse_scaled)
-
-        # series_row = {
-        #     "series_index": i,
-        #     "mae_model": mae_model,
-        #     "mae_naive": mae_naive,
-        #     "mae_scaled": mae_scaled,
-        #     "rmse_model": rmse_model,
-        #     "rmse_naive": rmse_naive,
-        #     "rmse_scaled": rmse_scaled,
-        #     "n_tokens_used": int(np.sum(token_mask)),
-        #     "fallback_used": np.any(fallback_tokens),
-
-        #     # NEW
-        #     "fallback_positions": np.where(fallback_tokens)[0].tolist() if np.any(fallback_tokens) else None,
-        #     "masked_positions": np.where(mask_array[i])[0].tolist(),
-        #     "naive_preds_masked": naive_preds[i, mask_array[i]].tolist(),
-        #     "abs_error_naive_masked": abs_error_naive[i, mask_array[i]].tolist(),
-        #     "labels_series": labels_array[i].tolist()
-        #     }        
-        #print(series_row)
-        #series_rows.append(series_row)
-
-    #df = pd.DataFrame(series_rows)
-    #df.to_csv("evaluation_results.csv", index=False)
-    
-    mae_scaled_mean = float(np.mean(mae_scaled_series)) if mae_scaled_series else np.nan
-    rmse_scaled_mean = float(np.mean(rmse_scaled_series)) if rmse_scaled_series else np.nan
-
+    rmse_scaled_mean = (
+        float(np.mean(rmse_scaled_series))
+        if rmse_scaled_series
+        else np.nan
+    )
 
     return mae_scaled_mean, rmse_scaled_mean
+
+# def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_path: Path = None):
+#     n_series, seq_len = labels_array.shape
+
+#     # Probabilistic predictions -> median
+#     if preds_array.ndim == 3:
+#         preds_median = np.median(preds_array, axis=1)
+#     else:
+#         preds_median = preds_array
+
+#     # Naive baseline
+#     naive_preds = np.full_like(labels_array, np.nan, dtype=np.float32)
+#     fallback_flag = np.zeros_like(labels_array, dtype=bool)
+
+#     for i in tqdm(range(n_series), desc="Series"):
+#         for t in range(seq_len):
+
+#             if not mask_array[i, t]:
+#                 continue
+
+#             prev_val = np.nan
+#             next_val = np.nan
+
+#             # search up to 10 tokens to the left
+#             for k in range(1, 11):
+#                 pos = t - k
+#                 if pos < 0:
+#                     break
+
+#                 if (
+#                     not np.isnan(labels_array[i, pos])
+#                     and not mask_array[i, pos]   # cannot use masked targets
+#                 ):
+#                     prev_val = labels_array[i, pos]
+#                     break
+
+#             # search up to 10 tokens to the right
+#             for k in range(1, 11):
+#                 pos = t + k
+#                 if pos >= seq_len:
+#                     break
+
+#                 if (
+#                     not np.isnan(labels_array[i, pos])
+#                     and not mask_array[i, pos]   # cannot use masked targets
+#                 ):
+#                     next_val = labels_array[i, pos]
+#                     break
+
+
+#             prev_valid = not np.isnan(prev_val)
+#             next_valid = not np.isnan(next_val)
+
+#             if prev_valid and next_valid:
+#                 naive_preds[i, t] = 0.5 * (prev_val + next_val)
+#             elif prev_valid:
+#                 naive_preds[i, t] = prev_val
+#             elif next_valid:
+#                 naive_preds[i, t] = next_val
+#             else:
+#                 # No valid tokens within ±10 positions
+#                 naive_preds[i, t] = np.nan
+#                 fallback_flag[i, t] = True
+
+#     valid_mask = mask_array & ~np.isnan(labels_array)
+
+#     error_model = preds_median - labels_array
+#     error_naive = naive_preds - labels_array
+#     abs_error_model = np.abs(error_model)
+#     abs_error_naive = np.abs(error_naive)
+
+#     series_rows = []
+#     mae_scaled_series = []
+#     rmse_scaled_series = []
+
+#     # Compute series-level metrics
+#     for i in tqdm(range(n_series), desc="Series"):
+#         token_mask = valid_mask[i]
+
+#         if not np.any(token_mask):
+#             continue
+
+#         # Apply fallback for tokens with missing neighbors
+#         fallback_tokens = fallback_flag[i] & token_mask
+#         if np.any(fallback_tokens):
+#             series_scale = np.nanmean(np.abs(labels_array[i, token_mask]))
+#             abs_error_naive[i, fallback_tokens] = max(series_scale, 1)
+#             error_naive[i, fallback_tokens] = abs_error_naive[i, fallback_tokens]
+
+#         # MAE & RMSE
+#         mae_model = np.mean(abs_error_model[i, token_mask])
+#         mae_naive = np.mean(abs_error_naive[i, token_mask])
+#         rmse_model = np.sqrt(np.mean(error_model[i, token_mask]**2))
+#         rmse_naive = np.sqrt(np.mean(error_naive[i, token_mask]**2))
+
+#         # Safe floor if naive metrics too small
+#         mae_naive = max(mae_naive, 1)
+#         rmse_naive = max(rmse_naive, 1)
+
+#         mae_scaled = mae_model / mae_naive
+#         rmse_scaled = rmse_model / rmse_naive
+
+#         mae_scaled_series.append(mae_scaled)
+#         rmse_scaled_series.append(rmse_scaled)
+
+#         # series_row = {
+#         #     "series_index": i,
+#         #     "mae_model": mae_model,
+#         #     "mae_naive": mae_naive,
+#         #     "mae_scaled": mae_scaled,
+#         #     "rmse_model": rmse_model,
+#         #     "rmse_naive": rmse_naive,
+#         #     "rmse_scaled": rmse_scaled,
+#         #     "n_tokens_used": int(np.sum(token_mask)),
+#         #     "fallback_used": np.any(fallback_tokens),
+
+#         #     # NEW
+#         #     "fallback_positions": np.where(fallback_tokens)[0].tolist() if np.any(fallback_tokens) else None,
+#         #     "masked_positions": np.where(mask_array[i])[0].tolist(),
+#         #     "naive_preds_masked": naive_preds[i, mask_array[i]].tolist(),
+#         #     "abs_error_naive_masked": abs_error_naive[i, mask_array[i]].tolist(),
+#         #     "labels_series": labels_array[i].tolist()
+#         #     }        
+#         #print(series_row)
+#         #series_rows.append(series_row)
+
+#     #df = pd.DataFrame(series_rows)
+#     #df.to_csv("evaluation_results.csv", index=False)
+    
+#     mae_scaled_mean = float(np.mean(mae_scaled_series)) if mae_scaled_series else np.nan
+#     rmse_scaled_mean = float(np.mean(rmse_scaled_series)) if rmse_scaled_series else np.nan
+
+
+#     return mae_scaled_mean, rmse_scaled_mean
 
 
 def impute_span(
@@ -335,7 +382,8 @@ def impute_span_bolt():
 @app.command()
 def main(
     config_path: Path,
-    chronos_model_id: str = "/content/CodeDiplomaThesis/FineTunedModels/Imputation/run-1/checkpoint-final",
+    chronos_model_id: str ="juliushanusch/ChronosBERT-Optimized",
+    #chronos_model_id: str = "/content/CodeDiplomaThesis/FineTunedModels/Imputation/run-1/checkpoint-final",
     device: str = "cuda",
     torch_dtype: str = "float32",
     batch_size: int = 32,
