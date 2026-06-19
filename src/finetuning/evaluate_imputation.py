@@ -113,7 +113,7 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array):
 
     return mae_scaled_mean, rmse_scaled_mean
 
-# def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_path: Path = None):
+# def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array):
 #     n_series, seq_len = labels_array.shape
 
 #     # Probabilistic predictions -> median
@@ -479,7 +479,6 @@ def main(
                 labels_array=labels_array,
                 preds_array=preds_array_imputation,
                 mask_array=mask_array_imputation,
-                csv_path = Path("./metrics") / f"{dataset_name}_imputation_series.csv"
                 )
 
             dataset_metrics = pd.DataFrame([{
