@@ -335,13 +335,13 @@ def impute_span_bolt():
 @app.command()
 def main(
     config_path: Path,
-    chronos_model_id: str = "juliushanusch/ChronosBERT-Optimized",
+    chronos_model_id: str = "/content/CodeDiplomaThesis/FineTunedModels/Imputation/run-2/checkpoint-final",
     device: str = "cuda",
     torch_dtype: str = "float32",
     batch_size: int = 32,
     num_samples: int = 20,
-    mean_span_length: int = 64.0,
-    mask_ratio: float = 0.3,
+    mean_span_length: int = 10.0,
+    mask_ratio: float = 0.15,
     temperature: Optional[float] = None,
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
