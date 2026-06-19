@@ -452,7 +452,7 @@ def main(
                 })
 
     results_df = pd.DataFrame(metrics)
-    csv_path = Path("/content/CodeDiplomaThesis/Results/Finetuning/Imputation/MSL_48_015_results.csv")
+    csv_path = Path("/content/CodeDiplomaThesis/Results/Finetuning/Imputation/MSL_32_030_results.csv")
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     results_df.to_csv(csv_path, index=False)
 
