@@ -32,9 +32,9 @@ mask_token_id: 3
 use_eos_token: true
 task: mlm
 
-span_masking: True,
+span_masking: true
 mean_span_length: 10
-masking_prob: 0.15,
+masking_prob: 0.15
 
 
 # ============================
