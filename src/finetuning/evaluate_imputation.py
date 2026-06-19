@@ -170,29 +170,29 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
         mae_scaled_series.append(mae_scaled)
         rmse_scaled_series.append(rmse_scaled)
 
-        series_row = {
-            "series_index": i,
-            "mae_model": mae_model,
-            "mae_naive": mae_naive,
-            "mae_scaled": mae_scaled,
-            "rmse_model": rmse_model,
-            "rmse_naive": rmse_naive,
-            "rmse_scaled": rmse_scaled,
-            "n_tokens_used": int(np.sum(token_mask)),
-            "fallback_used": np.any(fallback_tokens),
+        # series_row = {
+        #     "series_index": i,
+        #     "mae_model": mae_model,
+        #     "mae_naive": mae_naive,
+        #     "mae_scaled": mae_scaled,
+        #     "rmse_model": rmse_model,
+        #     "rmse_naive": rmse_naive,
+        #     "rmse_scaled": rmse_scaled,
+        #     "n_tokens_used": int(np.sum(token_mask)),
+        #     "fallback_used": np.any(fallback_tokens),
 
-            # NEW
-            "fallback_positions": np.where(fallback_tokens)[0].tolist() if np.any(fallback_tokens) else None,
-            "masked_positions": np.where(mask_array[i])[0].tolist(),
-            "naive_preds_masked": naive_preds[i, mask_array[i]].tolist(),
-            "abs_error_naive_masked": abs_error_naive[i, mask_array[i]].tolist(),
-            "labels_series": labels_array[i].tolist()
-            }        
+        #     # NEW
+        #     "fallback_positions": np.where(fallback_tokens)[0].tolist() if np.any(fallback_tokens) else None,
+        #     "masked_positions": np.where(mask_array[i])[0].tolist(),
+        #     "naive_preds_masked": naive_preds[i, mask_array[i]].tolist(),
+        #     "abs_error_naive_masked": abs_error_naive[i, mask_array[i]].tolist(),
+        #     "labels_series": labels_array[i].tolist()
+        #     }        
         #print(series_row)
-        series_rows.append(series_row)
+        #series_rows.append(series_row)
 
-        df = pd.DataFrame(series_rows)
-        #df.to_csv("evaluation_results.csv", index=False)
+    #df = pd.DataFrame(series_rows)
+    #df.to_csv("evaluation_results.csv", index=False)
     
     mae_scaled_mean = float(np.mean(mae_scaled_series)) if mae_scaled_series else np.nan
     rmse_scaled_mean = float(np.mean(rmse_scaled_series)) if rmse_scaled_series else np.nan
