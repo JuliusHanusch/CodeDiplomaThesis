@@ -497,10 +497,10 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
                 f"Target/label length mismatch: {target.shape} vs {label.shape}"
             )
 
-        return {
-            "target": target,
-            "label": label,   # (T,) float mask for BCEWithLogitsLoss
-        }
+            return {
+                "target": target,
+                "label": label,   # (T,) float mask for BCEWithLogitsLoss
+            }
         # FORECASTING / MLM PATH
         entry = {
             "start": entry["start"],
@@ -847,6 +847,7 @@ def main(
     num_labels: int = 6,
 
 
+
     #T5 Parameter, not available in BERT
     #d_model: int = 512,
     #dropout_rate: float = 0.1,
@@ -882,6 +883,9 @@ def main(
     output_dir = Path(output_dir)
     training_data_paths = ast.literal_eval(training_data_paths)
     assert isinstance(training_data_paths, list)
+
+    
+    print("task", task)
 
     if isinstance(probability, str):
         probability = ast.literal_eval(probability)
