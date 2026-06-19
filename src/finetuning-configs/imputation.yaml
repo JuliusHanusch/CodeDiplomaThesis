@@ -1,5 +1,7 @@
 training_data_paths:
-- "/content/CodeDiplomaThesis/data/finetuning/Imputation/electricity_15min.arrow"
+#- "/content/CodeDiplomaThesis/data/finetuning/Imputation/electricity_15min.arrow"
+- "/content/CodeDiplomaThesis/data/finetuning/Imputation/monash_electricity_weekly.arrow"
+
 
 probability:
 - 1.0
@@ -33,7 +35,7 @@ use_eos_token: true
 task: "mlm"
 
 span_masking: true
-mean_span_length: 10
+mean_span_length: 5
 masking_prob: 0.15
 
 
