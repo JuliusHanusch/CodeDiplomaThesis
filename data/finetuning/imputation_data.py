@@ -247,6 +247,7 @@ for cfg in CONFIGS:
 
 
     out_path = OUTPUT_DIR / f"{name}.arrow"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     convert_to_arrow(out_path, series)
 
