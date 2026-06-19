@@ -80,7 +80,6 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
     fallback_flag = np.zeros_like(labels_array, dtype=bool)
 
     for i in tqdm(range(n_series), desc="Series"):
-        print("n_series", i)
         for t in range(seq_len):
 
             if not mask_array[i, t]:
@@ -143,7 +142,6 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array, csv_p
 
     # Compute series-level metrics
     for i in tqdm(range(n_series), desc="Series"):
-        print("n_series", i)
         token_mask = valid_mask[i]
 
         if not np.any(token_mask):
