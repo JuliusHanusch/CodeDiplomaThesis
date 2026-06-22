@@ -29,6 +29,9 @@ def convert_example(ex, idx):
     if ts.ndim > 1:
         ts = ts.reshape(-1)
 
+    print("ts.ndim",ts.ndim)
+
+
     # final safety check (VERY IMPORTANT for GluonTS)
     assert ts.ndim == 1, f"Bad TSER shape: {ts.shape}"
 
