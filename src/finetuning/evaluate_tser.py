@@ -69,31 +69,33 @@ def evaluate_tser_dataset(
 
             input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
 
-            input_ids = input_ids.to(device)
-            attention_mask = attention_mask.to(device)
-
+            # IMPORTANT: add batch dim
+            input_ids = input_ids.unsqueeze(0).to(device)
+            attention_mask = attention_mask.unsqueeze(0).to(device)
 
             outputs = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
             )
+
             print("LOGITS SHAPE:", outputs["logits"].shape)
 
-            # regression output (B,)
-            pred = outputs["logits"]
-
-            # convert to scalar
-            #pred = float(pred.detach().cpu().numpy())
+            # -------------------------
+            # FIX: convert properly
+            # -------------------------
+            pred = outputs["logits"][0].detach().cpu().item()
 
             all_preds.append(pred)
             all_labels.append(label)
 
-    all_preds = np.array(all_preds)
-    all_labels = np.array(all_labels)
+    # -------------------------
+    # FINAL METRICS
+    # -------------------------
+    all_preds = np.array(all_preds, dtype=np.float32)
+    all_labels = np.array(all_labels, dtype=np.float32)
 
     rmse_score = rmse(all_preds, all_labels)
     mae_score = mae(all_preds, all_labels)
-
     return {
         "rmse": rmse_score,
         "mae": mae_score,
