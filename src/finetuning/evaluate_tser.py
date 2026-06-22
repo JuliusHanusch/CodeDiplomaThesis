@@ -31,8 +31,10 @@ def evaluate_tser_dataset(
     dataset_name,
     repo="foxy-steve/monash_uea_ucr_tser",
     context_length: int = 512,
-    device: str = "cuda" if torch.cuda.is_available() else "cpu",
 ):
+    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
 
     model.eval()
     model.to(device)
@@ -107,10 +109,14 @@ if __name__ == "__main__":
     )
 
     model = pipeline.model
-    tokenizer = pipeline.tokenizer
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model.to(device)
+    regressior_path = Path(model_path) / "tser.pt"
+
+    model.regressor.load_state_dict(
+        torch.load(regressior_path, map_location="cpu")
+    )
+
+    tokenizer = pipeline.tokenizer
 
     datasets = [
         "default",   # add more TSER configs here
