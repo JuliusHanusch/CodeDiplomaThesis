@@ -119,11 +119,13 @@ if __name__ == "__main__":
 
     model = pipeline.model
 
-    regressior_path = Path(model_path) / "tser.pt"
+    regressor = Path(model_path) / "tser.pt"
 
     model.regressor.load_state_dict(
-        torch.load(regressior_path, map_location="cpu")
+        torch.load(regressor, map_location="cpu")
     )
+
+    print(model.type())
 
     tokenizer = pipeline.tokenizer
 
