@@ -97,7 +97,7 @@ if __name__ == "__main__":
 
     model_path = "/content/CodeDiplomaThesis/FineTunedModels/classification/run-9/checkpoint-final/"
 
-    tsv_path = "/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TEST.tsv"
+    tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TEST.tsv"
 
     num_labels = 3
     batch_size = 32
