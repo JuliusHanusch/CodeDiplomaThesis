@@ -31,7 +31,7 @@ def convert_example(ex, idx):
         "target": ts,
         "item_id": str(ex.get("item_id", idx)),
         #"feat_static_cat": feat_static_cat,  # ✅ FIXED
-        "to_predict": float(ex["to_predict"]),
+        "label": float(ex["to_predict"]),
     }
 
 

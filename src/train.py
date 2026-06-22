@@ -524,15 +524,15 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
 
 
             target = np.asarray(entry["target"], dtype=self.np_dtype)
-            labels = float(entry["to_predict"])  
+            label = float(entry["to_predict"])  
 
             assert target.ndim == 1, f"Expected (T,), got {target.shape}"
             assert np.isfinite(target).all(), "NaN/Inf in target"
-            assert np.isfinite(labels).all(), "NaN/Inf in labels"
+            assert np.isfinite(label).all(), "NaN/Inf in labels"
 
             return {
                 "target": target,   # (T,)
-                "labels": labels,   # (1,)
+                "label": label,   # (1,)
             }
 
 
@@ -635,7 +635,6 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
     def _to_tser(self, entry: dict) -> dict:
 
         target = np.asarray(entry["target"], dtype=np.float32)
-        label = entry["labels"]
         context = torch.tensor(target[-self.context_length:]).unsqueeze(0)
 
         input_ids, attention_mask, _ = self.tokenizer.context_input_transform(context)
@@ -643,8 +642,8 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         return {
             "input_ids": input_ids.squeeze(0),          # (T')
             "attention_mask": attention_mask.squeeze(0), # (T')
-            "labels": label.squeeze(0),                  # (1,) regression target
-        }
+            "labels": entry["label"]  
+        }             
     
     def _to_anomaly(self, entry: dict) -> dict:
         target = np.asarray(entry["target"], dtype=np.float32)
