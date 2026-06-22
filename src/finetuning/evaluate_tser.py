@@ -3,6 +3,11 @@ import numpy as np
 import torch
 import pandas as pd
 from datasets import load_dataset
+import sys
+
+#colab import
+ROOT = "/content/CodeDiplomaThesis"
+sys.path.append(str(Path(ROOT).resolve()))
 
 from chronos_pkg.src.chronos import ChronosPipeline
 
