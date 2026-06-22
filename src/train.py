@@ -622,10 +622,9 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         
     
     def _to_classification(self, entry: dict) -> dict:
+        
         target = np.asarray(entry["target"], dtype=np.float32)
-
         context = torch.tensor(target[-self.context_length:]).unsqueeze(0)
-
         input_ids, attention_mask, _ = self.tokenizer.context_input_transform(context)
 
         return {
@@ -636,16 +635,9 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
     def _to_tser(self, entry: dict) -> dict:
 
         target = np.asarray(entry["target"], dtype=np.float32)
-        label = np.asarray(entry["to_predict"], dtype=np.float32)
-
+        label = entry["label"]
         context = torch.tensor(target[-self.context_length:]).unsqueeze(0)
 
-        # TSER has NO timestep labels → expand scalar
-        label = torch.tensor(label).float()
-
-        if label.ndim == 0:
-            label = label.unsqueeze(0)   # (1,)
-        label = label.unsqueeze(0)       # (1, 1) or (B=1, 1)
         input_ids, attention_mask, _ = self.tokenizer.context_input_transform(context)
 
         return {
