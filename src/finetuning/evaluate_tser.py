@@ -61,9 +61,6 @@ def evaluate_tser_dataset(
 
             context = torch.tensor(series[-context_length:], dtype=torch.float32)
 
-            # FIX: add batch dim
-            context = context.unsqueeze(0)
-
             input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
 
             print("input_ids shape:", input_ids.shape)  # debug
