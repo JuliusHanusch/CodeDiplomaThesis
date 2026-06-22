@@ -259,32 +259,32 @@ def load_model(
         if bolt:
             return config
         
-        if task == "classification":
-            from chronos_pkg.src.chronos.chronos_classification import ChronosModelForClassification
+        # if task == "classification":
+        #     from chronos_pkg.src.chronos.chronos_classification import ChronosModelForClassification
 
 
-            config = AutoConfig.from_pretrained(model_id)
-            base_model = AutoModelForMaskedLM.from_config(config)
+        #     config = AutoConfig.from_pretrained(model_id)
+        #     base_model = AutoModelForMaskedLM.from_config(config)
 
-            model = ChronosModelForClassification(
-                config=ChronosConfig(model_type="mlm"),
-                model=base_model,
-                num_labels=num_labels,
-            )
-        elif task == "anomaly":
-            from chronos_pkg.src.chronos.chronos_anomaly import ChronosModelForAnomalyDetection
+        #     model = ChronosModelForClassification(
+        #         config=ChronosConfig(model_type="mlm"),
+        #         model=base_model,
+        #         num_labels=num_labels,
+        #     )
+        # elif task == "anomaly":
+        #     from chronos_pkg.src.chronos.chronos_anomaly import ChronosModelForAnomalyDetection
        
-            model = ChronosModelForAnomalyDetection(
-                config=ChronosConfig(model_type="mlm"),
-                model=base_model,
-            )
-        elif task == "tser":
-            from chronos_pkg.src.chronos.chronos_tser import ChronosModelForTSER
+        #     model = ChronosModelForAnomalyDetection(
+        #         config=ChronosConfig(model_type="mlm"),
+        #         model=base_model,
+        #     )
+        # elif task == "tser":
+        #     from chronos_pkg.src.chronos.chronos_tser import ChronosModelForTSER
        
-            model = ChronosModelForTSER(
-                config=ChronosConfig(model_type="mlm"),
-                model=base_model,
-            )
+        #     model = ChronosModelForTSER(
+        #         config=ChronosConfig(model_type="mlm"),
+        #         model=base_model,
+        #     )
         else:
             model = AutoModelClass.from_config(config)
 
