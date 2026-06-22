@@ -343,6 +343,8 @@ def load_model(
     hf_config.mask_token_id = mask_token_id
     hf_config.bos_token_id = bos_token_id
 
+    print(model.type)
+
 
     return model
 
