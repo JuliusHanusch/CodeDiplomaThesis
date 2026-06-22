@@ -38,6 +38,11 @@ class ChronosModelForTSER(ChronosModel):
         attention_mask: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
     ):
+        
+        print("\n================ FORWARD PASS ================")
+        print("input_ids:", input_ids.shape)
+        print("attention_mask:", attention_mask.shape)
+
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -46,23 +51,35 @@ class ChronosModelForTSER(ChronosModel):
         )
 
         hidden_states = outputs.hidden_states[-1]  # (B, T, H)
+        print("hidden_states:", hidden_states.shape)
 
         if self.pooling == "mean":
             pooled = (
                 hidden_states * attention_mask.unsqueeze(-1)
             ).sum(dim=1) / attention_mask.sum(dim=1, keepdim=True).clamp(min=1e-8)
 
+            print("pooled:", pooled.shape)
+            print("pooled sample:", pooled[0, :5] if pooled.ndim == 2 else pooled[:5])
+
 
         else:
             raise ValueError(f"Unknown pooling: {self.pooling}")
 
         pooled = self.dropout(pooled)
+        print("after dropout:", pooled.shape)
         logits = self.regressor(pooled).squeeze(-1)  # (B,)
+        print("logits BEFORE squeeze:", self.regressor(pooled).shape)
+        print("logits AFTER squeeze:", logits.shape)
+
+        if logits.ndim > 1:
+            print("⚠️ WARNING: logits still 2D/3D -> unexpected behavior")
 
         loss = None
         if labels is not None:
             labels = labels.float()
             loss = self.criterion(logits, labels)
+
+        print("================ END FORWARD ================\n")
 
         return {
             "loss": loss,
