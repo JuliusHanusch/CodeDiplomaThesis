@@ -4,7 +4,10 @@ import torch
 from tqdm.auto import tqdm
 from sklearn.metrics import accuracy_score, f1_score, classification_report
 from pathlib import Path
+import sys
 
+ROOT = "/content/CodeDiplomaThesis"
+sys.path.append(str(Path(ROOT).resolve()))
 from chronos_pkg.src.chronos import ChronosPipeline
 
 
