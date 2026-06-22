@@ -95,7 +95,7 @@ def evaluate_model(model, tokenizer, X, y, batch_size=32):
 # -----------------------------
 if __name__ == "__main__":
 
-    model_path = "/content/CodeDiplomaThesis/FineTunedModels/classification/run-11/checkpoint-final/"
+    model_path = "/content/CodeDiplomaThesis/FineTunedModels/classification/run-12/checkpoint-final/"
 
     tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TEST.tsv"
 
