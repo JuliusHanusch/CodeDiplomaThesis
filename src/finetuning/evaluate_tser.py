@@ -4,6 +4,7 @@ import torch
 import pandas as pd
 from datasets import load_dataset
 import sys
+from datasets import get_dataset_config_names
 
 #colab import
 ROOT = "/content/CodeDiplomaThesis"
@@ -119,9 +120,12 @@ if __name__ == "__main__":
 
     tokenizer = pipeline.tokenizer
 
-    datasets = [
-        "default",   # add more TSER configs here
-    ]
+    repo = "foxy-steve/monash_uea_ucr_tser"
+
+    datasets = get_dataset_config_names(repo)
+
+    print(f"Found {len(datasets)} datasets:")
+    print(datasets)
 
     rows = []
 
