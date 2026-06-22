@@ -524,10 +524,7 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
 
 
             target = np.asarray(entry["target"], dtype=self.np_dtype)
-            labels = np.asarray(entry["to_predict"], dtype=self.np_dtype)
-
-            if labels.shape == ():
-                labels = np.expand_dims(labels, axis=0)
+            labels = float(entry["to_predict"])  
 
             assert target.ndim == 1, f"Expected (T,), got {target.shape}"
             assert np.isfinite(target).all(), "NaN/Inf in target"
