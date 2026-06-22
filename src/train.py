@@ -635,7 +635,7 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
     def _to_tser(self, entry: dict) -> dict:
 
         target = np.asarray(entry["target"], dtype=np.float32)
-        label = entry["label"]
+        label = entry["labels"]
         context = torch.tensor(target[-self.context_length:]).unsqueeze(0)
 
         input_ids, attention_mask, _ = self.tokenizer.context_input_transform(context)
