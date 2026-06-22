@@ -419,7 +419,7 @@ def main(
     torch_dtype: str = "bfloat16",
     batch_size: int = 32,
     num_samples: int = 20,
-    mask_ratio: int = 0.15,
+    mask_ratio: float = 0.15,
     temperature: Optional[float] = None,
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
