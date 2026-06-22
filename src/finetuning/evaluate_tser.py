@@ -1,0 +1,154 @@
+from pathlib import Path
+import numpy as np
+import torch
+import pandas as pd
+from datasets import load_dataset
+
+from chronos_pkg.src.chronos import ChronosPipeline
+
+
+# -------------------------
+# RMSE
+# -------------------------
+def rmse(preds, labels):
+    preds = np.asarray(preds)
+    labels = np.asarray(labels)
+    return np.sqrt(np.mean((preds - labels) ** 2))
+
+
+def mae(preds, labels):
+    preds = np.asarray(preds)
+    labels = np.asarray(labels)
+    return np.mean(np.abs(preds - labels))
+
+
+# -------------------------
+# Evaluation
+# -------------------------
+def evaluate_tser_dataset(
+    model,
+    tokenizer,
+    dataset_name,
+    repo="foxy-steve/monash_uea_ucr_tser",
+    context_length: int = 512,
+    device: str = "cuda" if torch.cuda.is_available() else "cpu",
+):
+
+    model.eval()
+    model.to(device)
+
+    ds = load_dataset(repo, dataset_name)["test"]
+
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():
+
+        for ex in ds:
+
+            # -------------------------
+            # extract TSER fields
+            # -------------------------
+            series = np.asarray(ex["timeseries"], dtype=np.float32)
+            label = float(ex["to_predict"])
+
+            # -------------------------
+            # context window
+            # -------------------------
+            context = torch.tensor(series[-context_length:], dtype=torch.float32)
+
+            input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
+
+            input_ids = input_ids.unsqueeze(0).to(device)
+            attention_mask = attention_mask.unsqueeze(0).to(device)
+
+
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+            )
+
+            # regression output (B,)
+            pred = outputs["logits"].squeeze()
+
+            # convert to scalar
+            pred = float(pred.detach().cpu().numpy())
+
+            all_preds.append(pred)
+            all_labels.append(label)
+
+    all_preds = np.array(all_preds)
+    all_labels = np.array(all_labels)
+
+    rmse_score = rmse(all_preds, all_labels)
+    mae_score = mae(all_preds, all_labels)
+
+    return {
+        "rmse": rmse_score,
+        "mae": mae_score,
+        "n_samples": len(all_preds),
+        "preds": all_preds,
+        "labels": all_labels,
+    }
+
+
+# -------------------------
+# MAIN
+# -------------------------
+if __name__ == "__main__":
+
+    model_path = "/content/CodeDiplomaThesis/FineTunedModels/TSER/run-10/checkpoint-final"
+
+    print("Loading model:", model_path)
+
+    pipeline = ChronosPipeline.from_pretrained(
+        model_path,
+        task="tser",
+    )
+
+    model = pipeline.model
+    tokenizer = pipeline.tokenizer
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model.to(device)
+
+    datasets = [
+        "default",   # add more TSER configs here
+    ]
+
+    rows = []
+
+    for ds_name in datasets:
+
+        print("\n" + "=" * 30)
+        print(f"Evaluating {ds_name}")
+        print("=" * 30)
+
+        metrics = evaluate_tser_dataset(
+            model=model,
+            tokenizer=tokenizer,
+            dataset_name=ds_name,
+        )
+
+        print(f"RMSE     : {metrics['rmse']:.6f}")
+        print(f"MAE      : {metrics['mae']:.6f}")
+        print(f"Samples  : {metrics['n_samples']}")
+
+        rows.append({
+            "dataset": ds_name,
+            "rmse": metrics["rmse"],
+            "mae": metrics["mae"],
+            "n_samples": metrics["n_samples"],
+        })
+
+    results = pd.DataFrame(rows)
+
+    print("\nFinal Results")
+    print(results)
+
+    output_file = "/Results/Finetuning/TSER/tser_eval_results.csv"
+
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+    results.to_csv(output_file, index=False)
+
+    print(f"\nSaved to {output_file}")
