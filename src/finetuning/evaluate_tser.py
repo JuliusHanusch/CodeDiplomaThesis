@@ -74,6 +74,7 @@ def evaluate_tser_dataset(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
             )
+            print("LOGITS SHAPE:", outputs["logits"].shape)
 
             # regression output (B,)
             pred = outputs["logits"].squeeze()
