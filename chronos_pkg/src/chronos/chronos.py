@@ -694,6 +694,7 @@ class ChronosPipeline(BaseChronosPipeline):
             raise ValueError(f"Unknown model_type: {chronos_config.model_type}")
         
         if task == "classification":
+            print("Loading Classification Model")
             from .chronos_classification import ChronosModelForClassification
        
             model = ChronosModelForClassification(
