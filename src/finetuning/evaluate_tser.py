@@ -66,8 +66,8 @@ def evaluate_tser_dataset(
 
             input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
 
-            input_ids = input_ids.unsqueeze(0).to(device)
-            attention_mask = attention_mask.unsqueeze(0).to(device)
+            input_ids = input_ids.to(device)
+            attention_mask = attention_mask.to(device)
 
 
             outputs = model(
