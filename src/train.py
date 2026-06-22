@@ -1182,7 +1182,7 @@ def main(
                 model.classifier.state_dict(),
                 save_path / "anomaly.pt"
             )
-        if self.task == "tser":
+        if task == "tser":
             model.model.save_pretrained(save_path)
             torch.save(
                 model.regressor.state_dict(),
