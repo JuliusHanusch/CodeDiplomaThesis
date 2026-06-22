@@ -125,7 +125,7 @@ if __name__ == "__main__":
         torch.load(regressor, map_location="cpu")
     )
 
-    print(model.type())
+    print(model.type)
 
     tokenizer = pipeline.tokenizer
 
