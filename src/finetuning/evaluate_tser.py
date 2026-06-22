@@ -56,16 +56,10 @@ def evaluate_tser_dataset(
             # -------------------------
             # extract TSER fields
             # -------------------------
-            ts = np.asarray(ex["timeseries"], dtype=np.float32)
-            ts = np.array(ts)
-            ts = np.squeeze(ts)
-            # if still 2D (rare but possible), flatten explicitly
-            if ts.ndim > 1:
-                ts = ts.reshape(-1)
-            series = ts
-
-            
+            series = np.asarray(ex["timeseries"], dtype=np.float32)
             label = float(ex["to_predict"])
+
+            print("label", label)
 
             # -------------------------
             # context window
