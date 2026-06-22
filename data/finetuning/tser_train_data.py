@@ -13,33 +13,24 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def convert_example(ex, idx):
+    
     ts = np.asarray(ex["timeseries"], dtype=np.float32)
-
-    # -----------------------------
-    # HARD FIX: force flatten safely
-    # -----------------------------
     ts = np.array(ts)
-
-    # remove singleton dimensions
     ts = np.squeeze(ts)
-
-    print("ts.ndim",ts.ndim)
-
     # if still 2D (rare but possible), flatten explicitly
     if ts.ndim > 1:
         ts = ts.reshape(-1)
 
-    print("ts.ndim",ts.ndim)
-
-
     # final safety check (VERY IMPORTANT for GluonTS)
     assert ts.ndim == 1, f"Bad TSER shape: {ts.shape}"
+    feat_static_cat = ex.get("feat_static_cat", 0)
+    feat_static_cat = np.asarray([feat_static_cat], dtype=np.int64)
 
     return {
         "start": ex["start"],
-        "target": ts.astype(np.float32),   # 🔥 enforce dtype + shape
+        "target": ts,
         "item_id": str(ex.get("item_id", idx)),
-        "feat_static_cat": ex.get("feat_static_cat", None),
+        "feat_static_cat": feat_static_cat,  # ✅ FIXED
         "to_predict": float(ex["to_predict"]),
     }
 
