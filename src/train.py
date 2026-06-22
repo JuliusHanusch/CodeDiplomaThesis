@@ -304,7 +304,6 @@ def load_model(
                 num_labels=num_labels
             )
             model = pipeline.model
-            print(model.type)
 
         if task == "anomaly":
             log_on_main("Loading anomaly model via ChronosPipeline", logger)
@@ -1027,6 +1026,7 @@ def main(
         context_length = context_length,
         
 
+
         #T5 Options
         #d_model=d_model,
         #dropout_rate = dropout_rate,
@@ -1091,6 +1091,9 @@ def main(
         model = model_or_config
         # Add extra items to model config so that it's saved in the ckpt
         model.config.chronos_config = chronos_config.__dict__
+    
+    print(model.type)
+
     
     model_size = get_model_size(model)
     print("Number Non-Embedding Params: ", model_size)
