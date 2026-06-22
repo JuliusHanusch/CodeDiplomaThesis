@@ -1,160 +1,121 @@
-from torch.utils.data import DataLoader
-from sklearn.metrics import accuracy_score, f1_score, classification_report
-from tqdm import tqdm
-
-import logging
-from pathlib import Path
-
-# Include Parent Directory to load packages from
-import sys  
 import numpy as np
 import pandas as pd
-
-pd.set_option("display.max_columns", None)
-pd.set_option("display.max_rows", None)
-pd.set_option("display.width", 200)  # optional, for wide display
-pd.set_option("display.max_colwidth", None)
 import torch
 from tqdm.auto import tqdm
-
-#colab import
-ROOT = "/content/CodeDiplomaThesis"
-sys.path.append(str(Path(ROOT).resolve()))
+from sklearn.metrics import accuracy_score, f1_score, classification_report
+from pathlib import Path
 
 from chronos_pkg.src.chronos import ChronosPipeline
 
-# sys.path.append(str(Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/chronos_pkg/src").resolve()))
-# from chronos_pkg.src.chronos import ChronosPipeline
 
+# -----------------------------
+# LOAD UCR TSV (correct label handling)
+# -----------------------------
+def load_ucr_tsv(tsv_path, context_length=512):
+    df = pd.read_csv(tsv_path, sep="\t", header=None).values
 
-import os
+    y = df[:, 0]
+    X = df[:, 1:].astype(np.float32)
 
-def load_uci_har_test(dataset_path, context_length=512):
-    X_path = os.path.join(dataset_path, "X_test.txt")
-    y_path = os.path.join(dataset_path, "y_test.txt")
+    # IMPORTANT:
+    # UCR labels are often 1-based → shift to 0-based safely
+    y = y.astype(int)
+    y = y - y.min()
 
-    X = np.loadtxt(X_path).astype(np.float32)
-    y = np.loadtxt(y_path).astype(int) - 1  # make labels 0-based
-
-    # pad / truncate to context_length
+    # pad / truncate
     if X.shape[1] < context_length:
-        pad_width = context_length - X.shape[1]
-        X = np.pad(X, ((0, 0), (0, pad_width)), mode="constant")
-    elif X.shape[1] > context_length:
+        pad = context_length - X.shape[1]
+        X = np.pad(X, ((0, 0), (0, pad)), mode="constant")
+    else:
         X = X[:, -context_length:]
 
     return X, y
 
 
+# -----------------------------
+# EVALUATION
+# -----------------------------
 def evaluate_model(model, tokenizer, X, y, batch_size=32):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)
     model.eval()
 
-    all_preds = []
-    all_labels = []
-
-    num_samples = len(X)
+    preds_all, labels_all = [], []
 
     with torch.no_grad():
-        for i in tqdm(range(0, num_samples, batch_size), desc="Evaluating"):
+        for i in tqdm(range(0, len(X), batch_size), desc="Evaluating"):
             batch_X = X[i:i + batch_size]
             batch_y = y[i:i + batch_size]
 
-            # ---- tokenize batch ----
-            context = torch.tensor(batch_X, dtype=torch.float32)    
-            # tokenizer expects (B, T)
+            context = torch.tensor(batch_X, dtype=torch.float32)
+
             input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
 
             input_ids = input_ids.to(device)
             attention_mask = attention_mask.to(device)
 
-            # ---- forward pass ----
             outputs = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask
             )
 
             logits = outputs["logits"]
-            # ---- handle shape safely ----
+
+            # safety fix (some models return (B,T,C))
             if logits.ndim == 3:
-                # e.g. (B, T, num_labels) → take last token
                 logits = logits[:, -1, :]
 
             preds = torch.argmax(logits, dim=-1)
 
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(batch_y)
+            preds_all.extend(preds.cpu().numpy())
+            labels_all.extend(batch_y)
 
-    # ---- metrics ----
-    acc = accuracy_score(all_labels, all_preds)
-    f1 = f1_score(all_labels, all_preds, average="weighted")
+    acc = accuracy_score(labels_all, preds_all)
+    f1 = f1_score(labels_all, preds_all, average="weighted")
 
-    print("\n=== Evaluation Results ===")
+    print("\n=== UCR Evaluation ===")
     print(f"Accuracy: {acc:.4f}")
     print(f"F1 (weighted): {f1:.4f}")
-    print("\nClassification Report:")
-    print(classification_report(all_labels, all_preds))
-
-    # at the end of evaluate_model()
+    print("\nReport:")
+    print(classification_report(labels_all, preds_all))
 
     return {
         "accuracy": acc,
         "f1": f1,
-        "predictions": all_preds,
-        "labels": all_labels,
+        "predictions": preds_all,
+        "labels": labels_all,
     }
 
-def save_results_to_csv(results, model_path, output_path="evaluation_results.csv"):
-    import pandas as pd
-    import os
 
-    row = {
-        "model_path": model_path,
-        "accuracy": results["accuracy"],
-        "f1_weighted": results["f1"],
-    }
-
-    df = pd.DataFrame([row])
-
-    # append if file exists
-    if os.path.exists(output_path):
-        df.to_csv(output_path, mode="a", header=False, index=False)
-    else:
-        df.to_csv(output_path, index=False)
-
-    print(f"Results saved to {output_path}")
-
+# -----------------------------
+# RUN
+# -----------------------------
 if __name__ == "__main__":
-    model_path = "FineTunedModels/Classification/BertDefault/run-2/checkpoint-final"
-    dataset_path = "data/finetuning/UCI_HAR/UCI HAR Dataset/test"
-    num_labels = 6
+
+    model_path = "/content/CodeDiplomaThesis/FineTunedModels/classification/run-9/checkpoint-final/"
+
+    tsv_path = "/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TEST.tsv"
+
+    num_labels = 3
     batch_size = 32
+    context_length = 512
 
     pipeline = ChronosPipeline.from_pretrained(
         model_path,
         task="classification",
         num_labels=num_labels
     )
+
     model = pipeline.model
-
-    classifier_path = Path(model_path) / "classifier.pt"
-
-    model.classifier.load_state_dict(
-        torch.load(classifier_path, map_location="cpu")
-    )
-
     tokenizer = pipeline.tokenizer
 
-    X_test, y_test = load_uci_har_test(dataset_path)
-    
+    # load trained classifier head if exists
+    classifier_path = Path(model_path) / "classifier.pt"
+    if classifier_path.exists():
+        model.classifier.load_state_dict(
+            torch.load(classifier_path, map_location="cpu")
+        )
 
+    X_test, y_test = load_ucr_tsv(tsv_path, context_length)
 
-    # ---- Evaluate ----
     results = evaluate_model(model, tokenizer, X_test, y_test, batch_size)
-
-    save_results_to_csv(
-        results,
-        model_path,
-        output_path="/Results/Finetuning/Classification/uci_har_eval_results.csv"
-    )
