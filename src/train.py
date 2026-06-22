@@ -295,6 +295,7 @@ def load_model(
             raise ValueError("--config_overrides cannot be used with pretrained models")
 
         if task == "classification":
+            print("Loading Classification Model")
             log_on_main("Loading classification model via ChronosPipeline", logger)
 
             pipeline = ChronosPipeline.from_pretrained(
@@ -303,6 +304,7 @@ def load_model(
                 num_labels=num_labels
             )
             model = pipeline.model
+            print(model.type)
 
         if task == "anomaly":
             log_on_main("Loading anomaly model via ChronosPipeline", logger)
