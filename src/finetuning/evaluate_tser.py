@@ -53,40 +53,33 @@ def evaluate_tser_dataset(
 
         for ex in ds:
 
-            # -------------------------
-            # extract TSER fields
-            # -------------------------
             series = np.asarray(ex["timeseries"], dtype=np.float32)
             label = float(ex["to_predict"])
 
             print("label", label)
             print("len series", len(series))
 
-            # -------------------------
-            # context window
-            # -------------------------
             context = torch.tensor(series[-context_length:], dtype=torch.float32)
+
+            # FIX: add batch dim
+            context = context.unsqueeze(0)
 
             input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
 
-            # IMPORTANT: add batch dim
-            input_ids = input_ids.unsqueeze(0).to(device)
-            attention_mask = attention_mask.unsqueeze(0).to(device)
+            print("input_ids shape:", input_ids.shape)  # debug
+
+            input_ids = input_ids.to(device)
+            attention_mask = attention_mask.to(device)
 
             outputs = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
             )
 
-            print("LOGITS SHAPE:", outputs["logits"].shape)
+            preds = outputs["logits"].detach().cpu().numpy().reshape(-1)
 
-            # -------------------------
-            # FIX: convert properly
-            # -------------------------
-            pred = outputs["logits"][0].detach().cpu().item()
-
-            all_preds.append(pred)
-            all_labels.append(label)
+            all_preds.extend(preds)
+            all_labels.extend([label] * len(preds))  # safer
 
     # -------------------------
     # FINAL METRICS
@@ -126,8 +119,6 @@ if __name__ == "__main__":
     model.regressor.load_state_dict(
         torch.load(regressor, map_location="cpu")
     )
-
-    print(model.type)
 
     tokenizer = pipeline.tokenizer
 
