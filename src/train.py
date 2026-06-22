@@ -519,18 +519,18 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             }
     
         elif self.task == "tser":
-            assert "timeseries" in entry, f"Missing timeseries. Keys: {list(entry.keys())}"
+            assert "target" in entry, f"Missing target. Keys: {list(entry.keys())}"
             assert "to_predict" in entry, f"Missing regression label. Keys: {list(entry.keys())}"
 
 
-            target = np.asarray(entry["timeseries"], dtype=self.np_dtype)
+            target = np.asarray(entry["target"], dtype=self.np_dtype)
             labels = np.asarray(entry["to_predict"], dtype=self.np_dtype)
 
             if labels.shape == ():
                 labels = np.expand_dims(labels, axis=0)
 
             assert target.ndim == 1, f"Expected (T,), got {target.shape}"
-            assert np.isfinite(target).all(), "NaN/Inf in timeseries"
+            assert np.isfinite(target).all(), "NaN/Inf in target"
             assert np.isfinite(labels).all(), "NaN/Inf in labels"
 
             return {
@@ -638,7 +638,7 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         }
     def _to_tser(self, entry: dict) -> dict:
 
-        target = np.asarray(entry["timeseries"], dtype=np.float32)
+        target = np.asarray(entry["target"], dtype=np.float32)
         label = np.asarray(entry["to_predict"], dtype=np.float32)
 
         context = torch.tensor(target[-self.context_length:]).unsqueeze(0)
@@ -943,6 +943,8 @@ def main(
             logger,
         )
         tf32 = False
+
+    print("task", task)
 
     if seed is None:
         seed = random.randint(0, 2**32)
