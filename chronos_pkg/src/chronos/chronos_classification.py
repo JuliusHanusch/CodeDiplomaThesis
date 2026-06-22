@@ -31,6 +31,10 @@ class ChronosModelForClassification(ChronosModel):
         attention_mask: torch.Tensor,
         labels: Optional[torch.Tensor] = None,
     ):
+        print("\n================ FORWARD PASS ================")
+        print("input_ids:", input_ids.shape, input_ids.dtype)
+        print("attention_mask:", attention_mask.shape, attention_mask.dtype)
+
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -38,7 +42,12 @@ class ChronosModelForClassification(ChronosModel):
             return_dict=True,
         )
 
+        print("model type:", type(self.model))
+        print("has MLM head:", hasattr(self.model, "cls"))
+
         hidden_states = outputs.hidden_states[-1]  # (B, T, H)
+
+        print("hidden_states:", hidden_states.shape)
 
         if self.pooling == "mean":
             pooled = (hidden_states * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(1, keepdim=True)
@@ -47,11 +56,18 @@ class ChronosModelForClassification(ChronosModel):
             pooled = hidden_states[:, 0]
         else:
             raise ValueError("Unknown pooling")
+        
+        print("pooled:", pooled.shape)
 
         logits = self.classifier(self.dropout(pooled))
+
+        print("logits:", logits.shape)
 
         loss = None
         if labels is not None:
             loss = nn.CrossEntropyLoss()(logits, labels)
+
+        print("loss:", loss)
+        print("===========================================\n")
 
         return {"loss": loss, "logits": logits}
