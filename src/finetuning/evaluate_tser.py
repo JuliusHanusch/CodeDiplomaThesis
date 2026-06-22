@@ -60,6 +60,7 @@ def evaluate_tser_dataset(
             label = float(ex["to_predict"])
 
             print("label", label)
+            print("len series", len(series))
 
             # -------------------------
             # context window
