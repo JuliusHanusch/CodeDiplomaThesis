@@ -13,9 +13,16 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def convert_example(ex, idx):
+    ts = np.asarray(ex["timeseries"], dtype=np.float32)
+
+    if ts.ndim == 2 and ts.shape[1] == 1:
+        ts = ts[:, 0]
+
+    ts = ts.squeeze()
+
     return {
         "start": ex["start"],
-        "target": np.array(ex["timeseries"], dtype=np.float32),
+        "target": ts,
         "item_id": str(ex.get("item_id", idx)),
         "feat_static_cat": ex.get("feat_static_cat", None),
         "to_predict": float(ex["to_predict"]),
