@@ -45,6 +45,7 @@ def evaluate_tser_dataset(
     model.to(device)
 
     ds = load_dataset(repo, dataset_name)["test"]
+    print(ds[0].keys())
 
     all_preds = []
     all_labels = []
