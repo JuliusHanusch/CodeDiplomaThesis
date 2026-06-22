@@ -278,6 +278,13 @@ def load_model(
                 config=ChronosConfig(model_type="mlm"),
                 model=base_model,
             )
+        elif task == "tser":
+            from chronos_pkg.src.chronos.chronos_tser import ChronosModelForTSER
+       
+            model = ChronosModelForTSER(
+                config=ChronosConfig(model_type="mlm"),
+                model=base_model,
+            )
         else:
             model = AutoModelClass.from_config(config)
 
@@ -303,6 +310,15 @@ def load_model(
             pipeline = ChronosPipeline.from_pretrained(
                 model_id,
                 task="anomaly",
+            )
+            model = pipeline.model
+
+        if task == "tser":
+            log_on_main("Loading tser model via ChronosPipeline", logger)
+
+            pipeline = ChronosPipeline.from_pretrained(
+                model_id,
+                task="tser",
             )
             model = pipeline.model
 
@@ -501,6 +517,29 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
                 "target": target,
                 "label": label,   # (T,) float mask for BCEWithLogitsLoss
             }
+    
+        elif self.task == "tser":
+            assert "timeseries" in entry, f"Missing timeseries. Keys: {list(entry.keys())}"
+            assert "to_predict" in entry, f"Missing regression label. Keys: {list(entry.keys())}"
+
+
+            target = np.asarray(entry["timeseries"], dtype=self.np_dtype)
+            labels = np.asarray(entry["to_predict"], dtype=self.np_dtype)
+
+            if labels.shape == ():
+                labels = np.expand_dims(labels, axis=0)
+
+            assert target.ndim == 1, f"Expected (T,), got {target.shape}"
+            assert np.isfinite(target).all(), "NaN/Inf in timeseries"
+            assert np.isfinite(labels).all(), "NaN/Inf in labels"
+
+            return {
+                "target": target,   # (T,)
+                "labels": labels,   # (1,)
+            }
+
+
+
         # FORECASTING / MLM PATH
         entry = {
             "start": entry["start"],
@@ -552,6 +591,8 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             return data
         elif self.task == "anomaly":
             return data
+        elif self.task == "tser":
+            return data
         # forecasting path (unchanged)
         data = Cyclic(data)
         split_transform = self._create_instance_splitter(
@@ -577,6 +618,8 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             return self._to_classification(entry)
         elif self.task == "anomaly":
             return self._to_anomaly(entry)
+        elif self.task == "tser":
+            return self._to_tser(entry)
         else:
             raise ValueError(f"Unknown task: {self.task}")
         
@@ -592,6 +635,26 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             "input_ids": input_ids.squeeze(0),
             "attention_mask": attention_mask.squeeze(0),
             "labels": entry["label"],
+        }
+    def _to_tser(self, entry: dict) -> dict:
+
+        target = np.asarray(entry["timeseries"], dtype=np.float32)
+        label = np.asarray(entry["to_predict"], dtype=np.float32)
+
+        context = torch.tensor(target[-self.context_length:]).unsqueeze(0)
+
+        # TSER has NO timestep labels → expand scalar
+        label = torch.tensor(label).float()
+
+        if label.ndim == 0:
+            label = label.unsqueeze(0)   # (1,)
+        label = label.unsqueeze(0)       # (1, 1) or (B=1, 1)
+        input_ids, attention_mask, _ = self.tokenizer.context_input_transform(context)
+
+        return {
+            "input_ids": input_ids.squeeze(0),          # (T')
+            "attention_mask": attention_mask.squeeze(0), # (T')
+            "labels": label.squeeze(0),                  # (1,) regression target
         }
     
     def _to_anomaly(self, entry: dict) -> dict:
@@ -695,6 +758,8 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             preprocessed_datasets = self.datasets
         if self.task == "anomaly":
             preprocessed_datasets = self.datasets
+        if self.task == "tser":
+            preprocessed_datasets = self.datasets
         else:
             preprocessed_datasets = [
                 Map(
@@ -709,6 +774,8 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
                 iterables = preprocessed_datasets
             elif self.task == "anomaly":
                 iterables = preprocessed_datasets
+            elif self.task == "tser":
+                iterables = preprocessed_datasets
             else:
                 iterables = [
                     self.create_training_data(dataset) for dataset in preprocessed_datasets
@@ -718,6 +785,8 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
                 iterables = preprocessed_datasets
             elif self.task == "anomaly":
                 iterables = preprocessed_datasets
+            elif self.task == "tser":
+                iterables = preprocessed_datasets
             else:
                 iterables = [
                     self.create_test_data(dataset) for dataset in preprocessed_datasets
@@ -726,6 +795,8 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             if self.task == "classification":
                 iterables = preprocessed_datasets
             if self.task == "anomaly":
+                iterables = preprocessed_datasets
+            if self.task == "tser":
                 iterables = preprocessed_datasets
             else:
                 iterables = [
@@ -885,8 +956,6 @@ def main(
     assert isinstance(training_data_paths, list)
 
     
-    print("task", task)
-
     if isinstance(probability, str):
         probability = ast.literal_eval(probability)
     elif probability is None:
@@ -1122,6 +1191,12 @@ def main(
             torch.save(
                 model.classifier.state_dict(),
                 save_path / "anomaly.pt"
+            )
+        if self.task == "tser":
+            model.model.save_pretrained(save_path)
+            torch.save(
+                model.regressor.state_dict(),
+                save_path / "tser.pt"
             )
 
         else:

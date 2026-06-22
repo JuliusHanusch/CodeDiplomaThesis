@@ -708,8 +708,18 @@ class ChronosPipeline(BaseChronosPipeline):
                 config=chronos_config,
                 model=inner_model,
             )
+        elif task == "tser":
+            from .chronos_tser import ChronosModelForTSER
+       
+            model = ChronosModelForTSER(
+                config=chronos_config,
+                model=inner_model,
+            )
+
         else:
             model = ChronosModel(config=chronos_config, model=inner_model)
+
+        
 
         return cls(
             tokenizer=chronos_config.create_tokenizer(),
