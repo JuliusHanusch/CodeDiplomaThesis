@@ -87,23 +87,50 @@ def find_files(folder):
 # TS parser (UEA/UCR format)
 # -------------------------
 def load_ts(path):
-    if path.suffix == ".ts":
-        # skip metadata header lines (@)
-        data = []
-        labels = []
+    labels = []
+    data = []
 
-        with open(path, "r") as f:
-            for line in f:
-                if line.startswith("@") or len(line.strip()) == 0:
+    with open(path, "r") as f:
+        for line in f:
+            line = line.strip()
+
+            # ---- skip metadata/comments ----
+            if (
+                len(line) == 0
+                or line.startswith("@")
+                or line.startswith("#")
+            ):
+                continue
+
+            # ---- UEA format: label : series ----
+            if ":" not in line:
+                continue
+
+            try:
+                label_part, series_part = line.split(":", 1)
+
+                label = float(label_part.strip())
+
+                series = np.array(
+                    series_part.strip().split(","),
+                    dtype=np.float32
+                )
+
+                # remove NaNs or weird empty values safely
+                series = series[~np.isnan(series)]
+
+                if len(series) == 0:
                     continue
-                parts = line.strip().split(":")[-1].split(",")
-                labels.append(float(parts[0]))
-                data.append(np.array(parts[1:], dtype=np.float32))
 
-        return np.array(labels), np.array(data)
+                labels.append(label)
+                data.append(series)
 
-    df = pd.read_csv(path, header=None)
-    return df.iloc[:, 0].values, df.iloc[:, 1:].values
+            except Exception as e:
+                # skip corrupted lines instead of crashing
+                print(f"Skipping line due to parse error: {e}")
+                continue
+
+    return np.array(labels), np.array(data, dtype=object)
 
 
 # -------------------------
