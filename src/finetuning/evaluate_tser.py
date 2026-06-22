@@ -41,7 +41,6 @@ def evaluate_tser_dataset(
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-
     model.eval()
     model.to(device)
 
@@ -57,14 +56,10 @@ def evaluate_tser_dataset(
             series = np.asarray(ex["timeseries"], dtype=np.float32)
             label = float(ex["to_predict"])
 
-            print("label", label)
-            print("len series", len(series))
 
             context = torch.tensor(series[-context_length:], dtype=torch.float32)
 
             input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
-
-            print("input_ids shape:", input_ids.shape)  # debug
 
             input_ids = input_ids.to(device)
             attention_mask = attention_mask.to(device)
