@@ -259,32 +259,32 @@ def load_model(
         if bolt:
             return config
         
-        # if task == "classification":
-        #     from chronos_pkg.src.chronos.chronos_classification import ChronosModelForClassification
+        if task == "classification":
+            from chronos_pkg.src.chronos.chronos_classification import ChronosModelForClassification
 
 
-        #     config = AutoConfig.from_pretrained(model_id)
-        #     base_model = AutoModelForMaskedLM.from_config(config)
+            config = AutoConfig.from_pretrained(model_id)
+            base_model = AutoModelForMaskedLM.from_config(config)
 
-        #     model = ChronosModelForClassification(
-        #         config=ChronosConfig(model_type="mlm"),
-        #         model=base_model,
-        #         num_labels=num_labels,
-        #     )
-        # elif task == "anomaly":
-        #     from chronos_pkg.src.chronos.chronos_anomaly import ChronosModelForAnomalyDetection
+            model = ChronosModelForClassification(
+                config=ChronosConfig(model_type="mlm"),
+                model=base_model,
+                num_labels=num_labels,
+            )
+        elif task == "anomaly":
+            from chronos_pkg.src.chronos.chronos_anomaly import ChronosModelForAnomalyDetection
        
-        #     model = ChronosModelForAnomalyDetection(
-        #         config=ChronosConfig(model_type="mlm"),
-        #         model=base_model,
-        #     )
-        # elif task == "tser":
-        #     from chronos_pkg.src.chronos.chronos_tser import ChronosModelForTSER
+            model = ChronosModelForAnomalyDetection(
+                config=ChronosConfig(model_type="mlm"),
+                model=base_model,
+            )
+        elif task == "tser":
+            from chronos_pkg.src.chronos.chronos_tser import ChronosModelForTSER
        
-        #     model = ChronosModelForTSER(
-        #         config=ChronosConfig(model_type="mlm"),
-        #         model=base_model,
-        #     )
+            model = ChronosModelForTSER(
+                config=ChronosConfig(model_type="mlm"),
+                model=base_model,
+            )
         else:
             model = AutoModelClass.from_config(config)
 
@@ -304,7 +304,6 @@ def load_model(
                 num_labels=num_labels
             )
             model = pipeline.model
-            print(model.type)
 
 
         elif task == "anomaly":
@@ -325,7 +324,6 @@ def load_model(
             )
             model = pipeline.model
 
-
         else:
             # ✅ Standard HF loading for MLM / seq2seq / causal
             model = AutoModelClass.from_pretrained(model_id)
@@ -344,8 +342,6 @@ def load_model(
     hf_config.eos_token_id = eos_token_id
     hf_config.mask_token_id = mask_token_id
     hf_config.bos_token_id = bos_token_id
-
-    print(model.type)
 
 
     return model
@@ -749,9 +745,9 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
     def __iter__(self) -> Iterator:
         if self.task == "classification":
             preprocessed_datasets = self.datasets
-        if self.task == "anomaly":
+        elif self.task == "anomaly":
             preprocessed_datasets = self.datasets
-        if self.task == "tser":
+        elif self.task == "tser":
             preprocessed_datasets = self.datasets
         else:
             preprocessed_datasets = [
@@ -787,9 +783,9 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         else:
             if self.task == "classification":
                 iterables = preprocessed_datasets
-            if self.task == "anomaly":
+            elif self.task == "anomaly":
                 iterables = preprocessed_datasets
-            if self.task == "tser":
+            elif self.task == "tser":
                 iterables = preprocessed_datasets
             else:
                 iterables = [
@@ -1096,7 +1092,6 @@ def main(
         # Add extra items to model config so that it's saved in the ckpt
         model.config.chronos_config = chronos_config.__dict__
     
-    print(model.type)
 
     
     model_size = get_model_size(model)
@@ -1185,13 +1180,13 @@ def main(
                 model.classifier.state_dict(),
                 save_path / "classifier.pt"
             )
-        if task == "anomaly":
+        elif task == "anomaly":
             model.model.save_pretrained(save_path)
             torch.save(
                 model.classifier.state_dict(),
                 save_path / "anomaly.pt"
             )
-        if task == "tser":
+        elif task == "tser":
             model.model.save_pretrained(save_path)
             torch.save(
                 model.regressor.state_dict(),
