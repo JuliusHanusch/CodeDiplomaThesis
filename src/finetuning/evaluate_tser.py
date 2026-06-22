@@ -56,7 +56,15 @@ def evaluate_tser_dataset(
             # -------------------------
             # extract TSER fields
             # -------------------------
-            series = np.asarray(ex["timeseries"], dtype=np.float32)
+            ts = np.asarray(ex["timeseries"], dtype=np.float32)
+            ts = np.array(ts)
+            ts = np.squeeze(ts)
+            # if still 2D (rare but possible), flatten explicitly
+            if ts.ndim > 1:
+                ts = ts.reshape(-1)
+            series = ts
+
+            
             label = float(ex["to_predict"])
 
             # -------------------------
@@ -77,10 +85,10 @@ def evaluate_tser_dataset(
             print("LOGITS SHAPE:", outputs["logits"].shape)
 
             # regression output (B,)
-            pred = outputs["logits"].squeeze()
+            pred = outputs["logits"]
 
             # convert to scalar
-            pred = float(pred.detach().cpu().numpy())
+            #pred = float(pred.detach().cpu().numpy())
 
             all_preds.append(pred)
             all_labels.append(label)
