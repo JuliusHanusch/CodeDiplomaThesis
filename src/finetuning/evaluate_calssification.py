@@ -101,7 +101,7 @@ def evaluate_model(model, tokenizer, X, y, batch_size=32):
 # -----------------------------
 if __name__ == "__main__":
 
-    model_path = "/content/CodeDiplomaThesis/FineTunedModels/classification/run-9/checkpoint-final/"
+    model_path = "/content/CodeDiplomaThesis/FineTunedModels/classification/run-10/checkpoint-final/"
 
     #tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/DistalPhalanxTW/DistalPhalanxTW_TEST.tsv"
     #tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TEST.tsv"
@@ -133,6 +133,9 @@ if __name__ == "__main__":
     dataset_name = os.path.basename(tsv_path).replace(".tsv", "")
     shift = LABEL_SHIFT.get(dataset_name, 0)
     y_test = y_test - shift
+
+    if dataset_name == "Wafer":
+        y_test = (y_test + 1) // 2
 
     results = evaluate_model(model, tokenizer, X_test, y_test, batch_size)
 
