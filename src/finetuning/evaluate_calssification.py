@@ -131,6 +131,6 @@ if __name__ == "__main__":
     })
 
     results_df.to_csv(
-        "/content/CodeDiplomaThesis/data/Results/ArrowHead.csv",
+        "/content/CodeDiplomaThesis/ArrowHead.csv",
         index=False
     )
