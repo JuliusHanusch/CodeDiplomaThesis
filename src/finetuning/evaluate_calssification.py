@@ -29,7 +29,9 @@ def load_ucr_tsv(tsv_path, context_length=512):
     # IMPORTANT:
     # UCR labels are often 1-based → shift to 0-based safely
     y = y.astype(int)
-    y = y - y.min()
+    unique = np.unique(y)
+    label_map = {v: i for i, v in enumerate(unique)}
+    y = np.vectorize(label_map.get)(y)
 
     # pad / truncate
     if X.shape[1] < context_length:
@@ -133,13 +135,7 @@ if __name__ == "__main__":
     X_test, y_test = load_ucr_tsv(tsv_path, context_length)
 
     dataset_name = os.path.basename(tsv_path).replace(".tsv", "")
-    print("dataset_name",dataset_name)
-    shift = LABEL_SHIFT.get(dataset_name, 0)
-    #y_test = y_test - shift
 
-    if dataset_name == "Wafer_TEST":
-        print("Wafer")
-        y_test = (y_test + 1) // 2
 
     results = evaluate_model(model, tokenizer, X_test, y_test, batch_size)
 
