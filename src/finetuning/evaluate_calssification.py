@@ -101,14 +101,14 @@ def evaluate_model(model, tokenizer, X, y, batch_size=32):
 # -----------------------------
 if __name__ == "__main__":
 
-    model_path = "/content/CodeDiplomaThesis/FineTunedModels/classification/run-1/checkpoint-final/"
+    model_path = "/content/CodeDiplomaThesis/FineTunedModels/classification/run-8/checkpoint-final/"
 
     #tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/DistalPhalanxTW/DistalPhalanxTW_TEST.tsv"
-    tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TEST.tsv"
-    #tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/GestureMidAirD2/GestureMidAirD2_TEST.tsv"
+    #tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TEST.tsv"
+    tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/GestureMidAirD2/GestureMidAirD2_TEST.tsv"
 
 
-    num_labels = 3
+    num_labels = 26
     batch_size = 32
     context_length = 512
 
@@ -154,6 +154,6 @@ if __name__ == "__main__":
     }])
 
     summary_df.to_csv(
-        "/content/CodeDiplomaThesis/ArrowHead.csv",
+        "/content/CodeDiplomaThesis/GestureMidAirD2.csv",
         index=False
     )
