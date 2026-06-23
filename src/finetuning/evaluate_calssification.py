@@ -5,6 +5,7 @@ from tqdm.auto import tqdm
 from sklearn.metrics import accuracy_score, f1_score, classification_report
 from pathlib import Path
 import sys
+import os
 
 ROOT = "/content/CodeDiplomaThesis"
 sys.path.append(str(Path(ROOT).resolve()))
@@ -123,12 +124,15 @@ if __name__ == "__main__":
 
     results = evaluate_model(model, tokenizer, X_test, y_test, batch_size)
 
-    results_df = pd.DataFrame({
+    dataset_name = os.path.basename(tsv_path).replace(".tsv", "")
+
+    results_df = pd.DataFrame([{
+        "dataset": dataset_name,
         "accuracy": results["accuracy"],
         "f1": results["f1"]
-    })
+    }])
 
     results_df.to_csv(
-        "/content/CodeDiplomaThesis/ArrowHead.csv",
+        "/content/CodeDiplomaThesis/ArrowHead_results.csv",
         index=False
     )
