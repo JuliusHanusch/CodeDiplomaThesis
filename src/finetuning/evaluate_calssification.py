@@ -124,15 +124,16 @@ if __name__ == "__main__":
 
     results = evaluate_model(model, tokenizer, X_test, y_test, batch_size)
 
+
     dataset_name = os.path.basename(tsv_path).replace(".tsv", "")
 
-    results_df = pd.DataFrame([{
+    summary_df = pd.DataFrame([{
         "dataset": dataset_name,
         "accuracy": results["accuracy"],
         "f1": results["f1"]
     }])
 
-    results_df.to_csv(
-        "/content/CodeDiplomaThesis/ArrowHead_results.csv",
+    summary_df.to_csv(
+        "/content/CodeDiplomaThesis/ArrowHead.csv",
         index=False
     )
