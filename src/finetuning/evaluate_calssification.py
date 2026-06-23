@@ -14,8 +14,8 @@ sys.path.append(str(Path(ROOT).resolve()))
 from chronos_pkg.src.chronos import ChronosPipeline
 
 LABEL_SHIFT = {
-    "GestureMidAirD2": 1,
-    "DistalPhalanxTW": 3,
+    "GestureMidAirD2_TEST": 1,
+    "DistalPhalanxTW_TEST": 3,
 }
 # -----------------------------
 # LOAD UCR TSV (correct label handling)
@@ -101,16 +101,16 @@ def evaluate_model(model, tokenizer, X, y, batch_size=32):
 # -----------------------------
 if __name__ == "__main__":
 
-    model_path = "/content/CodeDiplomaThesis/FineTunedModels/classification/run-12/checkpoint-final/"
+    model_path = "/content/CodeDiplomaThesis/FineTunedModels/classification/run-7/checkpoint-final/"
 
-    #tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/DistalPhalanxTW/DistalPhalanxTW_TEST.tsv"
+    tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/DistalPhalanxTW/DistalPhalanxTW_TEST.tsv"
     #tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TEST.tsv"
     #tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/GestureMidAirD2/GestureMidAirD2_TEST.tsv"
-    tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/Wafer/Wafer_TEST.tsv"
+    #tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/Wafer/Wafer_TEST.tsv"
 
 
 
-    num_labels = 2
+    num_labels = 6
     batch_size = 32
     context_length = 512
 
@@ -137,7 +137,7 @@ if __name__ == "__main__":
     shift = LABEL_SHIFT.get(dataset_name, 0)
     y_test = y_test - shift
 
-    if dataset_name == "Wafer":
+    if dataset_name == "Wafer_TEST":
         print("Wafer")
         y_test = (y_test + 1) // 2
 
