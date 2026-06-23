@@ -135,7 +135,7 @@ if __name__ == "__main__":
     dataset_name = os.path.basename(tsv_path).replace(".tsv", "")
     print("dataset_name",dataset_name)
     shift = LABEL_SHIFT.get(dataset_name, 0)
-    y_test = y_test - shift
+    #y_test = y_test - shift
 
     if dataset_name == "Wafer_TEST":
         print("Wafer")
