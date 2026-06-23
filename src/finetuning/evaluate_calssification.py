@@ -124,8 +124,6 @@ if __name__ == "__main__":
     results = evaluate_model(model, tokenizer, X_test, y_test, batch_size)
 
     results_df = pd.DataFrame({
-        "label": results["labels"],
-        "prediction": results["predictions"],
         "accuracy": results["accuracy"],
         "f1": results["f1"]
     })
