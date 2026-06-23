@@ -137,6 +137,7 @@ if __name__ == "__main__":
     y_test = y_test - shift
 
     if dataset_name == "Wafer":
+        print("Wafer")
         y_test = (y_test + 1) // 2
 
     results = evaluate_model(model, tokenizer, X_test, y_test, batch_size)
