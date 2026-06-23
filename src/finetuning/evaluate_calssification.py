@@ -110,7 +110,7 @@ if __name__ == "__main__":
 
 
 
-    num_labels = 26
+    num_labels = 2
     batch_size = 32
     context_length = 512
 
