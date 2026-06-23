@@ -108,7 +108,7 @@ if __name__ == "__main__":
     #tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/GestureMidAirD2/GestureMidAirD2_TEST.tsv"
 
 
-    num_labels = 6
+    num_labels = 3
     batch_size = 32
     context_length = 512
 
