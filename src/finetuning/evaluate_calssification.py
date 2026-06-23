@@ -133,6 +133,7 @@ if __name__ == "__main__":
     X_test, y_test = load_ucr_tsv(tsv_path, context_length)
 
     dataset_name = os.path.basename(tsv_path).replace(".tsv", "")
+    print("dataset_name",dataset_name)
     shift = LABEL_SHIFT.get(dataset_name, 0)
     y_test = y_test - shift
 
