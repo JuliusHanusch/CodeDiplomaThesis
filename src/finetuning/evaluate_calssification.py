@@ -122,3 +122,15 @@ if __name__ == "__main__":
     X_test, y_test = load_ucr_tsv(tsv_path, context_length)
 
     results = evaluate_model(model, tokenizer, X_test, y_test, batch_size)
+
+    results_df = pd.DataFrame({
+        "label": results["labels"],
+        "prediction": results["predictions"],
+        "accuracy": results["accuracy"],
+        "f1": results["f1"]
+    })
+
+    results_df.to_csv(
+        "/content/CodeDiplomaThesis/data/Results/ArrowHead.csv",
+        index=False
+    )
