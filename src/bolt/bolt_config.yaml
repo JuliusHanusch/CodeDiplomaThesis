@@ -24,7 +24,7 @@ torch_compile: false # TODO
 dataloader_num_workers: 0
 use_eos_token: true
 
-prediction_length: 64
+prediction_length: 1 # TODO Remove prediction length completly
 
 n_special_tokens: 4
 pad_token_id: 0
@@ -33,7 +33,7 @@ eos_token_id: 2
 mask_token_id: 3
 
 bolt: true
-context_length: 512
+context_length: 512 # TODO Increase
 
 hidden_size: 512
 num_hidden_layers: 4
@@ -58,7 +58,7 @@ debug_max_patches: 3
 
 # Fixed training config
 batch_size: 32
-learning_rate: 1.0e-4
+learning_rate: 1.0e-3
 warmup_ratio: 0.01
 optim: "adamw_torch_fused"
 max_missing_prop: 0.9
@@ -76,7 +76,7 @@ individual_dropout: 0.05
 perturbation_prob: 0.05
 perturbation_strength: 0.1
 unchanged_patch_prob: 0.05
-patch_perturbation_prob: 0.0 # TODO
+patch_perturbation_prob: 0.1 # TODO
 patch_perturbation_scale_strength: 0.1
 patch_perturbation_noise_strength: 0.1
 

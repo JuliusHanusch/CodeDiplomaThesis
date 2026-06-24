@@ -471,11 +471,6 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
                 train_attention_mask.int() | (1 - orig_mask.int())
             )
 
-            # TODO Check if we can predict nans (if so remove this)
-            # orig_mask = torch.nan_to_num(self.patch(orig_mask), nan=0.0)
-            # orig_mask = (orig_mask.min(dim=-1).values == 1).long()
-            # train_attention_mask = train_attention_mask.int() | (1 - orig_mask.int())
-
             # TODO Predict those tokens where train_attention_mask == 0
 
         if self.chronos_config.use_reg_token:
@@ -521,6 +516,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
         hidden_states, target, loc_scale, inputs_embeds, attention_mask, train_attention_mask = self.encode(
             context=context, mask=mask
         )
+        # Hidden States = Roberta(inputs_embeds)
 
 
         num_patches = hidden_states.size(1)
@@ -568,7 +564,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
 
             if train_attention_mask is not None:
                 # Align to prediction window
-                effective_mask = effective_mask * train_attention_mask.unsqueeze(1)  # broadcast over quantiles
+                effective_mask = 1 - (effective_mask * train_attention_mask.unsqueeze(1))  # broadcast over quantiles
 
             loss = loss * effective_mask
 
