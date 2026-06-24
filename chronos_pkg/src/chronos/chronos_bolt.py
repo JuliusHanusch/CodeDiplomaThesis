@@ -504,7 +504,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
         # TODO Replace encoder with RoBERTa
         encoder_outputs = self.encoder(
             attention_mask=attention_mask,
-            inputs_embeds=inputs_embeds,
+            hidden_states=inputs_embeds,
         )
 
             # TODO attention_mask=attention_mask,
