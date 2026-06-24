@@ -1,11 +1,10 @@
 training_data_paths: 
-<<<<<<< Updated upstream
-#  - "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/train/training_mix.arrow"
- - "./data/train/kernelsynth.arrow"
+  - "./data/train/kernelsynth.arrow"
+#  - "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/train/training_mix.arrow" TODO
 
 probability:
  - 1.0
-#  - 0.1
+#  - 0.1 # TODO 
 
 max_per_device_train_batch_size: 32
 max_steps: 200000
@@ -21,7 +20,7 @@ task: "mlm"
 fp16: true
 random_init: true
 tf32: true
-torch_compile: true
+torch_compile: false # TODO
 dataloader_num_workers: 0
 use_eos_token: true
 
