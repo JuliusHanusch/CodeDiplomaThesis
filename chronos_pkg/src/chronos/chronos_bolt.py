@@ -536,6 +536,11 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             target_mask = (~torch.isnan(target_scaled))
             target_scaled[~target_mask] = 0.0
 
+            print("target_scaled", target_scaled.mean())
+            print("target_scaled shape",target_scaled.shape)            
+            print("quantile_preds shape", quantile_preds.mean())
+            print("quantile_preds", quantile_preds.shape)
+
 
             loss = (
                 2
