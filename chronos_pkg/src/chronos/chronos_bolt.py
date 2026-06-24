@@ -408,7 +408,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
                 self.config.mask_token_id,
                 device=inputs_embeds.device,
             )
-            print(self.config.mask_token_id)
+            # print(self.config.mask_token_id)
             patch_mask = torch.bernoulli(torch.full(inputs_embeds.shape[:-1], 1 - self.chronos_config.masking_prob, device=inputs_embeds.device)).bool()
             mask_embeds = self.shared(mask_input_ids)
             inputs_embeds = torch.where(
@@ -474,7 +474,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             # TODO Check if we can predict nans (if so remove this)
             # orig_mask = torch.nan_to_num(self.patch(orig_mask), nan=0.0)
             # orig_mask = (orig_mask.min(dim=-1).values == 1).long()
-            train_attention_mask = train_attention_mask.int() | (1 - orig_mask.int())
+            # train_attention_mask = train_attention_mask.int() | (1 - orig_mask.int())
 
             # TODO Predict those tokens where train_attention_mask == 0
 
@@ -544,19 +544,6 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
 
         loss = None
         if target is not None:
-            # normalize target
-            # target_scaled, _ = self.instance_norm(target, loc_scale)
-            # assert self.chronos_config.prediction_length >= target.shape[-1]
-
-
-
-            # quantile_preds_shape = quantile_preds.shape
-
-            # Unscale predictions
-            # quantile_preds = self.instance_norm.inverse(
-            #     quantile_preds.view(batch_size, -1),
-            #     loc_scale,
-            # ).view(*quantile_preds_shape)
 
             target_scaled = target.reshape((quantile_preds.shape[0],quantile_preds.shape[-1])).unsqueeze(1) # type: ignore
             target_scaled = target_scaled.to(quantile_preds.device)
