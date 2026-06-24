@@ -537,7 +537,6 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             target_scaled[~target_mask] = 0.0
 
 
-
             loss = (
                 2
                 * torch.abs(
@@ -548,6 +547,8 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
                     )
                 )
             )
+
+            print("loss", loss)
 
             # -----------------------------
             # APPLY TRAIN ATTENTION MASK
