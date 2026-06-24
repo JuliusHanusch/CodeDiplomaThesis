@@ -596,6 +596,11 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             target_mask = (~torch.isnan(target_scaled))
             target_scaled[~target_mask] = 0.0
 
+            #print("target_scaled", target_scaled.mean())
+            #print("target_scaled shape",target_scaled.shape)            
+            #print("quantile_preds shape", quantile_preds.mean())
+            #print("quantile_preds", quantile_preds.shape)
+
 
             loss = (
                 2
@@ -608,18 +613,20 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
                 )
             )
 
-            # print("loss", loss)
-
             # -----------------------------
             # APPLY TRAIN ATTENTION MASK
             # -----------------------------
-            effective_mask = target_mask.float().expand_as(loss)
+            #effective_mask = target_mask.float().expand_as(loss)
+            effective_mask = target_mask.float()
 
             if train_attention_mask is not None:
                 train_attention_mask = train_attention_mask[..., -loss.shape[-1]:]
                 effective_mask = effective_mask * train_attention_mask.unsqueeze(1).float()
 
-            loss = (loss * effective_mask).sum() / effective_mask.sum().clamp_min(1.0)
+            loss = loss.mean(dim=1)
+            loss = loss * effective_mask.squeeze(1)
+            loss = loss.sum() / effective_mask.sum().clamp_min(1.0)
+            #loss = (loss * effective_mask).sum() / effective_mask.sum().clamp_min(1.0)
 
         quantile_preds_unscaled = self.instance_norm.inverse(
             quantile_preds.reshape(batch_size, -1),
