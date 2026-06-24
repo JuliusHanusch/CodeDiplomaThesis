@@ -467,6 +467,7 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         mean_span_length: int = 3,
         masking_prob: float = 0.15,
         task: str = "mlm",
+        bolt: bool = False,
 
 
     ) -> None:
@@ -491,6 +492,7 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         self.mean_span_length = mean_span_length
         self.masking_prob = masking_prob
         self.task = task
+        self.bolt = bolt
 
     def preprocess_entry(self, entry: dict, mode: str) -> dict:
         #logger.info(f"RAW ENTRY KEYS: {list(entry.keys())}")
@@ -680,6 +682,13 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
                 print(f"Added <mask> token with id {self.tokenizer.config.mask_token_id}")
 
             labels = input_ids.clone()
+
+            if self.bolt:
+                return{
+                    "input_ids": input_ids.squeeze(0),
+                    "attention_mask": attention_mask.squeeze(0),
+                    "labels": labels.squeeze(0),
+                }
 
             # --- span masking parameters ---
             masking_prob = self.masking_prob
@@ -1123,7 +1132,8 @@ def main(
         span_masking = span_masking,
         mean_span_length = mean_span_length,
         masking_prob=masking_prob,
-        task=task
+        task=task,
+        bolt = bolt
     ).shuffle(shuffle_buffer_length=shuffle_buffer_length)
 
     print("Steps:", max_steps)
