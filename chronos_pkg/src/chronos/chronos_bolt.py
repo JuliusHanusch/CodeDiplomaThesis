@@ -553,7 +553,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
                 )
             )
 
-            print("loss", loss)
+            print("loss shape", loss.shape)
 
             # -----------------------------
             # APPLY TRAIN ATTENTION MASK
