@@ -408,6 +408,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
                 self.config.mask_token_id,
                 device=inputs_embeds.device,
             )
+            print(self.config.mask_token_id)
             patch_mask = torch.bernoulli(torch.full(inputs_embeds.shape[:-1], 1 - self.chronos_config.masking_prob, device=inputs_embeds.device)).bool()
             mask_embeds = self.shared(mask_input_ids)
             inputs_embeds = torch.where(

@@ -610,6 +610,7 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         return data
 
     def to_hf_format(self, entry: dict) -> dict:
+        print("Why are we here")
         if self.task == "mlm":
             return self._to_mlm(entry)
         elif self.task == "classification":
@@ -1123,7 +1124,7 @@ def main(
         span_masking = span_masking,
         mean_span_length = mean_span_length,
         masking_prob=masking_prob,
-        task=task
+        task=task,
     ).shuffle(shuffle_buffer_length=shuffle_buffer_length)
 
     print("Steps:", max_steps)

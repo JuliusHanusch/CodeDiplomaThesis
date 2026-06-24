@@ -14,7 +14,7 @@ __pycache__/
 *.pyc
 
 # data (usually too big)
-#data/train/
+data/train/
 data/tmp/
 
 
