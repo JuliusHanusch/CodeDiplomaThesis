@@ -224,7 +224,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             roberta_config.is_decoder = False
             self.encoder = RobertaEncoder(roberta_config)
 
-        if self.chronos_config.model_id == "prajjwal1/bert-small": # TODO BERT Base
+        elif self.chronos_config.model_id == "prajjwal1/bert-small": # TODO BERT Base
             bert_config = AutoConfig.from_pretrained("prajjwal1/bert-small")
             for key, value in encoder_config.__dict__.items():
                 if hasattr(bert_config, key):
@@ -450,26 +450,16 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
 
         train_attention_mask = None
         if self.training:
-            perturbation_mask = patch_perturbation_mask.repeat_interleave(self.chronos_config.input_patch_size, dim=1).to(individual_mask.device)
-            patch_mask_flat = patch_mask.repeat_interleave(self.chronos_config.input_patch_size, dim=1)
-            train_attention_mask = perturbation_mask * individual_mask * patch_mask_flat
-            # patched_predict_mask = torch.nan_to_num(self.patch(prediction_mask), nan=0.0)
-            # train_attention_mask = (patched_predict_mask.min(dim=-1).values == 1).long()
-            #train_attention_mask = train_attention_mask * patch_mask.repeat_interleave(self.chronos_config.input_patch_size, dim=-1)
-            # Add unchanged patches to attention mask
-            unchanged_values_to_predict = torch.bernoulli(
-                torch.full(
-                    train_attention_mask.shape,
-                    1 - self.chronos_config.unchanged_patch_prob,
-                    device=inputs_embeds.device
-                )
-            ).bool().long()
-
-            train_attention_mask *= unchanged_values_to_predict
-
-            train_attention_mask = (
-                train_attention_mask.int() | (1 - orig_mask.int())
+            patch_mask_flat = patch_mask.repeat_interleave(
+                self.chronos_config.input_patch_size,
+                dim=1,
             )
+
+            # MAE objective: train only on masked patches
+            train_attention_mask = (~patch_mask_flat) & orig_mask.bool()
+
+            # align in case patch padding changed length
+            train_attention_mask = train_attention_mask[..., -context.shape[-1]:]
 
             # TODO Predict those tokens where train_attention_mask == 0
 
@@ -546,8 +536,6 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             target_mask = (~torch.isnan(target_scaled))
             target_scaled[~target_mask] = 0.0
 
-            print(target_scaled.mean())
-            print(quantile_preds.mean())
 
 
             loss = (
@@ -564,18 +552,13 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             # -----------------------------
             # APPLY TRAIN ATTENTION MASK
             # -----------------------------
-            effective_mask = target_mask.float()  # (B, Q, T)
+            effective_mask = target_mask.float().expand_as(loss)
 
             if train_attention_mask is not None:
-                # Align to prediction window
-                effective_mask = 1 - (effective_mask * train_attention_mask.unsqueeze(1))  # broadcast over quantiles
+                train_attention_mask = train_attention_mask[..., -loss.shape[-1]:]
+                effective_mask = effective_mask * train_attention_mask.unsqueeze(1).float()
 
-            loss = loss * effective_mask
-
-            # loss_per_timestep = loss.detach()  # (B, Q, T)
-            loss = loss.mean(dim=-2)  # Mean over prediction horizon
-            loss = loss.sum(dim=-1)  # Sum over quantile levels
-            loss = loss.mean()  # Mean over batch
+            loss = (loss * effective_mask).sum() / effective_mask.sum().clamp_min(1.0)
 
         quantile_preds_unscaled = self.instance_norm.inverse(
             quantile_preds.reshape(batch_size, -1),
