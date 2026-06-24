@@ -559,7 +559,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             # APPLY TRAIN ATTENTION MASK
             # -----------------------------
             #effective_mask = target_mask.float().expand_as(loss)
-            effective_mask = target_mask.float()  # [B, 1, T]
+            effective_mask = target_mask.float()
 
             if train_attention_mask is not None:
                 train_attention_mask = train_attention_mask[..., -loss.shape[-1]:]
