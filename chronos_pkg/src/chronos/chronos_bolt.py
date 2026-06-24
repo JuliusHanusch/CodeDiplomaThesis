@@ -403,26 +403,26 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             patched_mask.sum(dim=-1) > 0
         )  # (batch_size, patched_seq_length)
 
-        input_embeds = self.input_patch_embedding(patched_context)
+        inputs_embeds = self.input_patch_embedding(patched_context)
 
         if self.debug_patching:
             print("\n=== PATCH EMBEDDINGS ===")
-            print("input_embeds.shape:", input_embeds.shape)
-            print("embed[0, 0, :8]:", input_embeds[0, 0, :8])
+            print("inputs_embeds.shape:", inputs_embeds.shape)
+            print("embed[0, 0, :8]:", inputs_embeds[0, 0, :8])
 
         # Mask out entire patches during training
-        patch_mask = torch.ones(input_embeds.shape[:-1], dtype=torch.bool)
+        patch_mask = torch.ones(inputs_embeds.shape[:-1], dtype=torch.bool)
         if self.training and self.chronos_config.masking_prob > 0.0:
             mask_input_ids = torch.full(
                 (1,1),
                 self.config.mask_token_id,
-                device=input_embeds.device,
+                device=inputs_embeds.device,
             )
-            patch_mask = torch.bernoulli(torch.full(input_embeds.shape[:-1], 1 - self.chronos_config.masking_prob, device=input_embeds.device)).bool()
+            patch_mask = torch.bernoulli(torch.full(inputs_embeds.shape[:-1], 1 - self.chronos_config.masking_prob, device=inputs_embeds.device)).bool()
             mask_embeds = self.shared(mask_input_ids)
-            input_embeds = torch.where(
+            inputs_embeds = torch.where(
                 patch_mask.unsqueeze(-1),
-                input_embeds,
+                inputs_embeds,
                 mask_embeds,
             )
 
@@ -434,27 +434,27 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
                 masked_indices = (~patch_mask[0]).nonzero(as_tuple=True)[0]
                 if len(masked_indices) > 0:
                     i = masked_indices[0].item()
-                    print(f"masked embed[{i}][:8]:", input_embeds[0, i, :8])
+                    print(f"masked embed[{i}][:8]:", inputs_embeds[0, i, :8])
 
             # To verify: assert (patch_mask == ~(input_embeds == mask_embeds).all(dim=-1)).all()
 
         # TODO add default masks for when train = False
-        patch_perturbation_mask = torch.ones(input_embeds.shape[:-1], dtype=torch.bool)
+        patch_perturbation_mask = torch.ones(inputs_embeds.shape[:-1], dtype=torch.bool)
         if self.training and self.chronos_config.patch_perturbation_prob > 0.0:
             # Perturb entire patches during training
-            patch_perturbation_mask = torch.bernoulli(torch.full(input_embeds.shape[:-1], 1 - self.chronos_config.patch_perturbation_prob, device=input_embeds.device)).bool()
+            patch_perturbation_mask = torch.bernoulli(torch.full(inputs_embeds.shape[:-1], 1 - self.chronos_config.patch_perturbation_prob, device=inputs_embeds.device)).bool()
             # only perturb unmasked patches
             patch_perturbation_mask = patch_perturbation_mask | (~patch_mask)
-            noise = torch.randn_like(input_embeds) * self.chronos_config.patch_perturbation_noise_strength
+            noise = torch.randn_like(inputs_embeds) * self.chronos_config.patch_perturbation_noise_strength
             scalar = 1 + (torch.rand(
-                input_embeds.size(0), input_embeds.size(1), 1,
-                device=input_embeds.device,      # <- ensure same device
-                dtype=input_embeds.dtype          # <- ensure same dtype
+                inputs_embeds.size(0), inputs_embeds.size(1), 1,
+                device=inputs_embeds.device,      # <- ensure same device
+                dtype=inputs_embeds.dtype          # <- ensure same dtype
             ) * 2 - 1) * self.chronos_config.patch_perturbation_scale_strength
-            input_embeds = torch.where(
+            inputs_embeds = torch.where(
                 patch_perturbation_mask.unsqueeze(-1),
-                input_embeds,
-                (input_embeds + noise) * scalar,
+                inputs_embeds,
+                (inputs_embeds + noise) * scalar,
             )
 
         train_attention_mask = None
@@ -468,7 +468,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
                 torch.full(
                     train_attention_mask.shape,
                     1 - self.chronos_config.unchanged_patch_prob,
-                    device=input_embeds.device
+                    device=inputs_embeds.device
                 )
             ).bool().long()
 
@@ -490,10 +490,10 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             reg_input_ids = torch.full(
                 (batch_size, 1),
                 self.config.reg_token_id,
-                device=input_embeds.device,
+                device=inputs_embeds.device,
             )
             reg_embeds = self.shared(reg_input_ids)
-            input_embeds = torch.cat([input_embeds, reg_embeds], dim=-2)
+            inputs_embeds = torch.cat([inputs_embeds, reg_embeds], dim=-2)
             attention_mask = torch.cat(
                 [
                     attention_mask.to(self.dtype),
@@ -504,7 +504,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
         # TODO Replace encoder with RoBERTa
         encoder_outputs = self.encoder(
             attention_mask=attention_mask,
-            input_embeds=input_embeds,
+            inputs_embeds=inputs_embeds,
         )
 
             # TODO attention_mask=attention_mask,
@@ -513,7 +513,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             print("hidden_states.shape:", encoder_outputs[0].shape)
 
 
-        return encoder_outputs[0], loc_scale, input_embeds, attention_mask, train_attention_mask
+        return encoder_outputs[0], loc_scale, inputs_embeds, attention_mask, train_attention_mask
 
 
     def forward(
@@ -525,7 +525,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
     ) -> ChronosBoltOutput:
         batch_size = context.size(0)
 
-        hidden_states, loc_scale, input_embeds, attention_mask, train_attention_mask = self.encode(
+        hidden_states, loc_scale, inputs_embeds, attention_mask, train_attention_mask = self.encode(
             context=context, mask=mask
         )
 
