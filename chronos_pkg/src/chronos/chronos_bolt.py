@@ -346,18 +346,8 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             print("mean (sample 0):", context[0].mean().item())
             print("std  (sample 0):", context[0].std().item())
 
-        perturbation_mask = torch.ones_like(mask)
-        if self.training and self.chronos_config.perturbation_prob > 0.0:
-            # individual perturbation
-            perturbation_mask = torch.bernoulli(
-                torch.full_like(mask, 1 - self.chronos_config.perturbation_prob)
-            )
-            noise = torch.randn_like(context) * self.chronos_config.perturbation_strength
-            context = torch.where(
-                perturbation_mask.bool(),
-                context + noise,
-                context,
-            )
+        target = self.patch(context)
+
         # the scaling op above is done in 32-bit precision,
         # then the context is moved to model's dtype
         context = context.to(self.dtype)
@@ -459,7 +449,9 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
 
         train_attention_mask = None
         if self.training:
-            train_attention_mask = perturbation_mask * individual_mask
+            perturbation_mask = patch_perturbation_mask.repeat_interleave(self.chronos_config.input_patch_size, dim=1).to(individual_mask.device)
+            patch_mask_flat = patch_mask.repeat_interleave(self.chronos_config.input_patch_size, dim=1)
+            train_attention_mask = perturbation_mask * individual_mask * patch_mask_flat
             # patched_predict_mask = torch.nan_to_num(self.patch(prediction_mask), nan=0.0)
             # train_attention_mask = (patched_predict_mask.min(dim=-1).values == 1).long()
             #train_attention_mask = train_attention_mask * patch_mask.repeat_interleave(self.chronos_config.input_patch_size, dim=-1)
@@ -513,7 +505,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             print("hidden_states.shape:", encoder_outputs[0].shape)
 
 
-        return encoder_outputs[0], loc_scale, inputs_embeds, attention_mask, train_attention_mask
+        return encoder_outputs[0], target, loc_scale, inputs_embeds, attention_mask, train_attention_mask
 
 
     def forward(
@@ -525,7 +517,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
     ) -> ChronosBoltOutput:
         batch_size = context.size(0)
 
-        hidden_states, loc_scale, inputs_embeds, attention_mask, train_attention_mask = self.encode(
+        hidden_states, target, loc_scale, inputs_embeds, attention_mask, train_attention_mask = self.encode(
             context=context, mask=mask
         )
 
@@ -552,31 +544,30 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
         loss = None
         if target is not None:
             # normalize target
-            target, _ = self.instance_norm(target, loc_scale)
-            target = target.unsqueeze(1)  # type: ignore
+            # target_scaled, _ = self.instance_norm(target, loc_scale)
             # assert self.chronos_config.prediction_length >= target.shape[-1]
 
-            target = target.to(quantile_preds.device)
-            target_mask = (~torch.isnan(target))
-            target[~target_mask] = 0.0
 
 
-            quantile_preds_shape = quantile_preds.shape
+            # quantile_preds_shape = quantile_preds.shape
 
             # Unscale predictions
-            quantile_preds = self.instance_norm.inverse(
-                quantile_preds.view(batch_size, -1),
-                loc_scale,
-            ).view(*quantile_preds_shape)
+            # quantile_preds = self.instance_norm.inverse(
+            #     quantile_preds.view(batch_size, -1),
+            #     loc_scale,
+            # ).view(*quantile_preds_shape)
 
-            quantile_preds = quantile_preds[..., -self.chronos_config.prediction_length:]
+            target_scaled = target.reshape((quantile_preds.shape[0],quantile_preds.shape[-1])).unsqueeze(1) # type: ignore
+            target_scaled = target_scaled.to(quantile_preds.device)
+            target_mask = (~torch.isnan(target_scaled))
+            target_scaled[~target_mask] = 0.0
 
             loss = (
                 2
                 * torch.abs(
-                    (target - quantile_preds)
+                    (target_scaled - quantile_preds)
                     * (
-                        (target <= quantile_preds).float()
+                        (target_scaled <= quantile_preds).float()
                         - self.quantiles.view(1, self.num_quantiles, 1)
                     )
                 )
@@ -589,20 +580,22 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
 
             if train_attention_mask is not None:
                 # Align to prediction window
-                tam = train_attention_mask[..., -self.chronos_config.prediction_length:]  # (B, T)
-                effective_mask = effective_mask * tam.unsqueeze(1)  # broadcast over quantiles
+                effective_mask = effective_mask * train_attention_mask.unsqueeze(1)  # broadcast over quantiles
 
             loss = loss * effective_mask
 
-            loss_per_timestep = loss.detach()  # (B, Q, T)
+            # loss_per_timestep = loss.detach()  # (B, Q, T)
             loss = loss.mean(dim=-2)  # Mean over prediction horizon
             loss = loss.sum(dim=-1)  # Sum over quantile levels
             loss = loss.mean()  # Mean over batch
 
-
+        quantile_preds_unscaled = self.instance_norm.inverse(
+            quantile_preds.reshape(batch_size, -1),
+            loc_scale,
+        ).reshape_as(quantile_preds)
         return ChronosBoltOutput(
             loss=loss,
-            quantile_preds=quantile_preds,
+            quantile_preds=quantile_preds_unscaled,
         )
 
 

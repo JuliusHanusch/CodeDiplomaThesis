@@ -45,14 +45,14 @@ attention_probs_dropout_prob: 0.1
 layer_norm_eps: 1.0e-12
 
 use_reg_token: false
-span_masking: true
+span_masking: false # TODO
 
 n_tokens: 4096
 tokenizer_limit: 15
 tokenizer_class: "MeanScaleUniformBins"
 
 #Patching debug
-debug_patching: true
+debug_patching: false
 debug_batch_idx: 0
 debug_max_patches: 3
 
@@ -66,7 +66,7 @@ drop_prob: 0.2
 lr_scheduler_type: "linear"
 min_past: 60
 
-mean_span_length: 20
+mean_span_length: 1 # TODO 20
 masking_prob: 0.15
 
 # Patching defaults
@@ -76,6 +76,10 @@ individual_dropout: 0.05
 perturbation_prob: 0.05
 perturbation_strength: 0.1
 unchanged_patch_prob: 0.05
-patch_perturbation_prob: 0.1
+patch_perturbation_prob: 0.0 # TODO
 patch_perturbation_scale_strength: 0.1
 patch_perturbation_noise_strength: 0.1
+
+
+# TODO Context up
+# TODO Compare Span len to entire Patch masking 
