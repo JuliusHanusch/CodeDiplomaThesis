@@ -7,8 +7,8 @@ from tqdm import tqdm  # Import tqdm for progress bar
 
 print("Start Converting Data")
 
-#Mix = datasets.load_dataset("autogluon/chronos_datasets", "training_corpus_tsmixup_10m", streaming=True, split="train") # oder "training_corpus_tsmixup_10m"
-Kernel = datasets.load_dataset("autogluon/chronos_datasets", "training_corpus_kernel_synth_1m", streaming=True, split="train") # oder "training_corpus_tsmixup_10m"
+#Mix = datasets.load_dataset("autogluon/chronos_datasets", "training_corpus_tsmixup_10m", streaming=True, split="train") 
+Kernel = datasets.load_dataset("autogluon/chronos_datasets", "training_corpus_kernel_synth_1m", streaming=True, split="train").take(100)
 
 
 
