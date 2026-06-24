@@ -22,6 +22,9 @@ from transformers.models.t5.modeling_t5 import (
     T5Stack,
 )
 from transformers import BertConfig, PreTrainedModel, BertPreTrainedModel
+from transformers.models.bert.modeling_bert import BertEncoder
+
+self.encoder = BertEncoder(bert_config)
 
 from transformers.models.roberta.modeling_roberta import (
     RobertaEncoder
@@ -235,7 +238,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             bert_config.max_position_embeddings = config.chronos_config["context_length"] # TODO Divided by Patch size????
             bert_config.layer_norm_eps = config.layer_norm_eps
             bert_config.is_decoder = False
-            self.encoder = RobertaEncoder(bert_config)
+            self.encoder = BertEncoder(bert_config)
 
         else:
             encoder_config.is_decoder = False
