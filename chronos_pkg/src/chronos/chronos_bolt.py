@@ -219,7 +219,12 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             roberta_config.intermediate_size = config.intermediate_size
             roberta_config.hidden_dropout_prob = config.hidden_dropout_prob
             roberta_config.hidden_act = config.hidden_act
-            roberta_config.max_position_embeddings = config.chronos_config["context_length"] # TODO Divided by Patch size????
+            num_patches = (
+                config.chronos_config["context_length"]
+                // config.chronos_config["input_patch_stride"]
+            )
+
+            roberta_config.max_position_embeddings = num_patches + int(config.chronos_config.get("use_reg_token", False))
             roberta_config.layer_norm_eps = config.layer_norm_eps
             roberta_config.is_decoder = False
             self.encoder = RobertaEncoder(roberta_config)
@@ -235,7 +240,12 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             bert_config.intermediate_size = config.intermediate_size
             bert_config.hidden_dropout_prob = config.hidden_dropout_prob
             bert_config.hidden_act = config.hidden_act
-            bert_config.max_position_embeddings = config.chronos_config["context_length"] # TODO Divided by Patch size????
+            num_patches = (
+                config.chronos_config["context_length"]
+                // config.chronos_config["input_patch_stride"]
+            )
+
+            bert_config.max_position_embeddings = num_patches + int(config.chronos_config.get("use_reg_token", False))
             bert_config.layer_norm_eps = config.layer_norm_eps
             bert_config.is_decoder = False
             self.encoder = BertEncoder(bert_config)
@@ -245,6 +255,26 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
             encoder_config.use_cache = False
             encoder_config.is_encoder_decoder = False
             self.encoder = T5Stack(encoder_config, self.shared)
+
+        self.position_embeddings = nn.Embedding(
+            bert_config.max_position_embeddings,
+            bert_config.hidden_size,
+        )
+
+        self.token_type_embeddings = nn.Embedding(
+            bert_config.type_vocab_size,
+            bert_config.hidden_size,
+        )
+
+        self.bert_embedding_layer_norm = nn.LayerNorm(
+            bert_config.hidden_size,
+            eps=bert_config.layer_norm_eps,
+        )
+
+        self.bert_embedding_dropout = nn.Dropout(
+            bert_config.hidden_dropout_prob,
+        )
+
 
 
         self.num_quantiles = len(self.chronos_config.quantiles)
@@ -479,10 +509,40 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
                 ],
                 dim=-1,
             )
+
+        seq_len = inputs_embeds.size(1)
+
+        position_ids = torch.arange(
+            seq_len,
+            device=inputs_embeds.device,
+        ).unsqueeze(0)
+
+        token_type_ids = torch.zeros(
+            inputs_embeds.shape[:2],
+            dtype=torch.long,
+            device=inputs_embeds.device,
+        )
+
+        inputs_embeds = (
+            inputs_embeds
+            + self.position_embeddings(position_ids)
+            + self.token_type_embeddings(token_type_ids)
+        )
+
+        inputs_embeds = self.bert_embedding_layer_norm(inputs_embeds)
+        inputs_embeds = self.bert_embedding_dropout(inputs_embeds)
+        
         # TODO Replace encoder with RoBERTa
+        extended_attention_mask = self.get_extended_attention_mask(
+            attention_mask,
+            attention_mask.shape,
+            attention_mask.device,
+        )
+
         encoder_outputs = self.encoder(
-            attention_mask=attention_mask,
-            hidden_states=inputs_embeds,
+            inputs_embeds,
+            attention_mask=extended_attention_mask,
+            return_dict=True,
         )
 
             # TODO attention_mask=attention_mask,
@@ -548,7 +608,7 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
                 )
             )
 
-            print("loss", loss)
+            # print("loss", loss)
 
             # -----------------------------
             # APPLY TRAIN ATTENTION MASK

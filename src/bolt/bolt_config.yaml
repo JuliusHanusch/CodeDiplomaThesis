@@ -58,7 +58,7 @@ debug_max_patches: 3
 
 # Fixed training config
 batch_size: 32
-learning_rate: 1.0e-3
+learning_rate: 1.0e-4
 warmup_ratio: 0.01
 optim: "adamw_torch_fused"
 max_missing_prop: 0.9
@@ -83,3 +83,4 @@ patch_perturbation_noise_strength: 0.1
 
 # TODO Context up
 # TODO Compare Span len to entire Patch masking 
+# TODO Do we need BERTForPretraining??
