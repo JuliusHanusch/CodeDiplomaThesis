@@ -24,7 +24,7 @@ from transformers.models.t5.modeling_t5 import (
 from transformers import BertConfig, PreTrainedModel, BertPreTrainedModel
 from transformers.models.bert.modeling_bert import BertEncoder
 
-self.encoder = BertEncoder(bert_config)
+from transformers.models.bert.modeling_bert import BertEncoder
 
 from transformers.models.roberta.modeling_roberta import (
     RobertaEncoder

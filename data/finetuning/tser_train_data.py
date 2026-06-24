@@ -30,7 +30,7 @@ def convert_example(ex, idx):
         "start": ex["start"],
         "target": ts,
         "item_id": str(ex.get("item_id", idx)),
-        #"feat_static_cat": feat_static_cat,  # ✅ FIXED
+        #"feat_static_cat": feat_static_cat,  
         "label": float(ex["to_predict"]),
     }
 

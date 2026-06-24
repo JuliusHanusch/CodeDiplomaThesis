@@ -225,16 +225,16 @@ def get_config_space(training_folder: str, model_ids: str = '["google/t5-efficie
 
 
         #set to default fixed config
-        # "batch_size": 32,
-        # "learning_rate": 1e-4,
-        # "warmup_ratio": 0.01,
-        # "optim": "adamw_torch_fused",
-        # "max_missing_prop": 0.9,
-        # "drop_prob": 0.2,
-        # "lr_scheduler_type": "linear",
-        # "min_past": 60,
-        # "mean_span_length": 20,
-        # "masking_prob": 0.25,
+        "batch_size": 32,
+        "learning_rate": 1e-4,
+        "warmup_ratio": 0.01,
+        "optim": "adamw_torch_fused",
+        "max_missing_prop": 0.9,
+        "drop_prob": 0.2,
+        "lr_scheduler_type": "linear",
+        "min_past": 60,
+        "mean_span_length": 20,
+        "masking_prob": 0.25,
 
 
     }
@@ -327,18 +327,18 @@ def get_config_space(training_folder: str, model_ids: str = '["google/t5-efficie
     #cs.add(Integer("bolt", (0, 1),default=0))
 
     # Search Space
-    cs.add(Float("learning_rate", (0.00005,  0.01), log = True, default=0.001))
-    cs.add(Float("warmup_ratio",(1e-7, 0.1), log = True, default=1e-7))
-    cs.add(Categorical("optim", ["adamw_torch_fused", "adafactor"], default="adamw_torch_fused"))
-    cs.add(Integer("batch_size_expo", (1, 11), log = False, default=5))
-    cs.add(Float("max_missing_prop", (0.8, 1.0), log = True, default=0.9))
-    cs.add(Float("drop_prob", (0.0, 0.5), log = False, default=0.2))
-    cs.add(Categorical("lr_scheduler_type", ["linear", "cosine"],default="linear")) # "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "cosine_with_min_lr
-    cs.add(Integer("min_past_expo", (4, 10),default=6)) # to default
+    # cs.add(Float("learning_rate", (0.00005,  0.01), log = True, default=0.001))
+    # cs.add(Float("warmup_ratio",(1e-7, 0.1), log = True, default=1e-7))
+    # cs.add(Categorical("optim", ["adamw_torch_fused", "adafactor"], default="adamw_torch_fused"))
+    # cs.add(Integer("batch_size_expo", (1, 11), log = False, default=5))
+    # cs.add(Float("max_missing_prop", (0.8, 1.0), log = True, default=0.9))
+    # cs.add(Float("drop_prob", (0.0, 0.5), log = False, default=0.2))
+    # cs.add(Categorical("lr_scheduler_type", ["linear", "cosine"],default="linear")) # "cosine_with_restarts", "polynomial", "constant","constant_with_warmup", "inverse_sqrt", "cosine_with_min_lr
+    # cs.add(Integer("min_past_expo", (4, 10),default=6)) # to default
     
     # #SpanMasking Params
-    cs.add(Integer("mean_span_length", (1, max_mean_span_length), default=def_mean_span_length))
-    cs.add(Float("masking_prob", (0.1, 0.3), log = False, default=def_mask_prob))
+    #cs.add(Integer("mean_span_length", (1, max_mean_span_length), default=def_mean_span_length))
+    # cs.add(Float("masking_prob", (0.1, 0.3), log = False, default=def_mask_prob))
 
 
     #cs.add(Categorical("model_id", model_ids, default=model_ids[0]))

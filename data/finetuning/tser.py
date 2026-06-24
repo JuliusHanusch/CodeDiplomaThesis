@@ -13,7 +13,7 @@ ZENODO_RECORDS = [
     "3902728",
 ]
 
-OUTPUT_DIR = "/content/CodeDiplomaThesis/data/finetuning/zenodo_tser"
+OUTPUT_DIR = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/tser"
 RAW_TEST_DIR = os.path.join(OUTPUT_DIR, "raw_test")
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)

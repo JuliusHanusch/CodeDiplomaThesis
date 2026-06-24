@@ -5,11 +5,12 @@
 #SBATCH --mem=160G # Working Memory
 #SBATCH --time=24:00:00  # Runtime HH:MM:SS
 #SBATCH --account=p_llm_timeseries
-#SBATCH --job-name=aion-bolt
-#SBATCH --output=hpc/logs/aion-dev-%j.out  # Output Address 
-#SBATCH --error=hpc/logs/aion-dev-%j.err  # Output Address
-#SBATCH --array=0-10%1 # Run thrice in series for extra long search beyond 1 Job limit
+#SBATCH --job-name=aion-small
+#SBATCH --output=hpc/logs/aion-small-%j-%a.out  # Output Address 
+#SBATCH --error=hpc/logs/aion-small-%j-%a.err  # Output Address
+#SBATCH --array=0
+#SBATCH --partition=capella
 # Load all Modules
 
 source ./hpc/modules.sh
-python3 ./src/hpo.py --config ./src/search_configs/small_t5.yml  --worker-walltime "48:00:00" --worker-count 20 --job-extra-directives "['--gres=gpu:1']" --memory "160G"
+python3 ./src/hpo.py --config ./src/search_configs/search.yml

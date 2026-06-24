@@ -9,9 +9,9 @@ from datetime import datetime
 # -----------------------------
 # FULL PATHS
 # -----------------------------
-#BASE = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning")
+BASE = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning")
 #colab
-BASE = Path("/content/CodeDiplomaThesis/data/finetuning")
+#BASE = Path("/content/CodeDiplomaThesis/data/finetuning")
 
 
 ARCHIVE_PATH = BASE / "UCRArchive.zip"
@@ -19,13 +19,18 @@ EXTRACT_ROOT = BASE / "UCR_extracted"
 DATA_ROOT = EXTRACT_ROOT / "UCRArchive_2018"
 ARROW_DIR = BASE / "UCR_arrow"
 
-DATASETS = ["GestureMidAirD2", "DistalPhalanxTW", "ArrowHead"]
+DATASETS = ["GestureMidAirD2", "DistalPhalanxTW", "ArrowHead", "Wafer"]
 
 CONTEXT_LENGTH = 512
 COMPRESSION = "lz4"
 PASSWORD = b"someone"
 
 ARROW_DIR.mkdir(parents=True, exist_ok=True)
+
+LABEL_SHIFT = {
+    "GestureMidAirD2": 1,
+    "DistalPhalanxTW": 3,
+}
 
 
 # -----------------------------
@@ -118,6 +123,13 @@ def main():
         # ---- TRAIN ----
         X_train, y_train = load_ucr_tsv(train_path)
         X_train = fix_length(X_train)
+
+        # FIX LABELS PER DATASET
+        shift = LABEL_SHIFT.get(ds, 0)
+        y_train = y_train - shift
+
+        if ds == "Wafer":
+            y_train = (y_train + 1) // 2
 
         out = ARROW_DIR / f"{ds}_train.arrow"
         write_arrow(out, X_train, y_train)

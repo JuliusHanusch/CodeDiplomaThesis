@@ -3,11 +3,11 @@
   link: https://archive.ics.uci.edu/static/public/601/ai4i+2020+predictive+maintenance+dataset.zip
   filename: ai4i2020.csv
   targets:
-    - Air temperature #[K]
-    - Process temperature #[K]
-    - Rotational speed #[rpm]
-    - Torque #[Nm]
-    - Tool wear #[min]
+    - "Air temperature [K]"
+    - "Process temperature [K]"
+    - "Rotational speed [rpm]"
+    - "Torque [Nm]"
+    - "Tool wear [min]"
   offset: -1024
   prediction_length: 64
   num_rolls: 16

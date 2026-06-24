@@ -1,3 +1,0 @@
-[submodule "chronos_pkg"]
-	path = chronos_pkg
-	url = https://github.com/amazon-science/chronos-forecasting.git

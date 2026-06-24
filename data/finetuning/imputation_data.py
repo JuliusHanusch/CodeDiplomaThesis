@@ -174,12 +174,29 @@ OUTPUT_DIR = Path("/content/CodeDiplomaThesis/data/finetuning/Imputation")
 def convert_to_arrow(path, series):
     start = np.datetime64("2000-01-01 00:00", "s")
 
-    dataset = [
-        {"start": start, "target": ts}
-        for ts in tqdm(series, desc=f"Writing {path.name}")
-    ]
+    normalized = []
 
-    ArrowWriter(compression="lz4").write_to_file(dataset, path=str(path))
+    for ts in tqdm(series, desc=f"Normalizing {path.name}"):
+
+        # skip invalid entries
+        if ts is None:
+            continue
+
+        ts = np.asarray(ts)
+
+        # ensure 1D float array
+        if ts.ndim != 1:
+            ts = ts.reshape(-1)
+
+        normalized.append({
+            "start": start,
+            "target": ts.astype(np.float32)
+        })
+
+    ArrowWriter(compression="lz4").write_to_file(
+        normalized,
+        path=str(path)
+    )
 
 
 def to_gluonts_univariate(hf_dataset: datasets.Dataset):

@@ -14,12 +14,11 @@ __pycache__/
 *.pyc
 
 # data (usually too big)
-data/train/
+#data/train/
 data/tmp/
-data/finetuning/
+
 
 # HPC / envs
-hpc/venvs/
 hpc/logs/
 hpc/tools/
 *.o

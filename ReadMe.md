@@ -61,7 +61,14 @@ After The Corpora are prepared we can start the actual Hyperparameter Optimizati
 ```bash
 ./hpc/venvs/setup_gpu_venv.sh
 ```
-
+#ToDo adapt search Space for mlm
+    Do not restirct model size
+#ToDo adapt train  - combination of AION + MLM
+    Hyperparameter for: Span Masking, Smart Random Tokens
+#ToDo Adapt Evaluation
+    Forecast with masked tokens -> MAE, RMSE, no MASE, WQL
+#ToDO HPO.py
+    
 2. SetUp your Search Config, examples can be found inside of `"./src/search_configs"` the search space can be configured inside of `"./src/search_space.py"`
 
 3. Now we can run the search like this:

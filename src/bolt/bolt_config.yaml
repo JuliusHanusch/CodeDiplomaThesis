@@ -1,4 +1,5 @@
 training_data_paths: 
+<<<<<<< Updated upstream
 #  - "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/train/training_mix.arrow"
  - "./data/train/kernelsynth.arrow"
 

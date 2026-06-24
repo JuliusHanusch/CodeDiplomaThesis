@@ -11,7 +11,7 @@ from tqdm import tqdm
 # -----------------------------
 DATA_URL = "https://archive.ics.uci.edu/ml/machine-learning-databases/00240/UCI%20HAR%20Dataset.zip"
 DATA_DIR = "data/finetuning/UCI_HAR"
-ARROW_SAVE_PATH = "data/finetuning/UCI_HAR.arrow"
+ARROW_SAVE_PATH = "data/finetuning/UCI_HAR/UCI_HAR.arrow"
 CONTEXT_LENGTH = 512  # your Chronos context length
 COMPRESSION = "lz4"
 
