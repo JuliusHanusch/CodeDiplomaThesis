@@ -826,7 +826,6 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
 
 class BoltDataset(ChronosDataset):
     def to_hf_format(self, entry: dict) -> dict:
-        print(torch.tensor(entry["past_target"]))
         return {
             "context": torch.tensor(entry["past_target"]),
             "target":  torch.tensor(entry["future_target"]),
