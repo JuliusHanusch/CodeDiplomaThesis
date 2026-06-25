@@ -8,14 +8,14 @@ sys.path.append(str(root_dir.resolve()))
 sys.path.append(str((root_dir / "src").resolve()))
 sys.path.append(str((root_dir / "chronos_pkg/src").resolve()))
 
-from chronos_pkg.src.chronos import ChronosPipeline
+from chronos_pkg.src.chronos_bolt import ChronosBoltPipeline
 
 print("Finished Imports")
-MODEL_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/FineTunedModels/Classification/10000Steps/checkpoint-final"
+MODEL_PATH = "/content/CodeDiplomaThesis/BoltModel/run-1/checkpoint-final"
 #MODEL_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/chronos_models/chronos_-6611716250758806883/run-0/checkpoint-final"
 
 print("🚀 Loading pipeline...")
-pipeline = ChronosPipeline.from_pretrained(MODEL_PATH)
+pipeline = ChronosBoltPipeline.from_pretrained(MODEL_PATH)
 print("✅ Pipeline loaded")
 
 model = pipeline.model.model

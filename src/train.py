@@ -271,6 +271,7 @@ def load_model(
                 model=inner_model,
                 num_labels=num_labels,
             )
+            
         elif task == "anomaly":
             from chronos_pkg.src.chronos.chronos_anomaly import ChronosModelForAnomalyDetection
 
