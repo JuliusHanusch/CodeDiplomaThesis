@@ -645,6 +645,8 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
 class ChronosBoltPipeline(BaseChronosPipeline):
     forecast_type: ForecastType = ForecastType.QUANTILES
     default_context_length: int = 2048
+    model: ChronosBoltModelForForecasting
+
 
     def __init__(self, model: ChronosBoltModelForForecasting):
         super().__init__(inner_model=model)  # type: ignore
@@ -846,7 +848,6 @@ class ChronosBoltPipeline(BaseChronosPipeline):
 
         config = AutoConfig.from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
         assert hasattr(config, "chronos_config"), "Not a Chronos config file"
-        chronos_config = ChronosBoltConfig(**config.chronos_config)
 
 
         architecture = config.architectures[0]
