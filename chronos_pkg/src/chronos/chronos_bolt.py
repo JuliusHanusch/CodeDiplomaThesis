@@ -862,6 +862,7 @@ class ChronosBoltPipeline(BaseChronosPipeline):
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+        print("From Pretrained")
         """
         Load the model, either from a local path S3 prefix or from the HuggingFace Hub.
         Supports the same arguments as ``AutoConfig`` and ``AutoModel`` from ``transformers``.
