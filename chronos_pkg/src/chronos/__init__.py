@@ -10,16 +10,13 @@ from .chronos import (
     MeanScaleUniformBins,
 )
 
-print("🔍 importing chronos_pkg.src.chronos.chronos_bolt ...")
-
 try:
-    import chronos_pkg.src.chronos.chronos_bolt as cb
-    print("✅ chronos_bolt imported")
-    print("DIR:", dir(cb)[:20])
+    from .chronos_bolt import ChronosBoltConfig, ChronosBoltPipeline, ChronosBoltModelForForecasting
+    print("✅ IMPORT WORKS")
 except Exception as e:
-    print("❌ chronos_bolt FAILED")
+    print("❌ IMPORT FAILED")
+    print(type(e).__name__)
     print(e)
-from .chronos_bolt import ChronosBoltConfig, ChronosBoltPipeline, ChronosBoltModelForForecasting
 
 __all__ = [
     "BaseChronosPipeline",
