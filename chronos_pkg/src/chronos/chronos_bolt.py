@@ -848,15 +848,14 @@ class ChronosBoltPipeline(BaseChronosPipeline):
         chronos_cfg = ChronosBoltConfig(**raw_config["chronos_config"])
 
         # 2. YOU decide backbone explicitly
-        inner_model = BertForMaskedLM.from_pretrained(
-            pretrained_model_name_or_path,
-            trust_remote_code=False
-        )
+        # inner_model = BertForMaskedLM.from_pretrained(
+        #     pretrained_model_name_or_path,
+        #     trust_remote_code=False
+        # )
 
         # 3. YOU decide wrapper explicitly
         model = ChronosBoltModelForForecasting(
             config=chronos_cfg,
-            model=inner_model
         )
 
         return cls(model=model)
