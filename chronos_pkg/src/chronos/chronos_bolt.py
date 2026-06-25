@@ -859,3 +859,19 @@ class ChronosBoltPipeline(BaseChronosPipeline):
         )
 
         return cls(model=model)
+    
+    def load_model(cls, pretrained_model_name_or_path, **kwargs):
+        print("ChronosBolt: FULL CONTROL loader")
+
+        # 1. YOU read config manually (NO HF)
+        import json
+        with open(f"{pretrained_model_name_or_path}/config.json") as f:
+            raw_config = json.load(f)
+
+        chronos_cfg = ChronosBoltConfig(**raw_config["chronos_config"])
+
+        model = ChronosBoltModelForForecasting(
+            config=chronos_cfg,
+        )
+
+        return model
