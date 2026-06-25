@@ -645,8 +645,6 @@ class ChronosBoltModelForForecasting(PreTrainedModel):
 class ChronosBoltPipeline(BaseChronosPipeline):
     forecast_type: ForecastType = ForecastType.QUANTILES
     default_context_length: int = 2048
-    model: ChronosBoltModelForForecasting
-
 
     def __init__(self, model: ChronosBoltModelForForecasting):
         super().__init__(inner_model=model)  # type: ignore
@@ -845,27 +843,20 @@ class ChronosBoltPipeline(BaseChronosPipeline):
         Supports the same arguments as ``AutoConfig`` and ``AutoModel``
         from ``transformers``.
         """
+        print("Pretrained Method")
+        print(pretrained_model_name_or_path, "pretrained_model_name_or_path")
 
         config = AutoConfig.from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
-        assert hasattr(config, "chronos_config"), "Not a Chronos config file"
+        print("config", config)
 
+        assert hasattr(config, "chronos_config"), "Not a Chronos config file"
 
         architecture = config.architectures[0]
         class_ = globals().get(architecture)
 
-        
         if class_ is None:
             logger.warning(f"Unknown architecture: {architecture}, defaulting to ChronosBoltModelForForecasting")
             class_ = ChronosBoltModelForForecasting
 
-
-        inner_model = class_.from_pretrained(
-            pretrained_model_name_or_path,
-            *args,
-            **kwargs
-        )
-
-        model = class_(config=inner_model.config)
-        model.load_state_dict(inner_model.state_dict(), strict=False)
-
+        model = class_.from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
         return cls(model=model)
