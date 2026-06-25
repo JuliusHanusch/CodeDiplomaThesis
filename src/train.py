@@ -902,10 +902,9 @@ def main(
     mean_span_length: int = 3,
     masking_prob: float = 0.15,
     individual_dropout:float =0.05,
-    perturbation_prob: float=0.05,
-    perturbation_strength: float=0.1, 
     unchanged_patch_prob: float =0.05, 
     patch_perturbation_prob: float=0.1,
+    patch_masking_prob: float = 0.8,
     patch_perturbation_scale_strength: float=0.1,
     patch_perturbation_noise_strength:float=0.1,
     debug_patching: bool = False,
@@ -913,6 +912,13 @@ def main(
     debug_max_patches: int = 3,
     task: str = "mlm",
     num_labels: int = 6,
+    # ROBERTA Args
+    adam_beta1: float = 0.9,
+    adam_beta2: float = 0.98,
+    adam_epsilon: float = 1e-6,
+    weight_decay: float = 0.01,
+    max_grad_norm: float = 0.0,
+    warmup_steps: int = 0, # 0 when using warmup_ratio
 
 
 
@@ -1058,10 +1064,9 @@ def main(
             use_reg_token=use_reg_token,
             individual_dropout = individual_dropout,
             masking_prob = masking_prob,
-            perturbation_prob = perturbation_prob,
-            perturbation_strength = perturbation_strength,
             unchanged_patch_prob = unchanged_patch_prob,
             patch_perturbation_prob = patch_perturbation_prob,
+            patch_masking_prob = patch_masking_prob,
             patch_perturbation_scale_strength = patch_perturbation_scale_strength,
             patch_perturbation_noise_strength = patch_perturbation_noise_strength,
             model_id=model_id,
@@ -1159,6 +1164,12 @@ def main(
         ddp_find_unused_parameters=False,
         remove_unused_columns=False,
         save_safetensors=False,
+        adam_beta1=adam_beta1,
+        adam_beta2=adam_beta2,
+        adam_epsilon=adam_epsilon,
+        weight_decay=weight_decay,
+        max_grad_norm=max_grad_norm,
+        warmup_steps=warmup_steps,
     )
     if "min_lr" in lr_scheduler_type:
         training_args.lr_scheduler_kwargs = {
