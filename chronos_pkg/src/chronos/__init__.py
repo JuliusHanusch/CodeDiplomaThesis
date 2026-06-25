@@ -9,7 +9,7 @@ from .chronos import (
     ChronosTokenizer,
     MeanScaleUniformBins,
 )
-from .chronos_bolt import ChronosBoltConfig, ChronosBoltPipeline
+from .chronos_bolt import ChronosBoltConfig, ChronosBoltPipeline, ChronosBoltModelForForecasting
 
 __all__ = [
     "BaseChronosPipeline",
@@ -21,4 +21,5 @@ __all__ = [
     "MeanScaleUniformBins",
     "ChronosBoltConfig",
     "ChronosBoltPipeline",
+    "ChronosBoltModelForForecasting",
 ]
