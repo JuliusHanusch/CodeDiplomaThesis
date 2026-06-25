@@ -13,7 +13,7 @@ from typing import List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoModelForMaskedLM
 from transformers.models.t5.modeling_t5 import (
     ACT2FN,
     T5Config,
@@ -837,25 +837,26 @@ class ChronosBoltPipeline(BaseChronosPipeline):
     
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
-        print("In Method")
-        """
-        Load the model, either from a local path S3 prefix or from the HuggingFace Hub.
-        Supports the same arguments as ``AutoConfig`` and ``AutoModel`` from ``transformers``.
-        """
+    def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
+        print("ChronosBolt: FULL CONTROL loader")
 
-        if str(pretrained_model_name_or_path).startswith("s3://"):
-            return BaseChronosPipeline.from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
+        # 1. YOU read config manually (NO HF)
+        import json
+        with open(f"{pretrained_model_name_or_path}/config.json") as f:
+            raw_config = json.load(f)
 
-        config = AutoConfig.from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
-        assert hasattr(config, "chronos_config"), "Not a Chronos config file"
+        chronos_cfg = ChronosBoltConfig(**raw_config["chronos_config"])
 
-        architecture = config.architectures[0]
-        class_ = globals().get(architecture)
+        # 2. YOU decide backbone explicitly
+        inner_model = BertForMaskedLM.from_pretrained(
+            pretrained_model_name_or_path,
+            trust_remote_code=False
+        )
 
-        if class_ is None:
-            logger.warning(f"Unknown architecture: {architecture}, defaulting to ChronosBoltModelForForecasting")
-            class_ = ChronosBoltModelForForecasting
+        # 3. YOU decide wrapper explicitly
+        model = ChronosBoltModelForForecasting(
+            config=chronos_cfg,
+            model=inner_model
+        )
 
-        model = class_.from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
         return cls(model=model)
