@@ -10,9 +10,11 @@ print("Start Converting Data")
 Mix = datasets.load_dataset("autogluon/chronos_datasets", "training_corpus_tsmixup_10m", streaming=True, split="train")
 Kernel = datasets.load_dataset("autogluon/chronos_datasets", "training_corpus_kernel_synth_1m", streaming=True, split="train").take(10000)
 
+print("Both Series Downloaded")
 
 
 Mix_time_series = [np.array(data['target']) for data in tqdm(Mix, desc="Processing time series")]
+print("First Series Processed")
 Kernel_time_series = [np.array(data['target']) for data in tqdm(Kernel, desc="Processing time series")]
 
 
@@ -29,7 +31,9 @@ def convert_to_arrow(
     dataset = [{"start": start, "target": ts} for ts in tqdm(time_series, desc="Converting to Arrow")]
     ArrowWriter(compression=compression).write_to_file(dataset, path=path)
 
+print("Series 1 Converting")
 convert_to_arrow("/content/CodeDiplomaThesis/data/train/training_mix.arrow", time_series=Mix_time_series)
+print("Series 2 Converting")
 convert_to_arrow("/content/CodeDiplomaThesis/data/train/data/train/kernelsynth.arrow", time_series=Kernel_time_series)
 
 
