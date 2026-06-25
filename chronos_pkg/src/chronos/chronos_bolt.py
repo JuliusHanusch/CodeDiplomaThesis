@@ -160,7 +160,6 @@ class ResidualBlock(nn.Module):
 
 
 class ChronosBoltModelForForecasting(PreTrainedModel):
-    config_class = ChronosBoltConfig
     _keys_to_ignore_on_load_missing = [  # type: ignore
         r"input_patch_embedding\.",
         r"output_patch_embedding\.",
@@ -847,13 +846,25 @@ class ChronosBoltPipeline(BaseChronosPipeline):
 
         config = AutoConfig.from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
         assert hasattr(config, "chronos_config"), "Not a Chronos config file"
+        chronos_config = ChronosBoltConfig(**config.chronos_config)
+
 
         architecture = config.architectures[0]
         class_ = globals().get(architecture)
 
+        
         if class_ is None:
             logger.warning(f"Unknown architecture: {architecture}, defaulting to ChronosBoltModelForForecasting")
             class_ = ChronosBoltModelForForecasting
 
-        model = class_.from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
+
+        inner_model = class_.from_pretrained(
+            pretrained_model_name_or_path,
+            *args,
+            **kwargs
+        )
+
+        model = class_(config=inner_model.config)
+        model.load_state_dict(inner_model.state_dict(), strict=False)
+
         return cls(model=model)
