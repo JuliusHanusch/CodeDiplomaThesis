@@ -837,24 +837,22 @@ class ChronosBoltPipeline(BaseChronosPipeline):
     
 
     @classmethod
-    def from_pretrained(cls, *args, **kwargs):
+    def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
         """
         Load the model, either from a local path or from the HuggingFace Hub.
         Supports the same arguments as ``AutoConfig`` and ``AutoModel``
         from ``transformers``.
         """
 
-        config = AutoConfig.from_pretrained(*args, **kwargs)
+        config = AutoConfig.from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
         assert hasattr(config, "chronos_config"), "Not a Chronos config file"
 
         architecture = config.architectures[0]
         class_ = globals().get(architecture)
 
         if class_ is None:
-            logger.warning(
-                f"Unknown architecture: {architecture}, defaulting to ChronosBoltModelForForecasting"
-            )
+            logger.warning(f"Unknown architecture: {architecture}, defaulting to ChronosBoltModelForForecasting")
             class_ = ChronosBoltModelForForecasting
 
-        model = class_.from_pretrained(*args, **kwargs)
+        model = class_.from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
         return cls(model=model)
