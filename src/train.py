@@ -264,26 +264,32 @@ def load_model(
 
 
             config = AutoConfig.from_pretrained(model_id)
-            base_model = AutoModelForMaskedLM.from_config(config)
+            inner_model = AutoModelForMaskedLM.from_pretrained(*args, **kwargs)
 
             model = ChronosModelForClassification(
                 config=ChronosConfig(model_type="mlm"),
-                model=base_model,
+                model=inner_model,
                 num_labels=num_labels,
             )
         elif task == "anomaly":
             from chronos_pkg.src.chronos.chronos_anomaly import ChronosModelForAnomalyDetection
+
+            config = AutoConfig.from_pretrained(model_id)
+            inner_model = AutoModelForMaskedLM.from_pretrained(*args, **kwargs)
        
             model = ChronosModelForAnomalyDetection(
                 config=ChronosConfig(model_type="mlm"),
-                model=base_model,
+                model=inner_model,
             )
         elif task == "tser":
             from chronos_pkg.src.chronos.chronos_tser import ChronosModelForTSER
+
+            config = AutoConfig.from_pretrained(model_id)
+            inner_model = AutoModelForMaskedLM.from_pretrained(*args, **kwargs)
        
             model = ChronosModelForTSER(
                 config=ChronosConfig(model_type="mlm"),
-                model=base_model,
+                model=inner_model,
             )
         else:
             model = AutoModelClass.from_config(config)
