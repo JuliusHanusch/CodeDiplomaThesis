@@ -31,7 +31,11 @@ from transformers.models.roberta.modeling_roberta import (
 )
 from transformers.utils import ModelOutput
 
-from .base import BaseChronosPipeline, ForecastType
+#from .base import BaseChronosPipeline, ForecastType
+
+#colab
+import chronos.chronos as chronos
+from chronos.base import BaseChronosPipeline, ForecastType
 
 logger = logging.getLogger(__file__)
 
