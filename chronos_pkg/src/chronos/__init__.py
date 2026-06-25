@@ -11,13 +11,8 @@ from .chronos import (
     MeanScaleUniformBins,
 )
 
-try:
-    from .chronos_bolt import ChronosBoltConfig, ChronosBoltPipeline, ChronosBoltModelForForecasting
-    print("✅ IMPORT WORKS")
-except Exception as e:
-    print("❌ IMPORT FAILED")
-    print(type(e).__name__)
-    print(e)
+from .chronos_bolt import ChronosBoltConfig, ChronosBoltPipeline
+
 
 __all__ = [
     "BaseChronosPipeline",
@@ -29,5 +24,4 @@ __all__ = [
     "MeanScaleUniformBins",
     "ChronosBoltConfig",
     "ChronosBoltPipeline",
-    "ChronosBoltModelForForecasting",
 ]
