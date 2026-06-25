@@ -30,7 +30,6 @@ from transformers.models.roberta.modeling_roberta import (
     RobertaEncoder
 )
 from transformers.utils import ModelOutput
-from transformers import AutoConfig, BertForMaskedLM
 
 #from .base import BaseChronosPipeline, ForecastType
 
@@ -838,33 +837,27 @@ class ChronosBoltPipeline(BaseChronosPipeline):
     
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+    def from_pretrained(cls, *args, **kwargs):
         print("ENTERED ChronosBoltPipeline.from_pretrained")
+        """
+        Load the model, either from a local path or from the HuggingFace Hub.
+        Supports the same arguments as ``AutoConfig`` and ``AutoModel``
+        from ``transformers``.
+        """
+        print("Pretrained Method")
+        #print(pretrained_model_name_or_path, "pretrained_model_name_or_path")
 
-        # 1. Load config ONLY
-        config = AutoConfig.from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
-        print("config loaded")
+        config = AutoConfig.from_pretrained(*args, **kwargs)
+        print("config", config)
 
-        assert hasattr(config, "chronos_config"), "Not a Chronos checkpoint"
+        assert hasattr(config, "chronos_config"), "Not a Chronos config file"
 
-        chronos_config = config.chronos_config
+        architecture = config.architectures[0]
+        class_ = globals().get(architecture)
 
-        # 2. ALWAYS explicitly load backbone (NO AutoModel)
-        backbone_model_id = chronos_config.get("model_id", "prajjwal1/bert-small")
+        if class_ is None:
+            logger.warning(f"Unknown architecture: {architecture}, defaulting to ChronosBoltModelForForecasting")
+            class_ = ChronosBoltModelForForecasting
 
-        inner_model = BertForMaskedLM.from_pretrained(
-            backbone_model_id,
-            ignore_mismatched_sizes=True,
-            local_files_only=kwargs.get("local_files_only", False),
-        )
-
-        # 3. Load weights from checkpoint (IMPORTANT)
-        state_dict = torch.load(
-            os.path.join(pretrained_model_name_or_path, "model.safetensors"),
-            map_location="cpu"
-        )
-
-        inner_model.load_state_dict(state_dict, strict=False)
-
-        # 4. Wrap into Chronos
-        return cls(model=inner_model)
+        model = class_.from_pretrained(*args, **kwargs)
+        return cls(model=model)
