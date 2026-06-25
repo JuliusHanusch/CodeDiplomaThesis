@@ -839,7 +839,6 @@ class ChronosBoltPipeline(BaseChronosPipeline):
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
         print("ENTERED ChronosBoltPipeline.from_pretrained")
-        raise RuntimeError("HIT OVERRIDE")
         """
         Load the model, either from a local path or from the HuggingFace Hub.
         Supports the same arguments as ``AutoConfig`` and ``AutoModel``
