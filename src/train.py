@@ -264,7 +264,7 @@ def load_model(
 
 
             config = AutoConfig.from_pretrained(model_id)
-            inner_model = AutoModelForMaskedLM.from_pretrained(*args, **kwargs)
+            inner_model = AutoModelClass.from_config(config)
 
             model = ChronosModelForClassification(
                 config=ChronosConfig(model_type="mlm"),
@@ -275,7 +275,7 @@ def load_model(
             from chronos_pkg.src.chronos.chronos_anomaly import ChronosModelForAnomalyDetection
 
             config = AutoConfig.from_pretrained(model_id)
-            inner_model = AutoModelForMaskedLM.from_pretrained(*args, **kwargs)
+            inner_model = AutoModelClass.from_config(config)
        
             model = ChronosModelForAnomalyDetection(
                 config=ChronosConfig(model_type="mlm"),
@@ -285,7 +285,7 @@ def load_model(
             from chronos_pkg.src.chronos.chronos_tser import ChronosModelForTSER
 
             config = AutoConfig.from_pretrained(model_id)
-            inner_model = AutoModelForMaskedLM.from_pretrained(*args, **kwargs)
+            inner_model = AutoModelClass.from_config(config)
        
             model = ChronosModelForTSER(
                 config=ChronosConfig(model_type="mlm"),
