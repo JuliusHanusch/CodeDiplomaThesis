@@ -34,6 +34,6 @@ def convert_to_arrow(
 print("Series 1 Converting")
 convert_to_arrow("/content/CodeDiplomaThesis/data/train/training_mix.arrow", time_series=Mix_time_series)
 print("Series 2 Converting")
-convert_to_arrow("/content/CodeDiplomaThesis/data/train/data/train/kernelsynth.arrow", time_series=Kernel_time_series)
+convert_to_arrow("/content/CodeDiplomaThesis/data/train/kernelsynth.arrow", time_series=Kernel_time_series)
 
 
