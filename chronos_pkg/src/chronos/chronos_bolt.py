@@ -160,6 +160,7 @@ class ResidualBlock(nn.Module):
 
 
 class ChronosBoltModelForForecasting(PreTrainedModel):
+    config_class = ChronosBoltConfig
     _keys_to_ignore_on_load_missing = [  # type: ignore
         r"input_patch_embedding\.",
         r"output_patch_embedding\.",
