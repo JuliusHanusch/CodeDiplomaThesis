@@ -860,6 +860,7 @@ class ChronosBoltPipeline(BaseChronosPipeline):
 
         return cls(model=model)
     
+    @classmethod
     def load_model(cls, pretrained_model_name_or_path, **kwargs):
         print("ChronosBolt: FULL CONTROL loader")
 
