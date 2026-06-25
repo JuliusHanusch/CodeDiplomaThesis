@@ -29,7 +29,7 @@ def convert_to_arrow(
     dataset = [{"start": start, "target": ts} for ts in tqdm(time_series, desc="Converting to Arrow")]
     ArrowWriter(compression=compression).write_to_file(dataset, path=path)
 
-convert_to_arrow("./training_mix.arrow", time_series=Mix_time_series)
-#convert_to_arrow("./data/train/kernelsynth.arrow", time_series=Kernel_time_series)
+convert_to_arrow("/content/CodeDiplomaThesis/data/train/training_mix.arrow", time_series=Mix_time_series)
+#convert_to_arrow("/content/CodeDiplomaThesis/data/train/data/train/kernelsynth.arrow", time_series=Kernel_time_series)
 
 
