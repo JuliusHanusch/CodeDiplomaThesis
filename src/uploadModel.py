@@ -11,14 +11,14 @@ print("Start")
 # from chronos_pkg.src.chronos import ChronosBoltPipeline
 
 #Colab Import
-ROOT = "/content/CodeDiplomaThesis"
+ROOT = "/content/CodeDiplomaThesis/"
 sys.path.append(str(Path(ROOT).resolve()))
 from chronos_pkg.src.chronos import ChronosBoltPipeline
 
 from transformers import AutoConfig
 import json
 from pathlib import Path
-MODEL_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/chronos_models/BoltModel/model"
+MODEL_PATH = "/content/CodeDiplomaThesis/output/run-0/checkpoint-final"
 
 config_path = Path(MODEL_PATH) / "config.json"
 
