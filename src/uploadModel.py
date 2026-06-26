@@ -38,12 +38,12 @@ print("🚀 Loading pipeline...")
 pipeline = ChronosBoltPipeline.from_pretrained(MODEL_PATH)
 print("✅ Pipeline loaded")
 
-model = pipeline.model.model
+model = pipeline.model
 
 print("Starting upload to Hugging Face Hub...")
 start_time = time.time()
 
-model.push_to_hub("ChronosBERT-Classification")
+model.push_to_hub("ChronosBoltBERT-Test")
 
 elapsed = time.time() - start_time
 print(f"Upload finished in {elapsed:.1f} seconds")
