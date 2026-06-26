@@ -28,7 +28,7 @@ model = pipeline.model
 print("Starting upload to Hugging Face Hub...")
 start_time = time.time()
 
-model.push_to_hub("ChronosBoltBERT-Test")
+model.push_to_hub("ChronosBoltBERT-20K")
 
 elapsed = time.time() - start_time
 print(f"Upload finished in {elapsed:.1f} seconds")
