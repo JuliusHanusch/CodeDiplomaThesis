@@ -913,12 +913,12 @@ def main(
     task: str = "mlm",
     num_labels: int = 6,
     # ROBERTA Args
-    adam_beta1: float = 0.9,
-    adam_beta2: float = 0.98,
-    adam_epsilon: float = 1e-6,
-    weight_decay: float = 0.01,
-    max_grad_norm: float = 0.0,
-    warmup_steps: int = 0, # 0 when using warmup_ratio
+    # adam_beta1: float = 0.9,
+    # adam_beta2: float = 0.98,
+    # adam_epsilon: float = 1e-6,
+    # weight_decay: float = 0.01,
+    # max_grad_norm: float = 0.0,
+    # warmup_steps: int = 0, # 0 when using warmup_ratio
 
 
 
