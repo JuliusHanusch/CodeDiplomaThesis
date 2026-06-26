@@ -15,22 +15,7 @@ ROOT = "/content/CodeDiplomaThesis/"
 sys.path.append(str(Path(ROOT).resolve()))
 from chronos_pkg.src.chronos import ChronosBoltPipeline
 
-from transformers import AutoConfig
-import json
-from pathlib import Path
-MODEL_PATH = "/content/CodeDiplomaThesis/output/run-0/checkpoint-final"
-
-config_path = Path(MODEL_PATH) / "config.json"
-
-print(config_path.exists())
-
-with open(config_path) as f:
-    cfg = json.load(f)
-
-print(cfg.get("model_type"))
-
-config = AutoConfig.from_pretrained(MODEL_PATH)
-print(config)
+MODEL_PATH = "/content/CodeDiplomaThesis/output/run-12/checkpoint-final"
 
 print("Finished Imports")
 
