@@ -1107,8 +1107,8 @@ def main(
     
 
     
-    #model_size = get_model_size(model)
-    #print("Number Non-Embedding Params: ", model_size)
+    model_size = get_model_size(model)
+    print("Number Non-Embedding Params: ", model_size)
     expected_model_size = get_expected_model_size(model_id=model_id)
     # if model_size > expected_model_size * 1.1 and limit_model_size:
     #     raise ModelTooBig(
