@@ -913,12 +913,12 @@ def main(
     task: str = "mlm",
     num_labels: int = 6,
     # ROBERTA Args
-    # adam_beta1: float = 0.9,
-    # adam_beta2: float = 0.98,
-    # adam_epsilon: float = 1e-6,
-    # weight_decay: float = 0.01,
-    # max_grad_norm: float = 0.0,
-    # warmup_steps: int = 0, # 0 when using warmup_ratio
+    adam_beta1: float = 0.9,
+    adam_beta2: float = 0.98,
+    adam_epsilon: float = 1e-6,
+    weight_decay: float = 0.01,
+    max_grad_norm: float = 0.0,
+    warmup_steps: int = 0, # 0 when using warmup_ratio
 
 
 
@@ -1164,12 +1164,12 @@ def main(
         ddp_find_unused_parameters=False,
         remove_unused_columns=False,
         save_safetensors=False,
-        # adam_beta1=adam_beta1,
-        # adam_beta2=adam_beta2,
-        # adam_epsilon=adam_epsilon,
-        # weight_decay=weight_decay,
-        # max_grad_norm=max_grad_norm,
-        # warmup_steps=warmup_steps,
+        adam_beta1=adam_beta1,
+        adam_beta2=adam_beta2,
+        adam_epsilon=adam_epsilon,
+        weight_decay=weight_decay,
+        max_grad_norm=max_grad_norm,
+        warmup_steps=warmup_steps,
     )
     if "min_lr" in lr_scheduler_type:
         training_args.lr_scheduler_kwargs = {
