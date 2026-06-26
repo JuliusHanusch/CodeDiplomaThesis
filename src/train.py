@@ -574,10 +574,10 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
                 num_instances=1.0,
                 min_instances=1,
                 min_past=self.min_past,
-                min_future=self.prediction_length,
+                #min_future=self.prediction_length,
             ),
             "test": TestSplitSampler(),
-            "validation": ValidationSplitSampler(min_future=self.prediction_length),
+            "validation": ValidationSplitSampler(min_future=0),
         }[mode]
 
         return InstanceSplitter(
@@ -587,7 +587,7 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
             forecast_start_field="forecast_start",
             instance_sampler=instance_sampler,
             past_length=self.context_length,
-            future_length=self.prediction_length,
+            #future_length=self.prediction_length,
             dummy_value=np.nan,
         )
 
@@ -1001,7 +1001,7 @@ def main(
         Filter(
             partial(
                 has_enough_observations,
-                min_length=min_past + prediction_length,
+                min_length=min_past,# + prediction_length,
                 max_missing_prop=max_missing_prop,
             ),
             FileDataset(path=Path(data_path), freq="h"),
