@@ -134,11 +134,10 @@ def evaluate_chronos(model, tokenizer, test_arrow_path, context_length=512):
                 series[-context_length:],
                 dtype=torch.float32
             )
-
             input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
 
-            input_ids = input_ids.to(device)
-            attention_mask = attention_mask.to(device)
+            input_ids = input_ids.unsqueeze(0).to(device)
+            attention_mask = attention_mask.unsqueeze(0).to(device)
 
             outputs = model(
                 input_ids=input_ids,
