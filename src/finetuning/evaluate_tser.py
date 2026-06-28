@@ -44,26 +44,22 @@ def extract_features(series: np.ndarray):
 
     return np.array([mean, std, min_v, max_v, last, slope], dtype=np.float32)
 
-def train_ridge_baseline(root: Path, context_length=512):
+def train_ridge_baseline(train_dataset, context_length=512):
 
     X_feat = []
     y_target = []
 
-    for dataset_dir in root.glob("*"):
 
-        train_file = dataset_dir / "train.arrow"
-        if not train_file.exists():
-            continue
 
-        X, y = load_arrow(train_file)
+    X, y = load_arrow(train_dataset)
 
-        for i in range(len(X)):
+    for i in range(len(X)):
 
-            series = X[i][-context_length:]
-            label = float(y[i])
+        series = X[i][-context_length:]
+        label = float(y[i])
 
-            X_feat.append(extract_features(series))
-            y_target.append(label)
+        X_feat.append(extract_features(series))
+        y_target.append(label)
 
     X_feat = np.vstack(X_feat)
     y_target = np.asarray(y_target, dtype=np.float32)
@@ -206,6 +202,10 @@ def evaluate_all_baselines(ridge_model, test_arrow_path, context_length=512):
 if __name__ == "__main__":
 
     model_path = "/content/CodeDiplomaThesis/FineTunedModels/TSER/run-1/checkpoint-final"
+    test_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/HouseHoldPowerConsumption/test.arrow"
+    train_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/HouseHoldPowerConsumption/train.arrow"
+
+
 
     pipeline = ChronosPipeline.from_pretrained(
         model_path,
@@ -224,66 +224,63 @@ if __name__ == "__main__":
 
     rows = []
 
+
     # ---------------------------------------------------
     # iterate over datasets
     # ---------------------------------------------------
-    for dataset_dir in ROOT.glob("*"):
 
-        test_file = dataset_dir / "test.arrow"
 
-        if not test_file.exists():
-            continue
 
-        print("\n" + "=" * 50)
-        print("Evaluating:", dataset_dir.name)
+    print("\n" + "=" * 50)
+    print("Evaluating:", test_dataset)
 
-        # -------------------------
-        # Chronos model
-        # -------------------------
-        chronos_metrics = evaluate_chronos(
-            model=model,
-            tokenizer=tokenizer,
-            test_arrow_path=test_file,
-        )
+    # -------------------------
+    # Chronos model
+    # -------------------------
+    chronos_metrics = evaluate_chronos(
+        model=model,
+        tokenizer=tokenizer,
+        test_arrow_path=test_dataset,
+    )
 
-        # -------------------------
-        # Baselines
-        # -------------------------
-        ridge_model = train_ridge_baseline(ROOT)
-        baseline_metrics = evaluate_all_baselines(
-            ridge_model,
-            test_file,
-        )
+    # -------------------------
+    # Baselines
+    # -------------------------
+    ridge_model = train_ridge_baseline(train_dataset=train_dataset)
+    baseline_metrics = evaluate_all_baselines(
+        ridge_model,
+        test_dataset
+    )
 
-        print("\nBaselines:")
-        print(f"Mean  RMSE: {baseline_metrics['mean']['rmse']:.6f}")
-        print(f"Last  RMSE: {baseline_metrics['last']['rmse']:.6f}")
-        print(f"Ridge RMSE: {baseline_metrics['ridge']['rmse']:.6f}")
+    print("\nBaselines:")
+    print(f"Mean  RMSE: {baseline_metrics['mean']['rmse']:.6f}")
+    print(f"Last  RMSE: {baseline_metrics['last']['rmse']:.6f}")
+    print(f"Ridge RMSE: {baseline_metrics['ridge']['rmse']:.6f}")
 
-        rows.append({
-            "dataset": dataset_dir.name,
+    rows.append({
+        "dataset": test_dataset,
 
-            "chronos_rmse": chronos_metrics["rmse"],
-            "chronos_mae": chronos_metrics["mae"],
+        "chronos_rmse": chronos_metrics["rmse"],
+        "chronos_mae": chronos_metrics["mae"],
 
-            "mean_rmse": baseline_metrics["mean"]["rmse"],
-            "mean_mae": baseline_metrics["mean"]["mae"],
+        "mean_rmse": baseline_metrics["mean"]["rmse"],
+        "mean_mae": baseline_metrics["mean"]["mae"],
 
-            "last_rmse": baseline_metrics["last"]["rmse"],
-            "last_mae": baseline_metrics["last"]["mae"],
+        "last_rmse": baseline_metrics["last"]["rmse"],
+        "last_mae": baseline_metrics["last"]["mae"],
 
-            "ridge_rmse": baseline_metrics["ridge"]["rmse"],
-            "ridge_mae": baseline_metrics["ridge"]["mae"],
+        "ridge_rmse": baseline_metrics["ridge"]["rmse"],
+        "ridge_mae": baseline_metrics["ridge"]["mae"],
 
-            "n_samples": chronos_metrics["n_samples"],
-        })
+        "n_samples": chronos_metrics["n_samples"],
+    })
 
-    results = pd.DataFrame(rows)
+results = pd.DataFrame(rows)
 
-    print("\nFinal Results")
-    print(results)
+print("\nFinal Results")
+print(results)
 
-    out_file = ROOT / "tser_eval_results.csv"
-    results.to_csv(out_file, index=False)
+out_file = ROOT / "tser_eval_results.csv"
+results.to_csv(out_file, index=False)
 
-    print(f"\nSaved to {out_file}")
+print(f"\nSaved to {out_file}")
