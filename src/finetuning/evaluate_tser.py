@@ -32,17 +32,29 @@ def mae(preds, labels):
 def extract_features(series: np.ndarray):
     series = np.asarray(series)
 
+    series = np.nan_to_num(series, nan=0.0, posinf=0.0, neginf=0.0)
+
     mean = np.mean(series)
     std = np.std(series)
     min_v = np.min(series)
     max_v = np.max(series)
     last = series[-1]
 
-    # simple trend (robust slope)
     x = np.arange(len(series))
-    slope = np.polyfit(x, series, 1)[0] if len(series) > 1 else 0.0
 
-    return np.array([mean, std, min_v, max_v, last, slope], dtype=np.float32)
+    if len(series) < 2 or np.all(series == series[0]):
+        slope = 0.0
+    else:
+        try:
+            slope = np.polyfit(x, series, 1)[0]
+        except Exception:
+            slope = 0.0
+
+    feat = np.array([mean, std, min_v, max_v, last, slope], dtype=np.float32)
+
+    feat = np.nan_to_num(feat, nan=0.0, posinf=0.0, neginf=0.0)
+
+    return feat
 
 def train_ridge_baseline(train_dataset, context_length=512):
 
@@ -228,9 +240,6 @@ if __name__ == "__main__":
     # iterate over datasets
     # ---------------------------------------------------
 
-
-
-    print("\n" + "=" * 50)
     print("Evaluating:", test_dataset)
 
     # -------------------------
@@ -245,16 +254,17 @@ if __name__ == "__main__":
     # -------------------------
     # Baselines
     # -------------------------
-    ridge_model = train_ridge_baseline(train_dataset=train_dataset)
-    baseline_metrics = evaluate_all_baselines(
-        ridge_model,
-        test_dataset
-    )
+    #ridge_model = train_ridge_baseline(train_dataset=train_dataset)
+    #baseline_metrics = evaluate_all_baselines(
+    #    ridge_model,
+    #    test_dataset
+    #)
 
-    print("\nBaselines:")
-    print(f"Mean  RMSE: {baseline_metrics['mean']['rmse']:.6f}")
-    print(f"Last  RMSE: {baseline_metrics['last']['rmse']:.6f}")
-    print(f"Ridge RMSE: {baseline_metrics['ridge']['rmse']:.6f}")
+    #print("\nBaselines:")
+    #print(f"Mean  RMSE: {baseline_metrics['mean']['rmse']:.6f}")
+    #print(f"Last  RMSE: {baseline_metrics['last']['rmse']:.6f}")
+    #print(f"Ridge RMSE: {baseline_metrics['ridge']['rmse']:.6f}")
+
 
     rows.append({
         "dataset": test_dataset,
@@ -262,16 +272,16 @@ if __name__ == "__main__":
         "chronos_rmse": chronos_metrics["rmse"],
         "chronos_mae": chronos_metrics["mae"],
 
-        "mean_rmse": baseline_metrics["mean"]["rmse"],
-        "mean_mae": baseline_metrics["mean"]["mae"],
+        #"mean_rmse": baseline_metrics["mean"]["rmse"],
+        #"mean_mae": baseline_metrics["mean"]["mae"],
 
-        "last_rmse": baseline_metrics["last"]["rmse"],
-        "last_mae": baseline_metrics["last"]["mae"],
+        #"last_rmse": baseline_metrics["last"]["rmse"],
+        #"last_mae": baseline_metrics["last"]["mae"],
 
-        "ridge_rmse": baseline_metrics["ridge"]["rmse"],
-        "ridge_mae": baseline_metrics["ridge"]["mae"],
+        #"ridge_rmse": baseline_metrics["ridge"]["rmse"],
+        #"ridge_mae": baseline_metrics["ridge"]["mae"],
 
-        "n_samples": chronos_metrics["n_samples"],
+        #"n_samples": chronos_metrics["n_samples"],
     })
 
 results = pd.DataFrame(rows)
