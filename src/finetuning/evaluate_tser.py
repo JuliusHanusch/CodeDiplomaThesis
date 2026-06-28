@@ -205,7 +205,7 @@ def evaluate_all_baselines(ridge_model, test_arrow_path, context_length=512):
 # -------------------------
 if __name__ == "__main__":
 
-    model_path = "/data/horse/ws/juha972b-AION-BERT-Chronos/FineTunedModels/TSER/run-1/checkpoint-final"
+    model_path = "/content/CodeDiplomaThesis/FineTunedModels/TSER/run-1/checkpoint-final"
 
     pipeline = ChronosPipeline.from_pretrained(
         model_path,
