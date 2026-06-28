@@ -617,7 +617,6 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         return data
 
     def to_hf_format(self, entry: dict) -> dict:
-        print("Why are we here")
         if self.task == "mlm":
             return self._to_mlm(entry)
         elif self.task == "classification":
