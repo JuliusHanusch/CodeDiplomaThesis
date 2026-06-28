@@ -2,19 +2,21 @@ from pathlib import Path
 import numpy as np
 import torch
 import pandas as pd
-from datasets import load_dataset
 import sys
-from datasets import get_dataset_config_names
+from sklearn.linear_model import Ridge
 
-#colab import
-ROOT = "/content/CodeDiplomaThesis"
-sys.path.append(str(Path(ROOT).resolve()))
+# -------------------------
+# PATH SETUP
+# -------------------------
+ROOT = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER")
+sys.path.append(str(ROOT))
 
 from chronos_pkg.src.chronos import ChronosPipeline
+from gluonts.dataset.arrow import ArrowFile
 
 
 # -------------------------
-# RMSE
+# METRICS
 # -------------------------
 def rmse(preds, labels):
     preds = np.asarray(preds)
@@ -27,38 +29,115 @@ def mae(preds, labels):
     labels = np.asarray(labels)
     return np.mean(np.abs(preds - labels))
 
+def extract_features(series: np.ndarray):
+    series = np.asarray(series)
+
+    mean = np.mean(series)
+    std = np.std(series)
+    min_v = np.min(series)
+    max_v = np.max(series)
+    last = series[-1]
+
+    # simple trend (robust slope)
+    x = np.arange(len(series))
+    slope = np.polyfit(x, series, 1)[0] if len(series) > 1 else 0.0
+
+    return np.array([mean, std, min_v, max_v, last, slope], dtype=np.float32)
+
+def train_ridge_baseline(root: Path, context_length=512):
+
+    X_feat = []
+    y_target = []
+
+    for dataset_dir in root.glob("*"):
+
+        train_file = dataset_dir / "train.arrow"
+        if not train_file.exists():
+            continue
+
+        X, y = load_arrow(train_file)
+
+        for i in range(len(X)):
+
+            series = X[i][-context_length:]
+            label = float(y[i])
+
+            X_feat.append(extract_features(series))
+            y_target.append(label)
+
+    X_feat = np.vstack(X_feat)
+    y_target = np.asarray(y_target, dtype=np.float32)
+
+    model = Ridge(alpha=1.0)
+    model.fit(X_feat, y_target)
+
+    return model
+# -------------------------
+# GLUONTS ARROW LOADER (CORRECT)
+# -------------------------
+def load_arrow(path: Path):
+    """
+    Reads TS-ARROW dataset using GluonTS ArrowFile reader.
+    """
+
+    dataset = ArrowFile(path)
+
+    series = []
+    labels = []
+
+    for entry in dataset:
+        target = np.asarray(entry["target"], dtype=np.float32)
+
+        # handle possible label keys safely
+        if "label" in entry:
+            label = entry["label"]
+        elif "y" in entry:
+            label = entry["y"]
+        else:
+            raise KeyError("No label found in dataset entry")
+
+        series.append(target)
+        labels.append(float(label))
+
+    return np.stack(series), np.array(labels, dtype=np.float32)
+
 
 # -------------------------
-# Evaluation
+# BASELINES
 # -------------------------
-def evaluate_tser_dataset(
-    model,
-    tokenizer,
-    dataset_name,
-    repo="foxy-steve/monash_uea_ucr_tser",
-    context_length: int = 512,
-):
-    
+def baseline_predict_mean(series):
+    return np.mean(series)
+
+
+def baseline_predict_last(series):
+    return series[-1]
+
+
+# -------------------------
+# CHRONOS EVALUATION
+# -------------------------
+def evaluate_chronos(model, tokenizer, test_arrow_path, context_length=512):
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     model.eval()
     model.to(device)
 
-    ds = load_dataset(repo, dataset_name)["test"]
-    print(ds[0].keys())
+    X, y = load_arrow(test_arrow_path)
 
     all_preds = []
     all_labels = []
 
     with torch.no_grad():
+        for i in range(len(X)):
 
-        for ex in ds:
+            series = X[i]
+            label = float(y[i])
 
-            series = np.asarray(ex["timeseries"], dtype=np.float32)
-            label = float(ex["to_predict"])
-
-
-            context = torch.tensor(series[-context_length:], dtype=torch.float32)
+            context = torch.tensor(
+                series[-context_length:],
+                dtype=torch.float32
+            )
 
             input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
 
@@ -73,22 +152,51 @@ def evaluate_tser_dataset(
             preds = outputs["logits"].detach().cpu().numpy().reshape(-1)
 
             all_preds.extend(preds)
-            all_labels.extend([label] * len(preds))  # safer
+            all_labels.extend([label] * len(preds))
 
-    # -------------------------
-    # FINAL METRICS
-    # -------------------------
-    all_preds = np.array(all_preds, dtype=np.float32)
-    all_labels = np.array(all_labels, dtype=np.float32)
-
-    rmse_score = rmse(all_preds, all_labels)
-    mae_score = mae(all_preds, all_labels)
     return {
-        "rmse": rmse_score,
-        "mae": mae_score,
+        "rmse": rmse(all_preds, all_labels),
+        "mae": mae(all_preds, all_labels),
         "n_samples": len(all_preds),
-        "preds": all_preds,
-        "labels": all_labels,
+    }
+
+
+def evaluate_all_baselines(ridge_model, test_arrow_path, context_length=512):
+
+    X, y = load_arrow(test_arrow_path)
+
+    preds_mean = []
+    preds_last = []
+    preds_ridge = []
+
+    for i in range(len(X)):
+
+        series = X[i][-context_length:]
+        label = float(y[i])
+
+        # naive baselines
+        preds_mean.append(np.mean(series))
+        preds_last.append(series[-1])
+
+        # ridge baseline
+        feat = extract_features(series).reshape(1, -1)
+        preds_ridge.append(ridge_model.predict(feat)[0])
+
+    y = np.asarray(y, dtype=np.float32)
+
+    return {
+        "mean": {
+            "rmse": rmse(preds_mean, y),
+            "mae": mae(preds_mean, y),
+        },
+        "last": {
+            "rmse": rmse(preds_last, y),
+            "mae": mae(preds_last, y),
+        },
+        "ridge": {
+            "rmse": rmse(preds_ridge, y),
+            "mae": mae(preds_ridge, y),
+        },
     }
 
 
@@ -97,9 +205,7 @@ def evaluate_tser_dataset(
 # -------------------------
 if __name__ == "__main__":
 
-    model_path = "/content/CodeDiplomaThesis/FineTunedModels/TSER/run-10/checkpoint-final"
-
-    print("Loading model:", model_path)
+    model_path = "/data/horse/ws/juha972b-AION-BERT-Chronos/FineTunedModels/TSER/run-1/checkpoint-final"
 
     pipeline = ChronosPipeline.from_pretrained(
         model_path,
@@ -108,44 +214,68 @@ if __name__ == "__main__":
 
     model = pipeline.model
 
-    regressor = Path(model_path) / "tser.pt"
-
+    # load regression head
+    regressor_path = Path(model_path) / "tser.pt"
     model.regressor.load_state_dict(
-        torch.load(regressor, map_location="cpu")
+        torch.load(regressor_path, map_location="cpu")
     )
 
     tokenizer = pipeline.tokenizer
 
-    repo = "foxy-steve/monash_uea_ucr_tser"
-
-    datasets = get_dataset_config_names(repo)
-
-    print(f"Found {len(datasets)} datasets:")
-    print(datasets)
-
     rows = []
 
-    for ds_name in datasets:
+    # ---------------------------------------------------
+    # iterate over datasets
+    # ---------------------------------------------------
+    for dataset_dir in ROOT.glob("*"):
 
-        print("\n" + "=" * 30)
-        print(f"Evaluating {ds_name}")
-        print("=" * 30)
+        test_file = dataset_dir / "test.arrow"
 
-        metrics = evaluate_tser_dataset(
+        if not test_file.exists():
+            continue
+
+        print("\n" + "=" * 50)
+        print("Evaluating:", dataset_dir.name)
+
+        # -------------------------
+        # Chronos model
+        # -------------------------
+        chronos_metrics = evaluate_chronos(
             model=model,
             tokenizer=tokenizer,
-            dataset_name=ds_name,
+            test_arrow_path=test_file,
         )
 
-        print(f"RMSE     : {metrics['rmse']:.6f}")
-        print(f"MAE      : {metrics['mae']:.6f}")
-        print(f"Samples  : {metrics['n_samples']}")
+        # -------------------------
+        # Baselines
+        # -------------------------
+        ridge_model = train_ridge_baseline(ROOT)
+        baseline_metrics = evaluate_all_baselines(
+            ridge_model,
+            test_file,
+        )
+
+        print("\nBaselines:")
+        print(f"Mean  RMSE: {baseline_metrics['mean']['rmse']:.6f}")
+        print(f"Last  RMSE: {baseline_metrics['last']['rmse']:.6f}")
+        print(f"Ridge RMSE: {baseline_metrics['ridge']['rmse']:.6f}")
 
         rows.append({
-            "dataset": ds_name,
-            "rmse": metrics["rmse"],
-            "mae": metrics["mae"],
-            "n_samples": metrics["n_samples"],
+            "dataset": dataset_dir.name,
+
+            "chronos_rmse": chronos_metrics["rmse"],
+            "chronos_mae": chronos_metrics["mae"],
+
+            "mean_rmse": baseline_metrics["mean"]["rmse"],
+            "mean_mae": baseline_metrics["mean"]["mae"],
+
+            "last_rmse": baseline_metrics["last"]["rmse"],
+            "last_mae": baseline_metrics["last"]["mae"],
+
+            "ridge_rmse": baseline_metrics["ridge"]["rmse"],
+            "ridge_mae": baseline_metrics["ridge"]["mae"],
+
+            "n_samples": chronos_metrics["n_samples"],
         })
 
     results = pd.DataFrame(rows)
@@ -153,9 +283,7 @@ if __name__ == "__main__":
     print("\nFinal Results")
     print(results)
 
-    output_file = "/Results/Finetuning/TSER/tser_eval_results.csv"
+    out_file = ROOT / "tser_eval_results.csv"
+    results.to_csv(out_file, index=False)
 
-    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
-    results.to_csv(output_file, index=False)
-
-    print(f"\nSaved to {output_file}")
+    print(f"\nSaved to {out_file}")
