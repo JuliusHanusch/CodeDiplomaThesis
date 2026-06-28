@@ -8,7 +8,7 @@ from sklearn.linear_model import Ridge
 # -------------------------
 # PATH SETUP
 # -------------------------
-ROOT = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER")
+ROOT = Path("/content/CodeDiplomaThesis")
 sys.path.append(str(ROOT))
 
 from chronos_pkg.src.chronos import ChronosPipeline
