@@ -212,7 +212,7 @@ def evaluate_all_baselines(ridge_model, test_arrow_path, context_length=512):
 # -------------------------
 if __name__ == "__main__":
 
-    model_path = "/content/CodeDiplomaThesis/FineTunedModels/TSER/run-0/checkpoint-final"
+    model_path = "/content/CodeDiplomaThesis/FineTunedModels/TSER/run-1/checkpoint-final"
     test_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/PPGDalia/test.arrow"
     train_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/PPGDalia/train.arrow"
 
@@ -251,19 +251,22 @@ if __name__ == "__main__":
         test_arrow_path=test_dataset,
     )
 
-    # -------------------------
-    # Baselines
-    # -------------------------
-    #ridge_model = train_ridge_baseline(train_dataset=train_dataset)
-    #baseline_metrics = evaluate_all_baselines(
-    #    ridge_model,
-    #    test_dataset
-    #)
+    ridge_model = train_ridge_baseline(train_dataset=train_dataset)
 
-    #print("\nBaselines:")
-    #print(f"Mean  RMSE: {baseline_metrics['mean']['rmse']:.6f}")
-    #print(f"Last  RMSE: {baseline_metrics['last']['rmse']:.6f}")
-    #print(f"Ridge RMSE: {baseline_metrics['ridge']['rmse']:.6f}")
+    baseline_metrics = evaluate_all_baselines(
+        ridge_model,
+        test_dataset
+    )
+
+    print("\nBaselines:")
+    print(f"Mean  RMSE: {baseline_metrics['mean']['rmse']:.6f}")
+    print(f"Mean  MAE : {baseline_metrics['mean']['mae']:.6f}")
+
+    print(f"Last  RMSE: {baseline_metrics['last']['rmse']:.6f}")
+    print(f"Last  MAE : {baseline_metrics['last']['mae']:.6f}")
+
+    print(f"Ridge RMSE: {baseline_metrics['ridge']['rmse']:.6f}")
+    print(f"Ridge MAE : {baseline_metrics['ridge']['mae']:.6f}")
 
 
     rows.append({
@@ -272,16 +275,15 @@ if __name__ == "__main__":
         "chronos_rmse": chronos_metrics["rmse"],
         "chronos_mae": chronos_metrics["mae"],
 
-        #"mean_rmse": baseline_metrics["mean"]["rmse"],
-        #"mean_mae": baseline_metrics["mean"]["mae"],
+        "mean_rmse": baseline_metrics["mean"]["rmse"],
+        "mean_mae": baseline_metrics["mean"]["mae"],
 
-        #"last_rmse": baseline_metrics["last"]["rmse"],
-        #"last_mae": baseline_metrics["last"]["mae"],
+        "last_rmse": baseline_metrics["last"]["rmse"],
+        "last_mae": baseline_metrics["last"]["mae"],
 
-        #"ridge_rmse": baseline_metrics["ridge"]["rmse"],
-        #"ridge_mae": baseline_metrics["ridge"]["mae"],
+        "ridge_rmse": baseline_metrics["ridge"]["rmse"],
+        "ridge_mae": baseline_metrics["ridge"]["mae"],
 
-        #"n_samples": chronos_metrics["n_samples"],
     })
 
 results = pd.DataFrame(rows)
