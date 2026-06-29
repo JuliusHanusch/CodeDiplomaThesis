@@ -212,9 +212,9 @@ def evaluate_all_baselines(ridge_model, test_arrow_path, context_length=512):
 # -------------------------
 if __name__ == "__main__":
 
-    model_path = "/content/CodeDiplomaThesis/FineTunedModels/TSER/run-5/checkpoint-final"
-    test_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/HouseHoldPowerConsumption/test.arrow"
-    train_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/HouseHoldPowerConsumption/train.arrow"
+    model_path = "/content/CodeDiplomaThesis/FineTunedModels/TSER/run-6/checkpoint-final"
+    test_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/LiveFuelMoisture/test.arrow"
+    train_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/LiveFuelMoisture/train.arrow"
 
 
 
