@@ -212,9 +212,9 @@ def evaluate_all_baselines(ridge_model, test_arrow_path, context_length=512):
 # -------------------------
 if __name__ == "__main__":
 
-    model_path = "/content/CodeDiplomaThesis/FineTunedModels/TSER/run-2/checkpoint-final"
-    test_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/PPGDalia/test.arrow"
-    train_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/PPGDalia/train.arrow"
+    model_path = "/content/CodeDiplomaThesis/FineTunedModels/TSER/run-3/checkpoint-final"
+    test_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/FloodModeling/test.arrow"
+    train_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/FloodModeling/train.arrow"
 
 
 
@@ -290,8 +290,9 @@ results = pd.DataFrame(rows)
 
 print("\nFinal Results")
 print(results)
+ds_name = Path(test_dataset).parent.name
 
-out_file = ROOT / "tser_eval_results.csv"
+out_file = ROOT / f"{ds_name}.csv"
 results.to_csv(out_file, index=False)
 
 print(f"\nSaved to {out_file}")
