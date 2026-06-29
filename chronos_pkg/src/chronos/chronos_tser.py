@@ -12,7 +12,7 @@ class ChronosModelForTSER(ChronosModel):
         config: ChronosConfig,
         model: PreTrainedModel,
         pooling: str = "mean",
-        loss_type: str = "mae",
+        loss_type: str = "mse",
     ):
         super().__init__(config=config, model=model)
 
