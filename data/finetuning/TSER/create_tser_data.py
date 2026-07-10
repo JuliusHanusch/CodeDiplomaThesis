@@ -24,40 +24,81 @@ CONTEXT_LENGTH = 512
 # convert pandas TSER format -> numpy tensor
 # ---------------------------------------------------------
 
-def dataframe_to_array(df):
+
+def dataframe_to_array(df, multivariate=False):
 
     dims = [c for c in df.columns if c.startswith("dim_")]
 
-    col = df[dims[0]].values  # pick one channel only early
-
     X = []
-    for s in col:
-        X.append(np.asarray(s.values, dtype=np.float32))
+
+    for i in range(len(df)):
+
+        if multivariate:
+            # Shape: (channels, timesteps)
+            series = []
+
+            for dim in dims:
+                values = np.asarray(df.iloc[i][dim].values, dtype=np.float32)
+                series.append(values)
+
+            X.append(np.stack(series, axis=0))
+
+        else:
+            # First channel only
+            values = np.asarray(
+                df.iloc[i][dims[0]].values,
+                dtype=np.float32
+            )
+            X.append(values)
 
     return np.array(X, dtype=object)
 
 
 
-def write_arrow(X, y, out_file):
+def write_arrow(X, y, out_file, multivariate=False):
 
     dataset = []
 
-    for i in tqdm(range(len(X)), desc="Writing Arrow"):
+    for i in tqdm(range(len(X)), desc=f"Writing {out_file.name}"):
 
         series = np.asarray(X[i], dtype=np.float32)
 
-        # Keep the most recent CONTEXT_LENGTH values
-        series = series[-CONTEXT_LENGTH:]
+        if multivariate:
 
-        # Left-pad with NaNs
-        out = np.full(CONTEXT_LENGTH, np.nan, dtype=np.float32)
-        out[-len(series):] = series
+            # series shape: (channels, length)
+            channels, length = series.shape
+
+            if length > CONTEXT_LENGTH:
+                series = series[:, -CONTEXT_LENGTH:]
+
+            out = np.full(
+                (channels, CONTEXT_LENGTH),
+                np.nan,
+                dtype=np.float32
+            )
+
+            out[:, -series.shape[1]:] = series
+
+        else:
+
+            if len(series) > CONTEXT_LENGTH:
+                series = series[-CONTEXT_LENGTH:]
+
+            out = np.full(
+                CONTEXT_LENGTH,
+                np.nan,
+                dtype=np.float32
+            )
+
+            out[-len(series):] = series
+
 
         dataset.append({
             "start": datetime(2000, 1, 1),
             "target": out,
             "label": float(y[i]),
         })
+
 
     ArrowWriter(compression="lz4").write_to_file(
         dataset,
@@ -76,9 +117,10 @@ for zip_path in ROOT.glob("*.zip"):
     with zipfile.ZipFile(zip_path, "r") as z:
         z.extractall(out_dir)
 
-    # -----------------------------------------------------
+  # -----------------------------------------------------
     # TRAIN
     # -----------------------------------------------------
+
     train_file = next(out_dir.rglob("*TRAIN.ts"))
     print("Loading train:", train_file)
 
@@ -87,19 +129,36 @@ for zip_path in ROOT.glob("*.zip"):
         return_separate_X_and_y=True
     )
 
-    X_train = dataframe_to_array(df_train)
+    # Univariate
+    # X_train = dataframe_to_array(df_train, multivariate=False)
 
-    print("Train shape:", X_train.shape)
+    # write_arrow(
+    #     X_train,
+    #     y_train,
+    #     out_dir / "train.arrow",
+    #     multivariate=False
+    # )
+
+
+    # Multivariate
+    X_train_full = dataframe_to_array(
+        df_train,
+        multivariate=True
+    )
 
     write_arrow(
-        X_train,
+        X_train_full,
         y_train,
-        out_dir / "train.arrow"
+        out_dir / "train_full.arrow",
+        multivariate=True
     )
+
+
 
     # -----------------------------------------------------
     # TEST
     # -----------------------------------------------------
+
     test_file = next(out_dir.rglob("*TEST.ts"))
     print("Loading test:", test_file)
 
@@ -108,16 +167,26 @@ for zip_path in ROOT.glob("*.zip"):
         return_separate_X_and_y=True
     )
 
-    X_test = dataframe_to_array(df_test)
+    # Univariate
+    # X_test = dataframe_to_array(df_test, multivariate=False)
 
-    print("Test shape:", X_test.shape)
+    # write_arrow(
+    #     X_test,
+    #     y_test,
+    #     out_dir / "test.arrow",
+    #     multivariate=False
+    # )
 
-    write_arrow(
-        X_test,
-        y_test,
-        out_dir / "test.arrow"
+
+    # Multivariate
+    X_test_full = dataframe_to_array(
+        df_test,
+        multivariate=True
     )
 
-    print(f"Saved train + test for {name}")
-
-print("\nDONE.")
+    write_arrow(
+        X_test_full,
+        y_test,
+        out_dir / "test_full.arrow",
+        multivariate=True
+    )
