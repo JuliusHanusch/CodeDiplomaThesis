@@ -1,34 +1,34 @@
 import logging
+from typing import Optional
+import sqlite3
+import argparse
+import yaml
+import json
+import torch
+import typer
+from gluonts.itertools import batcher
+from tqdm.auto import tqdm
 from pathlib import Path
-from typing import Iterable, Optional
-
-# Include Parent Directory to load packages from
-import sys  
-# root_dir = Path(__file__).parent.parent
-# sys.path.append(str(root_dir.resolve()))  
-# sys.path.append(str((root_dir/"code").resolve()))  
-# sys.path.append(str((Path(__file__).parent.parent / "chronos_pkg/src").resolve()))
-
 from transformers import AutoModelForMaskedLM, AutoConfig
+
 import numpy as np
 import pandas as pd
 pd.set_option("display.max_columns", None)
 pd.set_option("display.max_rows", None)
 pd.set_option("display.width", 200)  # optional, for wide display
 pd.set_option("display.max_colwidth", None)
-import torch
-import typer
-import yaml
-from gluonts.itertools import batcher
-from tqdm.auto import tqdm
 
-#ColabImport
-ROOT = "/content/CodeDiplomaThesis"
-sys.path.append(str(Path(ROOT).resolve()))
-from src.utils import load_val_data
-from chronos_pkg.src.chronos import ChronosConfig
+# Include Parent Directory to load packages from
+import sys  
+root_dir = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi")
+sys.path.append(str(root_dir.resolve()))  
+sys.path.append(str((root_dir/"src").resolve()))  
+sys.path.append(str((root_dir / "chronos_pkg/src").resolve()))
+
 from chronos_pkg.src.chronos import ChronosPipeline
+from chronos_pkg.src.chronos import ChronosConfig
 from chronos_pkg.src.chronos.chronos_bolt import ChronosBoltModelForForecasting, ChronosBoltConfig
+from src.utils import load_val_data
 
 app = typer.Typer(pretty_exceptions_enable=False)
 
@@ -90,14 +90,14 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array):
         # Series scale based on ground truth values
         series_scale = np.nanmean(np.abs(labels_array[i, token_mask]))
 
-        # Prevent division by zero
+        #Prevent division by zero
         series_scale = max(series_scale, 1.0)
 
         mae_model = np.mean(abs_error_model[i, token_mask])
-        rmse_model = np.sqrt(np.mean(error_model[i, token_mask] ** 2))
+        #rmse_model = np.sqrt(np.mean(error_model[i, token_mask] ** 2))
 
         mae_scaled_series.append(mae_model / series_scale)
-        rmse_scaled_series.append(rmse_model / series_scale)
+        #rmse_scaled_series.append(rmse_model / series_scale)
 
     mae_scaled_mean = (
         float(np.mean(mae_scaled_series))
@@ -105,13 +105,13 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array):
         else np.nan
     )
 
-    rmse_scaled_mean = (
-        float(np.mean(rmse_scaled_series))
-        if rmse_scaled_series
-        else np.nan
-    )
+    # rmse_scaled_mean = (
+    #     float(np.mean(rmse_scaled_series))
+    #     if rmse_scaled_series
+    #     else np.nan
+    # )
 
-    return mae_scaled_mean, rmse_scaled_mean
+    return mae_scaled_mean, mae_model
 
 # def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array):
 #     n_series, seq_len = labels_array.shape
@@ -379,43 +379,53 @@ def impute_span_bolt():
 
 
 
-@app.command()
 def main(
-    config_path: Path,
-    chronos_model_id: str ="juliushanusch/ChronosBERT-Optimized",
-    #chronos_model_id: str = "/content/CodeDiplomaThesis/FineTunedModels/Imputation/run-1/checkpoint-final",
+    idx: int,
     device: str = "cuda",
     torch_dtype: str = "float32",
     batch_size: int = 32,
     num_samples: int = 20,
-    mean_span_length: int = 32.0,
-    mask_ratio: float = 0.15,
     temperature: Optional[float] = None,
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
     bolt: bool = False,
-) -> pd.DataFrame:
-    if isinstance(torch_dtype, str):
-        torch_dtype = getattr(torch, torch_dtype)
-    assert isinstance(torch_dtype, torch.dtype)
+):
 
-    # if bolt:
-    #      PipelineClass = ChronosBoltPipeline
-    # else:
-    #     PipelineClass = ChronosPipeline
 
-    # pipeline = PipelineClass.from_pretrained(
-    #      chronos_model_id,
-    #      device_map=device,
-    #      torch_dtype=torch_dtype,
-    #  )
+    DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/imputation.db"
+    CONFIG_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/eval_configs/in-domain.yaml"
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT dataset, model_path, mean_span_length, masking_ratio
+        FROM runs
+        WHERE id = ?
+    """, (idx,))
+
+    row = cur.fetchone()
+
+    if row is None:
+        raise ValueError(f"No run found for id={idx}")
+
+    dataset_name, model_path, mean_span_length, masking_ratio = row
     
-    model, tokenizer, context_length = load_chronos_bert(chronos_model_id, device, torch_dtype)
+    model, tokenizer, context_length = load_chronos_bert(model_path, device, torch_dtype)
 
 
-    # Load backtest configs
-    with open(config_path) as fp:
+    with open(CONFIG_PATH) as fp:
         backtest_configs = yaml.safe_load(fp)
+
+    backtest_configs = [
+        cfg for cfg in backtest_configs
+        if cfg["name"] == dataset_name
+    ]
+
+    if len(backtest_configs) == 0:
+        raise ValueError(f"Dataset '{dataset_name}' not found in config.")
+
+    metrics = []
 
     metrics = []
     for config in backtest_configs:
@@ -455,7 +465,7 @@ def main(
                             tokenizer=tokenizer,
                             context_length=context_length,
                             mean_span_length= mean_span_length,
-                            mask_ratio=mask_ratio,
+                            mask_ratio=masking_ratio,
                             num_samples=num_samples,
                             temperature=1.0
                         )
@@ -475,41 +485,46 @@ def main(
             logger.info("Regular Metrics Done")
 
 
-            MASE_Imputation, Scaled_RMSE_Imputation = timeseries_level_scaled_metrics(
+            MASE_Chronos, MAE_Chronos = timeseries_level_scaled_metrics(
                 labels_array=labels_array,
                 preds_array=preds_array_imputation,
                 mask_array=mask_array_imputation,
                 )
+            
+            print("DEBUG:")
+            print("MASE_Chronos:", MASE_Chronos, type(MASE_Chronos))
+            print("MAE_Chronos:", MAE_Chronos, type(MAE_Chronos))
+            
+            conn = sqlite3.connect(DB_PATH)
 
-            dataset_metrics = pd.DataFrame([{
-                "Model_vs_Naive_MAE_Imputation_Series": MASE_Imputation,
-                "Model_vs_Naive_RMSE_Imputation_series": Scaled_RMSE_Imputation,
-            }])
+            conn.execute("""
+                UPDATE runs
+                SET
+                    MAE=?,
+                    MASE=?
+                WHERE id=?
+            """, (
+                float(MAE_Chronos),
+                float(MASE_Chronos),
+                idx,
+            ))
 
-
-
-            logger.info(f"Metrics:\n{dataset_metrics}")
-
-            metrics.append({
-                "dataset": dataset_name,
-                "target": target,
-
-                "MASE_Imputation":MASE_Imputation,
-                "Scaled_RMSE_Imputation":Scaled_RMSE_Imputation,
-                })
-
-    results_df = pd.DataFrame(metrics)
-    csv_path = Path("/content/CodeDiplomaThesis/Results/Finetuning/Imputation/MSL_32_015_results.csv")
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    results_df.to_csv(csv_path, index=False)
+            conn.commit()
 
     return
 
 
 
 if __name__ == "__main__":
-    logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--index", type=int, required=True)
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
     logger = logging.getLogger("Chronos Evaluation")
     logger.setLevel(logging.INFO)
-    app()
+
+    main(idx=args.index)
 

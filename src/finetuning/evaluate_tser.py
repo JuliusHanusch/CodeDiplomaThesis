@@ -4,20 +4,20 @@ import torch
 import pandas as pd
 import sys
 from sklearn.linear_model import Ridge
+import sqlite3
+import argparse
 
-# -------------------------
-# PATH SETUP
-# -------------------------
-ROOT = Path("/content/CodeDiplomaThesis")
-sys.path.append(str(ROOT))
+
+root_dir = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi")
+sys.path.append(str(root_dir.resolve()))  
+sys.path.append(str((root_dir/"src").resolve()))  
+sys.path.append(str((root_dir / "chronos_pkg/src").resolve()))
 
 from chronos_pkg.src.chronos import ChronosPipeline
+
 from gluonts.dataset.arrow import ArrowFile
 
 
-# -------------------------
-# METRICS
-# -------------------------
 def rmse(preds, labels):
     preds = np.asarray(preds)
     labels = np.asarray(labels)
@@ -110,9 +110,6 @@ def load_arrow(path: Path):
     return np.stack(series), np.array(labels, dtype=np.float32)
 
 
-# -------------------------
-# BASELINES
-# -------------------------
 def baseline_predict_mean(series):
     return np.mean(series)
 
@@ -121,9 +118,6 @@ def baseline_predict_last(series):
     return series[-1]
 
 
-# -------------------------
-# CHRONOS EVALUATION
-# -------------------------
 def evaluate_chronos(model, tokenizer, test_arrow_path, context_length=512):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -207,16 +201,33 @@ def evaluate_all_baselines(ridge_model, test_arrow_path, context_length=512):
     }
 
 
-# -------------------------
-# MAIN
-# -------------------------
 if __name__ == "__main__":
 
-    model_path = "/content/CodeDiplomaThesis/FineTunedModels/TSER/run-8/checkpoint-final"
-    test_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/LiveFuelMoisture/test.arrow"
-    train_dataset = "/content/CodeDiplomaThesis/data/finetuning/TSER/LiveFuelMoisture/train.arrow"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--index", type=int, required=True)
+    args = parser.parse_args()
 
+    idx = args.index
 
+    DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/tser.db"
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT model_path, test_data
+        FROM runs
+        WHERE id = ?
+    """, (idx,))
+
+    row = cur.fetchone()
+
+    if row is None:
+        raise ValueError(f"No run found for id={idx}")
+
+    model_path, test_dataset = row
+
+    conn.close()
 
     pipeline = ChronosPipeline.from_pretrained(
         model_path,
@@ -227,72 +238,71 @@ if __name__ == "__main__":
 
     # load regression head
     regressor_path = Path(model_path) / "tser.pt"
-    model.regressor.load_state_dict(
-        torch.load(regressor_path, map_location="cpu")
-    )
+    if regressor_path.exists():
+        model.regressor.load_state_dict(
+            torch.load(regressor_path, map_location="cpu")
+        )
 
     tokenizer = pipeline.tokenizer
 
-    rows = []
-
-
-    # ---------------------------------------------------
-    # iterate over datasets
-    # ---------------------------------------------------
-
-    print("Evaluating:", test_dataset)
-
-    # -------------------------
-    # Chronos model
-    # -------------------------
-    chronos_metrics = evaluate_chronos(
+    results = evaluate_chronos(
         model=model,
         tokenizer=tokenizer,
         test_arrow_path=test_dataset,
     )
 
-    ridge_model = train_ridge_baseline(train_dataset=train_dataset)
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
 
-    baseline_metrics = evaluate_all_baselines(
-        ridge_model,
-        test_dataset
-    )
+    cur.execute("""
+        UPDATE runs
+        SET rmse = ?,
+            mae = ?,
+            status = 'DONE'
+        WHERE id = ?
+    """, (
+        results["rmse"],
+        results["mae"],
+        idx,
+    ))
 
-    print("\nBaselines:")
-    print(f"Mean  RMSE: {baseline_metrics['mean']['rmse']:.6f}")
-    print(f"Mean  MAE : {baseline_metrics['mean']['mae']:.6f}")
+    conn.commit()
+    conn.close()
 
-    print(f"Last  RMSE: {baseline_metrics['last']['rmse']:.6f}")
-    print(f"Last  MAE : {baseline_metrics['last']['mae']:.6f}")
+    # ridge_model = train_ridge_baseline(train_dataset=train_dataset)
 
-    print(f"Ridge RMSE: {baseline_metrics['ridge']['rmse']:.6f}")
-    print(f"Ridge MAE : {baseline_metrics['ridge']['mae']:.6f}")
+    # baseline_metrics = evaluate_all_baselines(
+    #     ridge_model,
+    #     test_dataset
+    # )
+
+    # print("\nBaselines:")
+    # print(f"Mean  RMSE: {baseline_metrics['mean']['rmse']:.6f}")
+    # print(f"Mean  MAE : {baseline_metrics['mean']['mae']:.6f}")
+
+    # print(f"Last  RMSE: {baseline_metrics['last']['rmse']:.6f}")
+    # print(f"Last  MAE : {baseline_metrics['last']['mae']:.6f}")
+
+    # print(f"Ridge RMSE: {baseline_metrics['ridge']['rmse']:.6f}")
+    # print(f"Ridge MAE : {baseline_metrics['ridge']['mae']:.6f}")
 
 
-    rows.append({
-        "dataset": test_dataset,
+    # rows.append({
+    #     "dataset": test_dataset,
 
-        "chronos_rmse": chronos_metrics["rmse"],
-        "chronos_mae": chronos_metrics["mae"],
+    #     "chronos_rmse": chronos_metrics["rmse"],
+    #     "chronos_mae": chronos_metrics["mae"],
 
-        "mean_rmse": baseline_metrics["mean"]["rmse"],
-        "mean_mae": baseline_metrics["mean"]["mae"],
+    #     "mean_rmse": baseline_metrics["mean"]["rmse"],
+    #     "mean_mae": baseline_metrics["mean"]["mae"],
 
-        "last_rmse": baseline_metrics["last"]["rmse"],
-        "last_mae": baseline_metrics["last"]["mae"],
+    #     "last_rmse": baseline_metrics["last"]["rmse"],
+    #     "last_mae": baseline_metrics["last"]["mae"],
 
-        "ridge_rmse": baseline_metrics["ridge"]["rmse"],
-        "ridge_mae": baseline_metrics["ridge"]["mae"],
+    #     "ridge_rmse": baseline_metrics["ridge"]["rmse"],
+    #     "ridge_mae": baseline_metrics["ridge"]["mae"],
 
-    })
+    # })
 
-results = pd.DataFrame(rows)
 
-print("\nFinal Results")
-print(results)
-ds_name = Path(test_dataset).parent.name
 
-out_file = ROOT / f"{ds_name}.csv"
-results.to_csv(out_file, index=False)
-
-print(f"\nSaved to {out_file}")

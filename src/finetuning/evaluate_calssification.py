@@ -7,27 +7,28 @@ from pathlib import Path
 import sys
 import os
 from collections import Counter
+import argparse
+import sqlite3
+import json
 
+import numpy as np
+from pathlib import Path
 
-ROOT = "/content/CodeDiplomaThesis"
-sys.path.append(str(Path(ROOT).resolve()))
+root_dir = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi")
+sys.path.append(str(root_dir.resolve()))  
+sys.path.append(str((root_dir/"src").resolve()))  
+sys.path.append(str((root_dir / "chronos_pkg/src").resolve()))
+
 from chronos_pkg.src.chronos import ChronosPipeline
 
-LABEL_SHIFT = {
-    "GestureMidAirD2_TEST": 1,
-    "DistalPhalanxTW_TEST": 3,
-}
-# -----------------------------
-# LOAD UCR TSV (correct label handling)
-# -----------------------------
+
 def load_ucr_tsv(tsv_path, context_length=512):
     df = pd.read_csv(tsv_path, sep="\t", header=None).values
 
     y = df[:, 0]
     X = df[:, 1:].astype(np.float32)
 
-    # IMPORTANT:
-    # UCR labels are often 1-based → shift to 0-based safely
+
     y = y.astype(int)
     unique = np.unique(y)
     label_map = {v: i for i, v in enumerate(unique)}
@@ -43,9 +44,36 @@ def load_ucr_tsv(tsv_path, context_length=512):
     return X, y
 
 
-# -----------------------------
-# EVALUATION
-# -----------------------------
+def load_uci_har(test_dir: str, context_length: int = 512):
+
+    test_dir = Path(test_dir)
+
+    x_path = test_dir / "X_test.txt"
+    y_path = test_dir / "y_test.txt"
+
+    if not x_path.exists():
+        raise FileNotFoundError(f"Missing: {x_path}")
+    if not y_path.exists():
+        raise FileNotFoundError(f"Missing: {y_path}")
+
+    X = np.loadtxt(x_path)
+    y = np.loadtxt(y_path).astype(int)
+
+    y = y - 1
+
+    if X.ndim == 1:
+        X = X.reshape(1, -1)
+
+
+    if X.shape[1] < context_length:
+        pad = context_length - X.shape[1]
+        X = np.pad(X, ((0, 0), (0, pad)))
+    else:
+        X = X[:, -context_length:]
+
+    return X, y
+
+
 def evaluate_model(model, tokenizer, X, y, batch_size=32):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)
@@ -84,11 +112,6 @@ def evaluate_model(model, tokenizer, X, y, batch_size=32):
     acc = accuracy_score(labels_all, preds_all)
     f1 = f1_score(labels_all, preds_all, average="weighted")
 
-    print("\n=== UCR Evaluation ===")
-    print(f"Accuracy: {acc:.4f}")
-    print(f"F1 (weighted): {f1:.4f}")
-    print("\nReport:")
-    print(classification_report(labels_all, preds_all))
 
     return {
         "accuracy": acc,
@@ -97,24 +120,37 @@ def evaluate_model(model, tokenizer, X, y, batch_size=32):
         "labels": labels_all,
     }
 
-
-# -----------------------------
-# RUN
-# -----------------------------
 if __name__ == "__main__":
 
-    model_path = "/content/CodeDiplomaThesis/FineTunedModels/classification/run-14/checkpoint-final/"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--index", type=int, required=True)
+    args = parser.parse_args()
 
-    #tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/DistalPhalanxTW/DistalPhalanxTW_TEST.tsv"
-    #tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TEST.tsv"
-    tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/GestureMidAirD2/GestureMidAirD2_TEST.tsv"
-    #tsv_path = "/content/CodeDiplomaThesis/data/finetuning/UCR_extracted/UCRArchive_2018/Wafer/Wafer_TEST.tsv"
+    idx = args.index
 
-
-
-    num_labels = 26
     batch_size = 32
     context_length = 512
+
+    DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/classification.db"
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT config, model_path, test_data, dataset
+        FROM runs
+        WHERE id = ?
+    """, (idx,))
+
+    row = cur.fetchone()
+
+    if row is None:
+        raise ValueError(f"No run found for id={idx}")
+
+    config_json, model_path, test_data, dataset = row
+    config = json.loads(config_json)
+
+    num_labels = config["num_labels"]
 
     pipeline = ChronosPipeline.from_pretrained(
         model_path,
@@ -125,38 +161,47 @@ if __name__ == "__main__":
     model = pipeline.model
     tokenizer = pipeline.tokenizer
 
-    # load trained classifier head if exists
     classifier_path = Path(model_path) / "classifier.pt"
     if classifier_path.exists():
         model.classifier.load_state_dict(
             torch.load(classifier_path, map_location="cpu")
         )
 
-    X_test, y_test = load_ucr_tsv(tsv_path, context_length)
+    if dataset == "UCI-HAR":
 
-    dataset_name = os.path.basename(tsv_path).replace(".tsv", "")
+        X_test, y_test = load_uci_har(
+            test_dir=test_data,
+            context_length=context_length
+        )
+
+    else:
+
+        X_test, y_test = load_ucr_tsv(
+            tsv_path=test_data,
+            context_length=context_length
+        )
+
+
 
 
     results = evaluate_model(model, tokenizer, X_test, y_test, batch_size)
 
-    majority_class = Counter(y_test).most_common(1)[0][0]
-
-    naive_preds = np.full_like(y_test, fill_value=majority_class)
-
-    naive_acc = accuracy_score(y_test, naive_preds)
-    naive_f1 = f1_score(y_test, naive_preds, average="weighted")
 
 
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
 
-    summary_df = pd.DataFrame([{
-        "dataset": dataset_name,
-        "accuracy": results["accuracy"],
-        "f1": results["f1"],
-        "naive_accuracy": naive_acc,
-        "naive_f1": naive_f1
-    }])
+    cur.execute("""
+        UPDATE runs
+        SET accuracy = ?,
+            f1 = ?,
+            status = 'DONE'
+        WHERE id = ?
+    """, (
+        results["accuracy"],
+        results["f1"],
+        idx,
+    ))
 
-    summary_df.to_csv(
-        "/content/CodeDiplomaThesis/GestureMidAirD2.csv",
-        index=False
-    )
+    conn.commit()
+    conn.close()

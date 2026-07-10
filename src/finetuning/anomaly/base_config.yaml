@@ -1,0 +1,77 @@
+training_data_paths:
+  - "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Anomaly/ucr_processed/1sddb40_train.arrow"
+
+probability:
+  - 1.0
+
+# ============================
+# Model
+# ============================
+#Best High Fidelity
+model_id: "juliushanusch/ChronosBERT-Optimized"
+model_type: mlm                 
+random_init: false              
+tie_embeddings: false          
+
+# ============================
+# Tokenizer
+# ============================
+tokenizer_class: "MeanScaleUniformBins" 
+tokenizer_kwargs:
+  low_limit: -15.0
+  high_limit: 15.0
+
+# ✅ Make these consistent with new <mask> token setup
+n_tokens: 4096            
+n_special_tokens: 4        
+pad_token_id: 0
+bos_token_id: 1
+eos_token_id: 2
+mask_token_id: 3           
+use_eos_token: true
+task: "anomaly"
+
+# ============================
+# Sequence setup
+# ============================
+context_length: 512
+prediction_length: 64
+min_past: 60
+
+# ============================
+# Training
+# ============================
+max_steps: 1000
+save_steps: 1000
+log_steps: 100
+per_device_train_batch_size: 32
+
+learning_rate: 1e-4
+
+optim: adamw_torch_fused
+gradient_accumulation_steps: 1
+shuffle_buffer_length: 10000   
+lr_scheduler_type: linear
+warmup_ratio: 0.01            
+dataloader_num_workers: 1
+max_missing_prop: 0.9
+num_samples: 20
+temperature: 1.0
+top_k: 50
+top_p: 1.0
+num_labels: 6
+
+# ============================
+# Output / System
+# ============================
+output_dir: ./FineTunedModels/Anomaly/
+tf32: true
+torch_compile: true
+
+# ============================
+# HF Extras
+# ============================
+cache_dir: /tmp/hf-cache
+trust_remote_code: false
+model_revision: main
+torch_dtype: float32
