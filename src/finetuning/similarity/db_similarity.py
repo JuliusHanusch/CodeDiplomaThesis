@@ -1,6 +1,6 @@
 import sqlite3
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/imputation.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/similarity.db"
 
 
 def init_db():
@@ -14,14 +14,12 @@ def init_db():
             config JSON,
             dataset TEXT,
             train_data TEXT,
+            test_data TEXT,
             status TEXT,
             model_path TEXT,
-            masking_ratio REAL,
-            mean_span_length REAL,
-            MAE REAL,
-            MASE REAL,
-            MAE_Lin REAL,
-            MASE_Lin REAL,
+            accuracy REAL,
+            f1 REAL,
+            auroc REAL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(config_hash, dataset)
         );

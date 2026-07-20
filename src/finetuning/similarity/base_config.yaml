@@ -1,6 +1,5 @@
 training_data_paths:
-  - "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/SMAP/SMAP_test.arrow"
-
+  - "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_arrow/ArrowHead_train.arrow"
 probability:
   - 1.0
 
@@ -29,24 +28,22 @@ bos_token_id: 1
 eos_token_id: 2
 mask_token_id: 3           
 use_eos_token: true
-task: "anomaly"
-mean_span_length: 16
-masking_prob: 0.3
+task: similarity
+TrainInnerModel: false
+
 # ============================
 # Sequence setup
 # ============================
 context_length: 512
 prediction_length: 1
 min_past: 60
-dropout_head: 0.1
-TrainInnerModel: true
 
 # ============================
 # Training
 # ============================
 num_train_epochs: 10
 max_steps: 1000
-save_steps: 500
+save_steps: 1000
 log_steps: 100
 per_device_train_batch_size: 32
 
@@ -63,10 +60,14 @@ num_samples: 20
 temperature: 1.0
 top_k: 50
 top_p: 1.0
+num_labels: 6
+dropout_head: 0.1
+TrainInnerModel: true
+
 # ============================
 # Output / System
 # ============================
-output_dir: ./FineTunedModels/Anomaly/
+output_dir: ./FineTunedModels/Similarity
 tf32: true
 torch_compile: true
 

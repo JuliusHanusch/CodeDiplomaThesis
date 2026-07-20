@@ -19,17 +19,14 @@ def sample_config():
     """Search space definition."""
 
     return {
-        # core training
-        "max_steps": random.choice([500, 1000, 2000, 3000]),
-        "per_device_train_batch_size": random.choice([8, 16, 32]),
-        "learning_rate": float(
-            np.exp(np.random.uniform(np.log(1e-5), np.log(5e-4)))
-        ),
-
-        # important extras
-        "warmup_ratio": random.uniform(0.0, 0.1),
-        "gradient_accumulation_steps": random.choice([1, 2, 4]),
-        "shuffle_buffer_length": random.choice([1000, 5000, 10000, 20000]),
+        "num_train_epochs": int(random.choice([2, 5, 10, 20, 40])),
+        "per_device_train_batch_size": int(random.choice([8, 16, 32])),
+        "learning_rate": float(np.exp(
+            np.random.uniform(np.log(1e-5), np.log(5e-4))
+        )),
+        "dropout_head": float(random.uniform(0.0, 0.3)),
+        "warmup_ratio": float(random.uniform(0.0, 0.1)),
+        "TrainInnerModel": bool(random.choice([True, False])),
     }
 
 # -----------------------------
@@ -122,7 +119,7 @@ def generate(n_configs=20):
     attempts = 0
 
     while inserted < n_configs:
-        cfg = make_full_config(dataset)
+        cfg = make_full_config()
         for dataset in datasets:
             cfg["training_data_paths"] = [str(dataset["train"])]
             cfg["num_labels"] = int(dataset["labels"])

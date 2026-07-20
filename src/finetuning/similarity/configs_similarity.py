@@ -6,8 +6,8 @@ import numpy as np
 import hashlib
 import copy
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/tser.db"
-BASE_CONFIG_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/base_config.yaml"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/similarity.db"
+BASE_CONFIG_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/base_config.yaml"
 
 def config_hash(config: dict) -> str:
     return hashlib.sha256(
@@ -27,41 +27,39 @@ def sample_config():
         "dropout_head": float(random.uniform(0.0, 0.3)),
         "warmup_ratio": float(random.uniform(0.0, 0.1)),
         "TrainInnerModel": bool(random.choice([True, False])),
-        "loss_type": random.choice(["mae", "mse"]),
-
     }
-        
 
-
-# -----------------------------
-# DEFINE DATASETS HERE
-# -----------------------------
 datasets = [
     # EXAMPLE:
     {
-        "name": "FloodModeling",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/FloodModeling/train.arrow",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/FloodModeling/test.arrow",
+        "name": "ArrowHead",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_arrow/ArrowHead_train.arrow",
+        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TEST.tsv",
+        "labels": 3
     },
     {
-        "name": "HouseHoldPowerConsumption",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/HouseHoldPowerConsumption/train.arrow",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/HouseHoldPowerConsumption/test.arrow",
+        "name": "DistalPhalanxTW",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_arrow/DistalPhalanxTW_train.arrow",
+        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/DistalPhalanxTW/DistalPhalanxTW_TEST.tsv",
+        "labels": 6
     },
     {
-        "name": "LiveFuelMoisture",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/LiveFuelMoisture/train.arrow",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/LiveFuelMoisture/test.arrow",
+        "name": "GestureMidAirD2",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_arrow/GestureMidAirD2_train.arrow",
+        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/GestureMidAirD2/GestureMidAirD2_TEST.tsv",
+        "labels": 26
     },
-    # {
-    #     "name": "NewsHeadline",
-    #     "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/NewsHeadline/train.arrow",
-    #     "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/NewsHeadline/test.arrow",
-    # },
+    {
+        "name": "Wafer",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_arrow/Wafer_train.arrow",
+        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/Wafer/Wafer_TEST.tsv",
+        "labels": 2
+    },
         {
-        "name": "PPGDalia",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/PPGDalia/train.arrow",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/PPGDalia/test.arrow",
+        "name": "UCI-HAR",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCI_HAR/UCI_HAR.arrow",
+        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCI_HAR/UCI HAR Dataset/test",
+        "labels": 6
     }
 ]
 
@@ -121,6 +119,7 @@ def generate(n_configs=20):
         cfg = make_full_config()
         for dataset in datasets:
             cfg["training_data_paths"] = [str(dataset["train"])]
+            cfg["num_labels"] = int(dataset["labels"])
 
             insert(conn, cfg, dataset)
 

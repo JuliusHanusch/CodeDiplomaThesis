@@ -35,11 +35,11 @@ def load_ucr_tsv(tsv_path, context_length=512):
     y = np.vectorize(label_map.get)(y)
 
     # pad / truncate
-    if X.shape[1] < context_length:
-        pad = context_length - X.shape[1]
-        X = np.pad(X, ((0, 0), (0, pad)), mode="constant")
-    else:
-        X = X[:, -context_length:]
+    # if X.shape[1] < context_length:
+    #     pad = context_length - X.shape[1]
+    #     X = np.pad(X, ((0, 0), (0, pad)), mode="constant")
+    # else:
+    #     X = X[:, -context_length:]
 
     return X, y
 
@@ -65,11 +65,11 @@ def load_uci_har(test_dir: str, context_length: int = 512):
         X = X.reshape(1, -1)
 
 
-    if X.shape[1] < context_length:
-        pad = context_length - X.shape[1]
-        X = np.pad(X, ((0, 0), (0, pad)))
-    else:
-        X = X[:, -context_length:]
+    # if X.shape[1] < context_length:
+    #     pad = context_length - X.shape[1]
+    #     X = np.pad(X, ((0, 0), (0, pad)))
+    # else:
+    #     X = X[:, -context_length:]
 
     return X, y
 
@@ -87,6 +87,7 @@ def evaluate_model(model, tokenizer, X, y, batch_size=32):
             batch_y = y[i:i + batch_size]
 
             context = torch.tensor(batch_X, dtype=torch.float32)
+            
 
             input_ids, attention_mask, _ = tokenizer.context_input_transform(context)
 

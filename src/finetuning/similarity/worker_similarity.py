@@ -1,13 +1,11 @@
-print("Start Imports")
-
 import sqlite3
 import json
 import subprocess
 import sys
 from pathlib import Path
- 
-print("Imports finished")
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/imputation.db"
+
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/similarity.db"
+
 
 def load_config_by_idx(conn, idx):
     cur = conn.cursor()
@@ -31,7 +29,6 @@ def load_config_by_idx(conn, idx):
 def run_train(cfg_path):
     subprocess.run([
         "python3",
-        "-u",
         "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/train.py",
         "--config", cfg_path
     ], check=True)
@@ -40,14 +37,12 @@ def run_train(cfg_path):
 def run_eval(idx):
     subprocess.run([
         "python3",
-        "-u",
-        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/evaluate_imputation.py",
+        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/evaluate_similarity.py",
         "--index", str(idx)  
     ], check=True)
 
 
 def main():
-    print("Start Main")
 
     idx = int(sys.argv[1]) 
     conn = sqlite3.connect(DB_PATH)
@@ -57,7 +52,7 @@ def main():
         print(f"No config for idx {idx}")
         return
 
-    output_dir = Path(f"./FineTunedModels/TSER/{h}")
+    output_dir = Path(f"./FineTunedModels/Similarity/{h}")
     cfg["output_dir"] = str(output_dir)
 
     cfg_path = output_dir / "config.json"
@@ -95,6 +90,9 @@ def main():
     """, (idx,))
 
     conn.commit()
+
+
+
 
 if __name__ == "__main__":
     main()

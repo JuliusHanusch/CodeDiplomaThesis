@@ -19,20 +19,17 @@ def sample_config():
     """Search space definition."""
 
     return {
-        # core training
-        "max_steps": random.choice([500, 1000, 2000, 3000]),
-        "per_device_train_batch_size": random.choice([8, 16, 32]),
-        "learning_rate": float(
-            np.exp(np.random.uniform(np.log(1e-5), np.log(5e-4)))
-        ),
-        "loss_type": random.choice(["mae", "mse"]),
-        # important extras
-        "warmup_ratio": random.uniform(0.0, 0.1),
-        "gradient_accumulation_steps": random.choice([1, 2, 4]),
-        "shuffle_buffer_length": random.choice([1000, 5000, 10000, 20000]),
+        "max_steps": int(random.choice([500, 1000, 2000, 5000, 10000])),
+        "per_device_train_batch_size": int(random.choice([8, 16, 32])),
+        "learning_rate": float(np.exp(
+            np.random.uniform(np.log(1e-5), np.log(5e-4))
+        )),
+        "dropout_head": float(random.uniform(0.0, 0.3)),
+        "warmup_ratio": float(random.uniform(0.0, 0.1)),
+        "TrainInnerModel": bool(random.choice([True, False])),
     }
 MASK_RATIOS = [0.15, 0.30, 0.45]
-SPAN_LENGTHS = [8, 16, 32]
+SPAN_LENGTHS = [16, 32, 64]
 datasets = [
     {
         "name": "electricity_15min",

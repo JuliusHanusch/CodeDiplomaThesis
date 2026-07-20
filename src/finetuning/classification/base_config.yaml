@@ -1,5 +1,5 @@
 training_data_paths:
-  - "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCI_HAR.arrow"
+  - "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_arrow/ArrowHead_train.arrow"
 probability:
   - 1.0
 
@@ -29,17 +29,19 @@ eos_token_id: 2
 mask_token_id: 3           
 use_eos_token: true
 task: classification
+TrainInnerModel: false
 
 # ============================
 # Sequence setup
 # ============================
 context_length: 512
-prediction_length: 64
+prediction_length: 1
 min_past: 60
 
 # ============================
 # Training
 # ============================
+num_train_epochs: 10
 max_steps: 1000
 save_steps: 1000
 log_steps: 100
@@ -58,12 +60,14 @@ num_samples: 20
 temperature: 1.0
 top_k: 50
 top_p: 1.0
-num_labels: 6
+num_labels: 20
+dropout_head: 0.1
+TrainInnerModel: true
 
 # ============================
 # Output / System
 # ============================
-output_dir: ./FineTunedModels/Classification/Best
+output_dir: ./FineTunedModels/Classification
 tf32: true
 torch_compile: true
 

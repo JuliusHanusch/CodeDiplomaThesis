@@ -36,7 +36,7 @@ def run_train(cfg_path):
 def run_eval(idx):
     subprocess.run([
         "python3",
-        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/evaluate_tser.py",
+        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/evaluate_tser.py",
         "--index", str(idx)  
     ], check=True)
 

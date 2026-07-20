@@ -1,3 +1,4 @@
+print("Start Imports")
 import logging
 from typing import Optional
 import sqlite3
@@ -10,6 +11,7 @@ from gluonts.itertools import batcher
 from tqdm.auto import tqdm
 from pathlib import Path
 from transformers import AutoModelForMaskedLM, AutoConfig
+print("Imports 1")
 
 import numpy as np
 import pandas as pd
@@ -17,6 +19,7 @@ pd.set_option("display.max_columns", None)
 pd.set_option("display.max_rows", None)
 pd.set_option("display.width", 200)  # optional, for wide display
 pd.set_option("display.max_colwidth", None)
+print("Start Imports 2")
 
 # Include Parent Directory to load packages from
 import sys  
@@ -24,11 +27,14 @@ root_dir = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi")
 sys.path.append(str(root_dir.resolve()))  
 sys.path.append(str((root_dir/"src").resolve()))  
 sys.path.append(str((root_dir / "chronos_pkg/src").resolve()))
+print("Imports 3")
 
 from chronos_pkg.src.chronos import ChronosPipeline
 from chronos_pkg.src.chronos import ChronosConfig
 from chronos_pkg.src.chronos.chronos_bolt import ChronosBoltModelForForecasting, ChronosBoltConfig
 from src.utils import load_val_data
+print("Finished Imports")
+
 
 app = typer.Typer(pretty_exceptions_enable=False)
 
@@ -66,6 +72,8 @@ def load_chronos_bert_bolt(model_path: str, device: str, torch_dtype: torch.dtyp
     return model, tokenizer, context_length
 
 
+
+
 def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array):
     # Probabilistic predictions -> median
     if preds_array.ndim == 3:
@@ -75,177 +83,160 @@ def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array):
 
     valid_mask = mask_array & ~np.isnan(labels_array)
 
-    error_model = preds_median - labels_array
-    abs_error_model = np.abs(error_model)
+    error_model = np.abs(preds_median - labels_array)
 
     mae_scaled_series = []
-    rmse_scaled_series = []
+    mae_series = []
+
+    baseline_scaled_series = []
+    baseline_series = []
+
+    debug_series = []   # <-- add this
 
     for i in tqdm(range(labels_array.shape[0]), desc="Series"):
+
         token_mask = valid_mask[i]
 
         if not np.any(token_mask):
             continue
 
-        # Series scale based on ground truth values
-        series_scale = np.nanmean(np.abs(labels_array[i, token_mask]))
+        series = labels_array[i]
 
-        #Prevent division by zero
+        series_scale = np.nanmean(np.abs(series[token_mask]))
         series_scale = max(series_scale, 1.0)
 
-        mae_model = np.mean(abs_error_model[i, token_mask])
-        #rmse_model = np.sqrt(np.mean(error_model[i, token_mask] ** 2))
+        mae_model = np.mean(error_model[i, token_mask])
 
+        mae_series.append(mae_model)
         mae_scaled_series.append(mae_model / series_scale)
-        #rmse_scaled_series.append(rmse_model / series_scale)
 
-    mae_scaled_mean = (
-        float(np.mean(mae_scaled_series))
-        if mae_scaled_series
-        else np.nan
+
+        # -----------------------
+        # Baseline prediction
+        # -----------------------
+        baseline_pred = np.full_like(series, np.nan)
+
+        mask = token_mask.copy()
+
+        idx = 0
+        while idx < len(series):
+
+            if not mask[idx]:
+                idx += 1
+                continue
+
+            start = idx
+
+            while idx < len(series) and mask[idx]:
+                idx += 1
+
+            end = idx
+
+            left_value = None
+            right_value = None
+
+            if start > 0:
+                j = start - 1
+                while j >= 0:
+                    if not mask[j] and not np.isnan(series[j]):
+                        left_value = series[j]
+                        break
+                    j -= 1
+
+            if end < len(series):
+                j = end
+                while j < len(series):
+                    if not mask[j] and not np.isnan(series[j]):
+                        right_value = series[j]
+                        break
+                    j += 1
+
+            if left_value is not None and right_value is not None:
+                fill = 0.5 * (left_value + right_value)
+            elif left_value is not None:
+                fill = left_value
+            elif right_value is not None:
+                fill = right_value
+            else:
+                fill = series_scale
+
+            baseline_pred[start:end] = fill
+
+
+        baseline_error = np.abs(
+            baseline_pred[token_mask] - series[token_mask]
+        )
+
+        mae_baseline = np.mean(baseline_error)
+
+        baseline_series.append(mae_baseline)
+        baseline_scaled_series.append(mae_baseline / series_scale)
+
+
+        if len(debug_series) < 10:
+            debug_series.append(
+                {
+                    "series_id": i,
+                    "ground_truth": series.copy(),
+                    "mask": mask.copy(),
+                    "chronos_prediction": np.where(
+                        mask,
+                        preds_median[i],
+                        np.nan
+                    ),
+                    "baseline_prediction": baseline_pred.copy(),
+                    "mae_chronos": mae_model,
+                    "mae_baseline": mae_baseline,
+                }
+            )
+
+
+    rows = []
+
+    for item in debug_series:
+        for t in range(len(item["ground_truth"])):
+            rows.append(
+                {
+                    "series_id": item["series_id"],
+                    "time": t,
+                    "ground_truth": item["ground_truth"][t],
+                    "masked": bool(item["mask"][t]),
+                    "chronos_prediction": item["chronos_prediction"][t],
+                    "baseline_prediction": item["baseline_prediction"][t],
+                    "mae_chronos_series": item["mae_chronos"],
+                    "mae_baseline_series": item["mae_baseline"],
+                }
+            )
+
+    df = pd.DataFrame(rows)
+
+    df.to_csv(
+        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/Imputation/imputation_debug_first10_series.csv",
+        index=False
     )
 
-    # rmse_scaled_mean = (
-    #     float(np.mean(rmse_scaled_series))
-    #     if rmse_scaled_series
-    #     else np.nan
-    # )
 
-    return mae_scaled_mean, mae_model
+    MASE_model = (
+        float(np.mean(mae_scaled_series))
+        if mae_scaled_series else np.nan
+    )
 
-# def timeseries_level_scaled_metrics(labels_array, preds_array, mask_array):
-#     n_series, seq_len = labels_array.shape
+    MAE_model = (
+        float(np.mean(mae_series))
+        if mae_series else np.nan
+    )
 
-#     # Probabilistic predictions -> median
-#     if preds_array.ndim == 3:
-#         preds_median = np.median(preds_array, axis=1)
-#     else:
-#         preds_median = preds_array
+    MASE_baseline = (
+        float(np.mean(baseline_scaled_series))
+        if baseline_scaled_series else np.nan
+    )
 
-#     # Naive baseline
-#     naive_preds = np.full_like(labels_array, np.nan, dtype=np.float32)
-#     fallback_flag = np.zeros_like(labels_array, dtype=bool)
+    MAE_baseline = (
+        float(np.mean(baseline_series))
+        if baseline_series else np.nan
+    )
 
-#     for i in tqdm(range(n_series), desc="Series"):
-#         for t in range(seq_len):
-
-#             if not mask_array[i, t]:
-#                 continue
-
-#             prev_val = np.nan
-#             next_val = np.nan
-
-#             # search up to 10 tokens to the left
-#             for k in range(1, 11):
-#                 pos = t - k
-#                 if pos < 0:
-#                     break
-
-#                 if (
-#                     not np.isnan(labels_array[i, pos])
-#                     and not mask_array[i, pos]   # cannot use masked targets
-#                 ):
-#                     prev_val = labels_array[i, pos]
-#                     break
-
-#             # search up to 10 tokens to the right
-#             for k in range(1, 11):
-#                 pos = t + k
-#                 if pos >= seq_len:
-#                     break
-
-#                 if (
-#                     not np.isnan(labels_array[i, pos])
-#                     and not mask_array[i, pos]   # cannot use masked targets
-#                 ):
-#                     next_val = labels_array[i, pos]
-#                     break
-
-
-#             prev_valid = not np.isnan(prev_val)
-#             next_valid = not np.isnan(next_val)
-
-#             if prev_valid and next_valid:
-#                 naive_preds[i, t] = 0.5 * (prev_val + next_val)
-#             elif prev_valid:
-#                 naive_preds[i, t] = prev_val
-#             elif next_valid:
-#                 naive_preds[i, t] = next_val
-#             else:
-#                 # No valid tokens within ±10 positions
-#                 naive_preds[i, t] = np.nan
-#                 fallback_flag[i, t] = True
-
-#     valid_mask = mask_array & ~np.isnan(labels_array)
-
-#     error_model = preds_median - labels_array
-#     error_naive = naive_preds - labels_array
-#     abs_error_model = np.abs(error_model)
-#     abs_error_naive = np.abs(error_naive)
-
-#     series_rows = []
-#     mae_scaled_series = []
-#     rmse_scaled_series = []
-
-#     # Compute series-level metrics
-#     for i in tqdm(range(n_series), desc="Series"):
-#         token_mask = valid_mask[i]
-
-#         if not np.any(token_mask):
-#             continue
-
-#         # Apply fallback for tokens with missing neighbors
-#         fallback_tokens = fallback_flag[i] & token_mask
-#         if np.any(fallback_tokens):
-#             series_scale = np.nanmean(np.abs(labels_array[i, token_mask]))
-#             abs_error_naive[i, fallback_tokens] = max(series_scale, 1)
-#             error_naive[i, fallback_tokens] = abs_error_naive[i, fallback_tokens]
-
-#         # MAE & RMSE
-#         mae_model = np.mean(abs_error_model[i, token_mask])
-#         mae_naive = np.mean(abs_error_naive[i, token_mask])
-#         rmse_model = np.sqrt(np.mean(error_model[i, token_mask]**2))
-#         rmse_naive = np.sqrt(np.mean(error_naive[i, token_mask]**2))
-
-#         # Safe floor if naive metrics too small
-#         mae_naive = max(mae_naive, 1)
-#         rmse_naive = max(rmse_naive, 1)
-
-#         mae_scaled = mae_model / mae_naive
-#         rmse_scaled = rmse_model / rmse_naive
-
-#         mae_scaled_series.append(mae_scaled)
-#         rmse_scaled_series.append(rmse_scaled)
-
-#         # series_row = {
-#         #     "series_index": i,
-#         #     "mae_model": mae_model,
-#         #     "mae_naive": mae_naive,
-#         #     "mae_scaled": mae_scaled,
-#         #     "rmse_model": rmse_model,
-#         #     "rmse_naive": rmse_naive,
-#         #     "rmse_scaled": rmse_scaled,
-#         #     "n_tokens_used": int(np.sum(token_mask)),
-#         #     "fallback_used": np.any(fallback_tokens),
-
-#         #     # NEW
-#         #     "fallback_positions": np.where(fallback_tokens)[0].tolist() if np.any(fallback_tokens) else None,
-#         #     "masked_positions": np.where(mask_array[i])[0].tolist(),
-#         #     "naive_preds_masked": naive_preds[i, mask_array[i]].tolist(),
-#         #     "abs_error_naive_masked": abs_error_naive[i, mask_array[i]].tolist(),
-#         #     "labels_series": labels_array[i].tolist()
-#         #     }        
-#         #print(series_row)
-#         #series_rows.append(series_row)
-
-#     #df = pd.DataFrame(series_rows)
-#     #df.to_csv("evaluation_results.csv", index=False)
-    
-#     mae_scaled_mean = float(np.mean(mae_scaled_series)) if mae_scaled_series else np.nan
-#     rmse_scaled_mean = float(np.mean(rmse_scaled_series)) if rmse_scaled_series else np.nan
-
-
-#     return mae_scaled_mean, rmse_scaled_mean
+    return MASE_model, MAE_model, MASE_baseline, MAE_baseline
 
 
 def impute_span(
@@ -374,8 +365,8 @@ def impute_span(
 
     return values.astype(np.float32), mask_np
 
-def impute_span_bolt():
-    return 0
+import numpy as np
+
 
 
 
@@ -443,7 +434,7 @@ def main(
                 continue 
 
 
-            all_labels, all_imputed_values, all_masks_imputation  = [], [], []
+            all_labels, all_imputed_values, all_masks_imputation, all_linear_values   = [], [], [], []
 
             for batch in tqdm(batcher(test_data, batch_size=batch_size), desc=dataset_name):
                 for input_instance, label_instance in batch:
@@ -455,23 +446,45 @@ def main(
                     elif len(series) > context_length:
                         series = series[-context_length:]
 
-                    if bolt: # TODO Fusion into one clean version
-                        forecasts, mask_positions = impute_span_bolt()
+
+                    imputed_values, mask_positions_imputation = impute_span(
+                        series=series,
+                        model=model,
+                        tokenizer=tokenizer,
+                        context_length=context_length,
+                        mean_span_length= mean_span_length,
+                        mask_ratio=masking_ratio,
+                        num_samples=num_samples,
+                        temperature=1.0
+                    )
+
+                    masked_series = series.copy()
+
+                    # Hide the exact same positions Chronos saw as missing
+                    masked_series[mask_positions_imputation] = np.nan
+
+                    observed = ~np.isnan(masked_series)
+
+                    if observed.sum() >= 2:
+                        x = np.arange(len(series))
+
+                        linear_prediction = np.interp(
+                            x,
+                            x[observed],
+                            masked_series[observed],
+                        ).astype(np.float32)
 
                     else:
-                        imputed_values, mask_positions_imputation = impute_span(
-                            series=series,
-                            model=model,
-                            tokenizer=tokenizer,
-                            context_length=context_length,
-                            mean_span_length= mean_span_length,
-                            mask_ratio=masking_ratio,
-                            num_samples=num_samples,
-                            temperature=1.0
-                        )
-                        all_labels.append(series)
-                        all_imputed_values.append(imputed_values)
-                        all_masks_imputation.append(mask_positions_imputation)
+                        # fallback if interpolation is impossible
+                        linear_prediction = masked_series.copy()
+
+
+                    all_labels.append(series)
+                    all_imputed_values.append(imputed_values)
+                    all_masks_imputation.append(mask_positions_imputation)
+                    all_linear_values.append(linear_prediction)
+
+
 
             logger.info("Imputation and Forecast Done")       
                     
@@ -481,19 +494,23 @@ def main(
             #Imputation Arrays
             preds_array_imputation = np.stack(all_imputed_values, axis=0)
             mask_array_imputation = np.stack(all_masks_imputation, axis=0)
+            preds_array_linear = np.stack(all_linear_values, axis=0)
 
             logger.info("Regular Metrics Done")
 
 
-            MASE_Chronos, MAE_Chronos = timeseries_level_scaled_metrics(
+            MASE_Chronos, MAE_Chronos, MASE_baseline, MAE_baseline = timeseries_level_scaled_metrics(
                 labels_array=labels_array,
                 preds_array=preds_array_imputation,
                 mask_array=mask_array_imputation,
                 )
             
+            
             print("DEBUG:")
             print("MASE_Chronos:", MASE_Chronos, type(MASE_Chronos))
             print("MAE_Chronos:", MAE_Chronos, type(MAE_Chronos))
+            print("MASE_baseline:", MASE_baseline, type(MASE_baseline))
+            print("MAE_baseline:", MAE_baseline, type(MAE_baseline))
             
             conn = sqlite3.connect(DB_PATH)
 
@@ -501,11 +518,15 @@ def main(
                 UPDATE runs
                 SET
                     MAE=?,
-                    MASE=?
+                    MASE=?,
+                    MAE_Lin=?,
+                    MASE_Lin=?
                 WHERE id=?
             """, (
                 float(MAE_Chronos),
                 float(MASE_Chronos),
+                float(MAE_baseline),
+                float(MASE_baseline),
                 idx,
             ))
 

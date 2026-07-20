@@ -40,7 +40,7 @@ def run_train(cfg_path):
 def run_eval(idx):
     subprocess.run([
         "python3",
-        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/evaluate_calssification.py",
+        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/evaluate_calssification.py",
         "--index", str(idx)  
     ], check=True)
 

@@ -3,7 +3,6 @@ import numpy as np
 import torch
 import pandas as pd
 import sys
-from sklearn.linear_model import Ridge
 import sqlite3
 import argparse
 
@@ -56,33 +55,7 @@ def extract_features(series: np.ndarray):
 
     return feat
 
-def train_ridge_baseline(train_dataset, context_length=512):
 
-    X_feat = []
-    y_target = []
-
-
-
-    X, y = load_arrow(train_dataset)
-
-    for i in range(len(X)):
-
-        series = X[i][-context_length:]
-        label = float(y[i])
-
-        X_feat.append(extract_features(series))
-        y_target.append(label)
-
-    X_feat = np.vstack(X_feat)
-    y_target = np.asarray(y_target, dtype=np.float32)
-
-    model = Ridge(alpha=1.0)
-    model.fit(X_feat, y_target)
-
-    return model
-# -------------------------
-# GLUONTS ARROW LOADER (CORRECT)
-# -------------------------
 def load_arrow(path: Path):
     """
     Reads TS-ARROW dataset using GluonTS ArrowFile reader.
@@ -268,41 +241,6 @@ if __name__ == "__main__":
 
     conn.commit()
     conn.close()
-
-    # ridge_model = train_ridge_baseline(train_dataset=train_dataset)
-
-    # baseline_metrics = evaluate_all_baselines(
-    #     ridge_model,
-    #     test_dataset
-    # )
-
-    # print("\nBaselines:")
-    # print(f"Mean  RMSE: {baseline_metrics['mean']['rmse']:.6f}")
-    # print(f"Mean  MAE : {baseline_metrics['mean']['mae']:.6f}")
-
-    # print(f"Last  RMSE: {baseline_metrics['last']['rmse']:.6f}")
-    # print(f"Last  MAE : {baseline_metrics['last']['mae']:.6f}")
-
-    # print(f"Ridge RMSE: {baseline_metrics['ridge']['rmse']:.6f}")
-    # print(f"Ridge MAE : {baseline_metrics['ridge']['mae']:.6f}")
-
-
-    # rows.append({
-    #     "dataset": test_dataset,
-
-    #     "chronos_rmse": chronos_metrics["rmse"],
-    #     "chronos_mae": chronos_metrics["mae"],
-
-    #     "mean_rmse": baseline_metrics["mean"]["rmse"],
-    #     "mean_mae": baseline_metrics["mean"]["mae"],
-
-    #     "last_rmse": baseline_metrics["last"]["rmse"],
-    #     "last_mae": baseline_metrics["last"]["mae"],
-
-    #     "ridge_rmse": baseline_metrics["ridge"]["rmse"],
-    #     "ridge_mae": baseline_metrics["ridge"]["mae"],
-
-    # })
 
 
 
