@@ -5,6 +5,7 @@ import pandas as pd
 import sys
 import sqlite3
 import argparse
+import time
 
 
 root_dir = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi")
@@ -16,6 +17,51 @@ from chronos_pkg.src.chronos import ChronosPipeline
 
 from gluonts.dataset.arrow import ArrowFile
 
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/tser_allData.db"
+
+def get_db_connection():
+    conn = sqlite3.connect(
+        DB_PATH,
+        timeout=60,
+    )
+    conn.execute("PRAGMA busy_timeout=60000")
+    return conn
+
+def execute_db_update(sql, params, description="database update"):
+    for attempt in range(5):
+
+        conn = None
+
+        try:
+            conn = get_db_connection()
+
+            conn.execute(sql, params)
+            conn.commit()
+            conn.close()
+
+            return
+
+        except sqlite3.OperationalError as e:
+
+            if conn is not None:
+                conn.close()
+
+            if "database is locked" not in str(e):
+                raise
+
+            print(
+                f"[SQLite] Database locked during {description} "
+                f"- retry {attempt + 1}/5",
+                flush=True
+            )
+
+            if attempt < 4:
+                time.sleep(5)
+
+    raise RuntimeError(
+        f"[SQLite] Database remained locked during "
+        f"{description} after 5 attempts."
+    )
 
 def rmse(preds, labels):
     preds = np.asarray(preds)
@@ -182,16 +228,19 @@ if __name__ == "__main__":
 
     idx = args.index
 
-    DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/tser.db"
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()   
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT model_path, test_data
-        FROM runs
-        WHERE id = ?
-    """, (idx,))
+
+    cur.execute(
+        """
+            SELECT model_path, eval_data
+            FROM runs
+            WHERE id = ?
+        """,
+        (idx,)
+    )
 
     row = cur.fetchone()
 
@@ -199,6 +248,7 @@ if __name__ == "__main__":
         raise ValueError(f"No run found for id={idx}")
 
     model_path, test_dataset = row
+    print("model_path", model_path)
 
     conn.close()
 
@@ -210,7 +260,7 @@ if __name__ == "__main__":
     model = pipeline.model
 
     # load regression head
-    regressor_path = Path(model_path) / "tser.pt"
+    regressor_path = Path(model_path) / "regressor.pt"
     if regressor_path.exists():
         model.regressor.load_state_dict(
             torch.load(regressor_path, map_location="cpu")
@@ -224,23 +274,25 @@ if __name__ == "__main__":
         test_arrow_path=test_dataset,
     )
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("""
-        UPDATE runs
-        SET rmse = ?,
-            mae = ?,
-            status = 'DONE'
-        WHERE id = ?
-    """, (
-        results["rmse"],
-        results["mae"],
-        idx,
-    ))
+    print("RMSE", results["rmse"], "MAE", results["mae"])
 
-    conn.commit()
-    conn.close()
+    execute_db_update(
+        """
+        UPDATE runs
+        SET rmse=?,
+            mae=?
+        WHERE id=?
+        """,
+        (
+            results["rmse"],
+            results["mae"],
+            idx,
+        ),
+        description=f"updating results for idx {idx}"
+    )
 
 
 

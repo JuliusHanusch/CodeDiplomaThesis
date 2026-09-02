@@ -25,7 +25,7 @@ name = "Rocket"
 
 DB_PATH = (
     "/data/horse/ws/juha972b-AION-BERT-Chronos/"
-    "BERTi/src/finetuning/tser/tser.db"
+    "BERTi/src/finetuning/tser/tser_small_final.db"
 )
 
 OUTPUT_PATH = (
@@ -344,15 +344,10 @@ def get_runs():
 
 if __name__ == "__main__":
 
-    N_RUNS = 20
+    N_RUNS = 1
     results = []
 
     for dataset, train_path, test_path in get_runs():
-
-        if dataset == "PPGDalia":
-            print(f"Skipping {dataset}")
-            continue
-
 
         train_path = Path(train_path)
         test_path = Path(test_path)
@@ -360,13 +355,13 @@ if __name__ == "__main__":
         versions = [
             (
                 "univariate",
-                train_path.parent / "train_rocket.arrow",
-                test_path.parent / "test_rocket.arrow",
+                train_path.parent / "train.arrow",
+                test_path.parent / "test.arrow",
             ),
             (
                 "multivariate",
-                train_path.parent / "train_full_rocket.arrow",
-                test_path.parent / "test_full_rocket.arrow",
+                train_path.parent / "train_full.arrow",
+                test_path.parent / "test_full.arrow",
             ),
         ]
 

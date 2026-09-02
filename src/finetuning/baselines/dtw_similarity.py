@@ -1,4 +1,3 @@
-import sqlite3
 from pathlib import Path
 import sys
 
@@ -10,10 +9,9 @@ from tqdm import tqdm
 
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import pairwise_distances
 
-
-from aeon.classification.distance_based import KNeighborsTimeSeriesClassifier
-
+from scipy.spatial.distance import cdist
 
 
 # ============================================================
@@ -24,55 +22,41 @@ root_dir = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi")
 sys.path.append(str(root_dir.resolve()))
 sys.path.append(str((root_dir / "src").resolve()))
 
+datasets = [
+    {
+        "name": "UCI-HAR",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCI_HAR/UCI HAR Dataset/train/",
+        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCI_HAR/UCI HAR Dataset/test/",
+    },
+    {
+        "name": "ArrowHead",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TRAIN.tsv",
+        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TEST.tsv",
+    },
+    {
+        "name": "DistalPhalanxTW",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/DistalPhalanxTW/DistalPhalanxTW_TRAIN.tsv",
+        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/DistalPhalanxTW/DistalPhalanxTW_TEST.tsv",
+    },
+    {
+        "name": "GestureMidAirD2",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/GestureMidAirD2/GestureMidAirD2_TRAIN.tsv",
+        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/GestureMidAirD2/GestureMidAirD2_TEST.tsv",
+    },
+    {
+        "name": "Wafer",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/Wafer/Wafer_TRAIN.tsv",
+        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/Wafer/Wafer_TEST.tsv",
+    },
+    {
+        "name": "ArabicSpokenDigits",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Similarity/ArabicSpokenDigits/arabic_digits_univariate_train.npz",
+        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Similarity/ArabicSpokenDigits/arabic_digits_univariate_test.npz",
 
-DB_PATH = (
-    "/data/horse/ws/juha972b-AION-BERT-Chronos/"
-    "BERTi/src/finetuning/similarity/similarity.db"
-)
+    },
+]
 
-RESULT_DIR = Path(
-    "/data/horse/ws/juha972b-AION-BERT-Chronos/"
-    "BERTi/Results/Finetuning/Similarity"
-)
-
-RESULT_DIR.mkdir(
-    parents=True,
-    exist_ok=True
-)
-
-def load_arrow(path: str):
-    dataset = ArrowFile(Path(path))
-
-    series = []
-    labels = []
-
-    for entry in dataset:
-        target = np.asarray(entry["target"], dtype=np.float32)
-
-        if "label" in entry:
-            label = entry["label"]
-        elif "y" in entry:
-            label = entry["y"]
-        else:
-            raise KeyError("No label found in Arrow dataset")
-
-        series.append(target)
-        labels.append(float(label))
-
-    X = np.stack(series)
-    y = np.array(labels, dtype=np.int64)
-
-    X = np.nan_to_num(
-        X,
-        nan=0.0,
-        posinf=0.0,
-        neginf=0.0
-    )
-
-    return X, y
-
-
-def load_ucr_tsv(tsv_path, context_length=512):
+def load_ucr_tsv(tsv_path):
 
     df = pd.read_csv(
         tsv_path,
@@ -80,72 +64,129 @@ def load_ucr_tsv(tsv_path, context_length=512):
         header=None
     ).values
 
-    y = df[:, 0]
+    y = df[:, 0].astype(int)
     X = df[:, 1:].astype(np.float32)
 
-    y = y.astype(int)
-
+    # map labels to 0..N
     unique = np.unique(y)
-    label_map = {
-        v: i for i, v in enumerate(unique)
-    }
+    label_map = {v: i for i, v in enumerate(unique)}
     y = np.vectorize(label_map.get)(y)
-    if X.shape[1] < context_length:
-        pad = context_length - X.shape[1]
-        X = np.pad(
-            X,
-            ((0,0),(0,pad)),
-            mode="constant"
-        )
-    else:
-        X = X[:, -context_length:]
-
-
-    X = np.nan_to_num(
-        X,
-        nan=0.0,
-        posinf=0.0,
-        neginf=0.0
-)
 
     return X, y
 
 
 
-def load_uci_har(test_dir, context_length=512):
+def load_uci_har(train_dir, test_dir):
 
+    train_dir = Path(train_dir)
     test_dir = Path(test_dir)
 
-    X = np.loadtxt(
+    X_train = np.loadtxt(
+        train_dir / "X_train.txt"
+    ).astype(np.float32)
+
+    y_train = np.loadtxt(
+        train_dir / "y_train.txt"
+    ).astype(int) - 1
+
+
+    X_test = np.loadtxt(
         test_dir / "X_test.txt"
-    )
-    y = np.loadtxt(
+    ).astype(np.float32)
+
+    y_test = np.loadtxt(
         test_dir / "y_test.txt"
-    ).astype(int)
+    ).astype(int) - 1
 
-    y = y - 1
-    if X.ndim == 1:
-        X = X.reshape(1,-1)
-    if X.shape[1] < context_length:
-        pad = context_length - X.shape[1]
+    return X_train, y_train, X_test, y_test
 
-        X = np.pad(
-            X,
-            ((0,0),(0,pad))
+def load_arabic_digits(
+    train_path,
+    test_path,
+    task="digit"
+):
+
+    train = np.load(
+        train_path,
+        allow_pickle=True
+    )
+
+    test = np.load(
+        test_path,
+        allow_pickle=True
+    )
+
+
+    X_train = list(train["X"])
+    X_test = list(test["X"])
+
+
+    if task == "digit":
+
+        y_train = train["digit_labels"]
+        y_test = test["digit_labels"]
+
+    elif task == "voice":
+
+        y_train = train["speaker_labels"]
+        y_test = test["speaker_labels"]
+
+    else:
+        raise ValueError(
+            "task must be digit or voice"
+        )
+
+
+    return (
+        X_train,
+        y_train,
+        X_test,
+        y_test
+    )
+
+
+def load_dataset(info):
+
+    if info["name"] == "UCI-HAR":
+
+        return load_uci_har(
+            info["train"],
+            info["test"]
+        )
+
+    elif info["name"] == "ArabicSpokenDigits":
+
+        X_train, y_train = load_arabic_digits(
+            info["train"]
+        )
+
+        X_test, y_test = load_arabic_digits(
+            info["test"]
+        )
+
+        return (
+            X_train,
+            y_train,
+            X_test,
+            y_test
         )
 
     else:
-        X = X[:, -context_length:]
 
+        X_train, y_train = load_ucr_tsv(
+            info["train"]
+        )
 
-    X = np.nan_to_num(
-        X,
-        nan=0.0,
-        posinf=0.0,
-        neginf=0.0
-    )
+        X_test, y_test = load_ucr_tsv(
+            info["test"]
+        )
 
-    return X, y
+        return (
+            X_train,
+            y_train,
+            X_test,
+            y_test
+        )
 
 
 def evaluate_classifier_predictions(
@@ -183,145 +224,244 @@ def evaluate_classifier_predictions(
         result["auroc"] = np.nan
     return result
 
+def dtw_distance(x,y,window=None):
 
+    n=len(x)
+    m=len(y)
 
+    if window is None:
+        window=max(n,m)
 
-
-def dtw_1nn(X_train, y_train, X_test):
-
-    X_train = X_train.astype(np.float32)
-    X_test = X_test.astype(np.float32)
-
-    X_train = X_train[:, np.newaxis, :]
-    X_test = X_test[:, np.newaxis, :]
-
-    clf = KNeighborsTimeSeriesClassifier(
-        distance="dtw",
-        n_neighbors=1,
-        distance_params={"window": 0.1},
+    dtw=np.full(
+        (n+1,m+1),
+        np.inf
     )
 
-    clf.fit(
-        X_train,
-        y_train
+    dtw[0,0]=0
+
+    for i in range(1,n+1):
+
+        for j in range(
+            max(1,i-window),
+            min(m,i+window)+1
+        ):
+
+            cost=abs(
+                x[i-1]-y[j-1]
+            )
+
+            dtw[i,j]=cost+min(
+                dtw[i-1,j],
+                dtw[i,j-1],
+                dtw[i-1,j-1]
+            )
+
+    return dtw[n,m]
+
+def create_similarity_pairs(X,y,n_pairs):
+
+    X1=[]
+    X2=[]
+    labels=[]
+
+    classes=np.unique(y)
+
+    while len(labels)<n_pairs:
+
+        if np.random.rand()<0.5:
+
+            c=np.random.choice(classes)
+
+            idx=np.where(
+                y==c
+            )[0]
+
+            if len(idx)<2:
+                continue
+
+            i,j=np.random.choice(
+                idx,
+                2,
+                replace=False
+            )
+
+            label=1
+
+        else:
+
+            i,j=np.random.choice(
+                len(X),
+                2,
+                replace=False
+            )
+
+            if y[i]==y[j]:
+                continue
+
+            label=0
+
+
+        X1.append(X[i])
+        X2.append(X[j])
+        labels.append(label)
+
+
+    return (
+        X1,
+        X2,
+        np.array(labels)
     )
 
-    return clf.predict(X_test)
 
-def load_dataset(dataset, train_path, test_path, context_length=512):
+def dtw_similarity_baseline(
+    X1,
+    X2
+):
 
-    if dataset == "UCI-HAR":
-        X_train, y_train = load_arrow(train_path)
-        X_test, y_test = load_uci_har(Path(test_path), context_length)
-        return X_train, y_train, X_test, y_test
+    scores=[]
 
-    # UCR / TSV
-    X_train, y_train,= load_arrow(train_path)
-    X_test, y_test, = load_ucr_tsv(test_path, context_length=context_length)
+    for x1,x2 in tqdm(
+        zip(X1,X2),
+        total=len(X1),
+        desc="DTW similarity"
+    ):
 
-    return X_train, y_train, X_test, y_test
+        d=dtw_distance(
+            x1,
+            x2
+        )
 
+        scores.append(
+            np.exp(-d)
+        )
 
-
-if __name__ == "__main__":
-
-    
-    CONTEXT_LENGTH = 512
-    SEED = 42
-
-    np.random.seed(SEED)
-
-    conn = sqlite3.connect(
-        DB_PATH
+    scores=np.array(
+        scores
     )
 
-    cur = conn.cursor()
+    preds=(
+        scores>0.5
+    ).astype(int)
 
-    cur.execute(
-        """
-        SELECT DISTINCT
-            dataset,
-            train_data,
-            test_data
-        FROM runs
-        """
-    )
+    return preds,scores
 
-    datasets = cur.fetchall()
 
-    results = []
 
-    datasets
 
-    for dataset, train_data, test_data in datasets:
+if __name__=="__main__":
 
-        if dataset != "UCI-HAR":
-            continue
+    RESULT="/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/Similarity/dtw_similarity.csv"
+
+    np.random.seed(42)
+
+    results=[]
+
+    for info in datasets:
 
         print(
-            f"\nEvaluating: {dataset}"
+            f"\nEvaluating: {info['name']}"
         )
 
+        tasks=["class"]
 
-        X_train, y_train, X_test, y_test = load_dataset(
-            dataset,
-            train_data,
-            test_data,
-            context_length=CONTEXT_LENGTH
-        )
-        print(
-            f"Train: {X_train.shape}, Test: {X_test.shape}"
-        )
+        if info["name"]=="ArabicSpokenDigits":
+            tasks=[
+                "digit",
+                "voice"
+            ]
 
-        dtw_preds = dtw_1nn(
-            X_train,
-            y_train,
-            X_test
-        )
+        for task in tasks:
 
+            if info["name"]=="ArabicSpokenDigits":
 
-        res = evaluate_classifier_predictions(
-            y_test,
-            dtw_preds
-        )
+                X_train,y_train,X_test,y_test=load_arabic_digits(
+                    info["train"],
+                    info["test"],
+                    task
+                )
 
-        print(
-            f"{dataset} DTW-1NN results: "
-            f"Accuracy={res['accuracy']:.4f}, "
-            f"F1={res['f1']:.4f}, "
-            f"AUROC={res['auroc']:.4f}"
-        )
+            elif info["name"]=="UCI-HAR":
 
-        results.append(
-            {
-                "dataset": dataset,
-                "method": "DTW-1NN",
-                **res
-            }
-        )
+                X_train,y_train,X_test,y_test=load_uci_har(
+                    info["train"],
+                    info["test"]
+                )
 
-    conn.close()
+            else:
+
+                X_train,y_train=load_ucr_tsv(
+                    info["train"]
+                )
+
+                X_test,y_test=load_ucr_tsv(
+                    info["test"]
+                )
 
 
-    results = pd.DataFrame(
+            X1_test,X2_test,y_pairs=create_similarity_pairs(
+                X_test,
+                y_test,
+                len(X_test)*5
+            )
+
+
+            dtw_preds,dtw_scores=dtw_similarity_baseline(
+                X1_test,
+                X2_test
+            )
+
+
+            res=evaluate_classifier_predictions(
+                y_pairs,
+                dtw_preds,
+                dtw_scores
+            )
+
+
+            print(
+                f"{info['name']} ({task}) "
+                f"Accuracy={res['accuracy']:.4f}, "
+                f"AUROC={res['auroc']:.4f}"
+            )
+
+
+            results.append(
+                {
+                    "dataset":info["name"],
+                    "task":task,
+                    "method":"DTW",
+                    "auroc":res["auroc"],
+                    "accuracy":res["accuracy"]
+                }
+            )
+
+
+    df=pd.DataFrame(
         results
     )
 
 
-    output = RESULT_DIR / "dtw_similarity.csv"
+    df=df[
+        [
+            "dataset",
+            "task",
+            "method",
+            "auroc",
+            "accuracy"
+        ]
+    ]
 
 
-    results.to_csv(
-        output,
+    print("\nFinished")
+    print(df)
+
+
+    df.to_csv(
+        RESULT,
         index=False
     )
 
 
-    print("\nFinished")
     print(
-        results
-    )
-
-    print(
-        f"\nSaved to {output}"
+        f"Saved to {RESULT}"
     )

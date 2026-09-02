@@ -6,8 +6,7 @@ import numpy as np
 import hashlib
 import copy
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/imputation.db"
-BASE_CONFIG_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/base_config.yaml"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/imputation_allData.db"
 
 def config_hash(config: dict,) -> str:
     return hashlib.sha256(
@@ -16,59 +15,53 @@ def config_hash(config: dict,) -> str:
 
 
 def sample_config():
-    """Search space definition."""
+    max_gpu_batch = 32
+    sampled_batch = int(random.choice([8, 16, 32, 64, 128]))
+    if sampled_batch > max_gpu_batch:
+        gradient_accumulation_steps = sampled_batch // max_gpu_batch
+        per_device_train_batch_size = max_gpu_batch
+    else:
+        gradient_accumulation_steps = 1
+        per_device_train_batch_size = sampled_batch
 
     return {
-        "max_steps": int(random.choice([500, 1000, 2000, 5000, 10000])),
-        "per_device_train_batch_size": int(random.choice([8, 16, 32])),
+        "num_train_epochs": int(random.choice([2, 5, 10, 20, 40])),
+        "per_device_train_batch_size": per_device_train_batch_size,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
         "learning_rate": float(np.exp(
-            np.random.uniform(np.log(1e-5), np.log(5e-4))
+            np.random.uniform(np.log(5e-6), np.log(1e-3))
         )),
-        "dropout_head": float(random.uniform(0.0, 0.3)),
         "warmup_ratio": float(random.uniform(0.0, 0.1)),
-        "TrainInnerModel": bool(random.choice([True, False])),
+        "mean_span_length": int(random.choice([8, 16, 32])),
+        "masking_prob": float(random.choice([0.15, 0.3, 0.45])),
     }
-MASK_RATIOS = [0.15, 0.30, 0.45]
-SPAN_LENGTHS = [16, 32, 64]
+
 datasets = [
     {
-        "name": "electricity_15min",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/electricity_15min.arrow",
+        "name": "ETTh1",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTh1/train_small.npz",
+        "eval": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTh1/eval.npz",
     },
     {
-        "name": "m4_daily",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/m4_daily.arrow",
+        "name": "ETTh2",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTh2/train_small.npz",
+        "eval": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTh2/eval.npz",
     },
     {
-        "name": "m4_hourly",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/m4_hourly.arrow",
+        "name": "ETTm1",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTm1/train_small.npz",
+        "eval": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTm1/eval.npz",
     },
     {
-        "name": "m4_weekly",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/m4_weekly.arrow",
+        "name": "ETTm2",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTm2/train_small.npz",
+        "eval": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTm2/eval.npz",
     },
-        {
-        "name": "monash_electricity_hourly",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/monash_electricity_hourly.arrow",
-    }
 ]
 
 
-def load_base():
-    with open(BASE_CONFIG_PATH, "r") as f:
-        return yaml.safe_load(f)
 
-
-def make_full_config():
-
-    base = copy.deepcopy(load_base())
-    hparams = sample_config()
-    base.update(hparams)
-
-    return base
-
-
-def insert(conn, cfg, ds, mask_ratio, mean_span_length):
+def insert(conn, cfg, ds):
     h = config_hash(cfg)
     cur = conn.cursor()
 
@@ -79,18 +72,16 @@ def insert(conn, cfg, ds, mask_ratio, mean_span_length):
                 config,
                 dataset,
                 train_data,
-                masking_ratio,
-                mean_span_length,
+                eval_data,
                 status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
         """, (
             h,
             json.dumps(cfg),
             ds["name"],
             ds["train"],
-            mask_ratio,
-            mean_span_length,
+            ds["eval"],
             "PENDING"
         ))
 
@@ -105,34 +96,20 @@ def insert(conn, cfg, ds, mask_ratio, mean_span_length):
 def generate(n_configs=20):
     conn = sqlite3.connect(DB_PATH)
 
-    inserted = 0
-    attempts = 0
+    # Generate the 100 random configs once
+    configs = [sample_config() for _ in range(n_configs)]
 
-    while inserted < n_configs:
-        cfg = make_full_config()
-        for dataset in datasets:
-            for mask_ratio in MASK_RATIOS:
-                for span_length in SPAN_LENGTHS:
-                    cfg["training_data_paths"] = [str(dataset["train"])]
-                    cfg["masking_prob"] = mask_ratio
-                    cfg["mean_span_length"] = span_length
-                    insert(
-                        conn,
-                        cfg,
-                        dataset,
-                        mask_ratio,
-                        span_length,
-                    )
+    for dataset in datasets:
+        print(f"Generating configs for {dataset['name']}")
 
-        inserted += 1
-        print(f"Inserted config {inserted}/{n_configs}")
+        for i, hparams in enumerate(configs, 1):
+            config = hparams.copy()
 
-        attempts += 1
-        if attempts > n_configs * 20:
-            break
+            insert(conn, config, dataset)
+
+            print(f"Inserted config {i}/{n_configs}")
 
     conn.close()
 
-
 if __name__ == "__main__":
-    generate(20)
+    generate(100)

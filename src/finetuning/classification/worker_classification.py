@@ -1,15 +1,60 @@
-import sqlite3
 import json
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+import time
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/classification.db"
+
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/classification_allData.db"
 
 
-# -----------------------------
-# Load config by array index
-# -----------------------------
+
+def get_db_connection():
+    conn = sqlite3.connect(
+        DB_PATH,
+        timeout=60,
+    )
+    conn.execute("PRAGMA busy_timeout=60000")
+    return conn
+
+def execute_db_update(sql, params, description="database update"):
+    for attempt in range(5):
+
+        conn = None
+
+        try:
+            conn = get_db_connection()
+
+            conn.execute(sql, params)
+            conn.commit()
+            conn.close()
+
+            return
+
+        except sqlite3.OperationalError as e:
+
+            if conn is not None:
+                conn.close()
+
+            if "database is locked" not in str(e):
+                raise
+
+            print(
+                f"[SQLite] Database locked during {description} "
+                f"- retry {attempt + 1}/5",
+                flush=True
+            )
+
+            if attempt < 4:
+                time.sleep(5)
+
+    raise RuntimeError(
+        f"[SQLite] Database remained locked during "
+        f"{description} after 5 attempts."
+    )
+
+
 def load_config_by_idx(conn, idx):
     cur = conn.cursor()
 
@@ -29,11 +74,11 @@ def load_config_by_idx(conn, idx):
     return json.loads(cfg_json), h
 
 
-def run_train(cfg_path):
+def run_train(idx):
     subprocess.run([
         "python3",
-        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/train.py",
-        "--config", cfg_path
+        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/finetune_classification.py",
+        "--index", str(idx),
     ], check=True)
 
 
@@ -41,60 +86,104 @@ def run_eval(idx):
     subprocess.run([
         "python3",
         "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/evaluate_calssification.py",
-        "--index", str(idx)  
+        "--index", str(idx),
     ], check=True)
 
 
 def main():
 
-    idx = int(sys.argv[1]) 
-    conn = sqlite3.connect(DB_PATH)
+    if len(sys.argv) != 2:
+        print("Usage: python worker.py <idx>")
+        sys.exit(1)
+
+    idx = int(sys.argv[1])
+
+
+
+    conn = get_db_connection()
+
     cfg, h = load_config_by_idx(conn, idx)
 
-    if cfg is None:
-        print(f"No config for idx {idx}")
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT accuracy
+        FROM runs
+        WHERE id = ?
+        """,
+        (idx,)
+    )
+    row = cur.fetchone()
+    conn.close()
+
+    if row is not None and row[0] is not None:
+        print(f"[IDX {idx}] Accuracy already exists ({row[0]}), skipping")
         return
 
-    output_dir = Path(f"./FineTunedModels/Classification/{h}")
-    cfg["output_dir"] = str(output_dir)
+    print(f"[IDX {idx}] Starting")
+    print(f"[IDX {idx}] Config hash: {h}")
 
-    cfg_path = output_dir / "config.json"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(
+        f"./FineTunedModels/Classification/Small/"
+        f"{h}/checkpoint-final"
+    )
 
-    # save config temporarily for train.py
-    import yaml
-    tmp_yaml = output_dir / "train_config.yaml"
+    output_dir.mkdir(
+        parents=True,
+        exist_ok=True
+    )
 
-    with open(tmp_yaml, "w") as f:
-        yaml.dump(cfg, f, sort_keys=False)
+    model_path = output_dir
 
-    print(f"[IDX {idx}] Running config {h}")
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-    run_train(str(tmp_yaml))
+    cur.execute(
+            """
+            SELECT model_path
+            FROM runs
+            WHERE id = ?
+            """,
+            (idx,)
+    )
 
-    model_path = output_dir / "run-0" / "checkpoint-final"
+    existing_model_path = cur.fetchone()[0]
 
+    conn.close()
 
-    conn.execute("""
-        UPDATE runs
-        SET model_path=?,
-            status='TRAIN_DONE'
-        WHERE id=?
-    """, (str(model_path), idx))
+    if existing_model_path is None:
+        execute_db_update(
+            """
+            UPDATE runs
+            SET model_path=?
+            WHERE id=?
+            """,
+            (str(model_path), idx),
+            description=f"setting model_path for idx {idx}"
+        )
 
-    conn.commit()
+    print(f"[IDX {idx}] Model path: {model_path}")
+
+    run_train(idx)
 
     run_eval(idx)
 
-    conn.execute("""
+
+    conn = get_db_connection()
+
+    conn.execute(
+        """
         UPDATE runs
-        SET status='DONE'
-        WHERE id=?
-    """, (idx,))
+        SET status = 'Finished'
+        WHERE id = ?
+        """,
+        (idx,)
+    )
 
     conn.commit()
+    conn.close()
 
-
+    print(f"[IDX {idx}] Finished")
 
 
 if __name__ == "__main__":

@@ -2,16 +2,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import sqlite3
-import sys
-import argparse
+# import sys
+# import argparse
 
-from sklearn.linear_model import Ridge
-from sklearn.neighbors import NearestNeighbors
+#from sklearn.linear_model import Ridge
+#from sklearn.neighbors import NearestNeighbors
 
 root_dir = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi")
-sys.path.append(str(root_dir.resolve()))
-sys.path.append(str((root_dir / "src").resolve()))
-sys.path.append(str((root_dir / "chronos_pkg/src").resolve()))
+# sys.path.append(str(root_dir.resolve()))
+# sys.path.append(str((root_dir / "src").resolve()))
+# sys.path.append(str((root_dir / "chronos_pkg/src").resolve()))
 
 from gluonts.dataset.arrow import ArrowFile
 
@@ -77,9 +77,8 @@ def evaluate_knn(knn, X_train_feat, y_train, test_path, context_length=512):
         "5nn_rmse": rmse(preds_5nn, y),
         "5nn_mae": mae(preds_5nn, y),
     }
-# -------------------------
-# FEATURE ENGINEERING
-# -------------------------
+
+
 def extract_features(series: np.ndarray):
     series = np.asarray(series)
     series = np.nan_to_num(series, nan=0.0, posinf=0.0, neginf=0.0)
@@ -104,9 +103,7 @@ def extract_features(series: np.ndarray):
     return np.nan_to_num(feat)
 
 
-# -------------------------
-# DATA LOADER
-# -------------------------
+
 def load_arrow(path: str):
     dataset = ArrowFile(Path(path))
 
@@ -152,33 +149,41 @@ def train_ridge(train_path, context_length=512):
     return model
 
 
-# -------------------------
-# EVAL
-# -------------------------
-def evaluate_all(ridge_model, test_path, context_length=512):
+def evaluate_all(test_path, context_length=512):
 
     X, y = load_arrow(test_path)
 
-    preds_mean, preds_last, preds_ridge = [], [], []
+    preds_mean = []
+    preds_last = []
+    valid_y = []
 
     for i in range(len(X)):
+
         series = X[i][-context_length:]
 
-        preds_mean.append(np.mean(series))
-        preds_last.append(series[-1])
+        # Remove NaN / Inf values
+        valid_series = series[np.isfinite(series)]
 
-        feat = extract_features(series).reshape(1, -1)
-        preds_ridge.append(ridge_model.predict(feat)[0])
+        # Skip completely invalid series
+        if len(valid_series) == 0:
+            continue
+
+        # Also skip invalid target values
+        if not np.isfinite(y[i]):
+            continue
+
+        preds_mean.append(np.mean(valid_series))
+        preds_last.append(valid_series[-1])
+        valid_y.append(y[i])
+
+    valid_y = np.asarray(valid_y, dtype=np.float32)
 
     return {
-        "mean_rmse": rmse(preds_mean, y),
-        "mean_mae": mae(preds_mean, y),
+        "mean_rmse": rmse(preds_mean, valid_y),
+        "mean_mae": mae(preds_mean, valid_y),
 
-        "last_rmse": rmse(preds_last, y),
-        "last_mae": mae(preds_last, y),
-
-        "ridge_rmse": rmse(preds_ridge, y),
-        "ridge_mae": mae(preds_ridge, y),
+        "last_rmse": rmse(preds_last, valid_y),
+        "last_mae": mae(preds_last, valid_y),
     }
 
 
@@ -187,8 +192,8 @@ def evaluate_all(ridge_model, test_path, context_length=512):
 # -------------------------
 if __name__ == "__main__":
 
-    DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/tser.db"
-    OUTPUT_CSV = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/TSER/tser_baselines.csv"
+    DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/tser_small_final.db"
+    OUTPUT_CSV = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/TSER/tsernaive.csv"
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -208,25 +213,25 @@ if __name__ == "__main__":
         print(f"\nProcessing {dataset}")
 
         # Ridge baseline
-        ridge_model = train_ridge(train_path)
-        ridge_metrics = evaluate_all(ridge_model, test_path)
+        #ridge_model = train_ridge(train_path)
+        ridge_metrics = evaluate_all(test_path)
 
         # kNN-ED baseline
-        knn, X_train_feat, y_train = train_knn_ed(train_path)
-        knn_metrics = evaluate_knn(knn, X_train_feat, y_train, test_path)
+        #knn, X_train_feat, y_train = train_knn_ed(train_path)
+        #knn_metrics = evaluate_knn(knn, X_train_feat, y_train, test_path)
 
         row = {
             "dataset": dataset,
 
             **ridge_metrics,
-            **knn_metrics
+            #**knn_metrics
         }
 
         results.append(row)
 
-        print(f"Ridge RMSE: {ridge_metrics['ridge_rmse']:.6f}")
-        print(f"1NN RMSE: {knn_metrics['1nn_rmse']:.6f}")
-        print(f"5NN RMSE: {knn_metrics['5nn_rmse']:.6f}")
+        #print(f"Ridge RMSE: {ridge_metrics['ridge_rmse']:.6f}")
+        #print(f"1NN RMSE: {knn_metrics['1nn_rmse']:.6f}")
+        #print(f"5NN RMSE: {knn_metrics['5nn_rmse']:.6f}")
         
     df = pd.DataFrame(results)
     df.to_csv(OUTPUT_CSV, index=False)

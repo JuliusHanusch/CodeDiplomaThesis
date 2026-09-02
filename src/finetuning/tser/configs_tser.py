@@ -1,87 +1,85 @@
 import sqlite3
 import json
-import yaml
 import random
 import numpy as np
 import hashlib
-import copy
+from pathlib import Path
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/tser.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/tser_allData.db"
 BASE_CONFIG_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/base_config.yaml"
 
-def config_hash(config: dict) -> str:
+TSER_ROOT = Path(
+    "/data/horse/ws/juha972b-AION-BERT-Chronos/"
+    "BERTi/data/finetuning/TSER"
+)
+
+
+def config_hash(config: dict, dataset: str) -> str:
+    hash_data = {
+        "config": config,
+        "dataset": dataset,
+    }
+
     return hashlib.sha256(
-        json.dumps(config, sort_keys=True).encode()
+        json.dumps(hash_data, sort_keys=True).encode()
     ).hexdigest()
 
 
 def sample_config():
     """Search space definition."""
 
+    max_gpu_batch = 32
+    sampled_batch = int(random.choice([8, 16, 32, 64, 128]))
+    if sampled_batch > max_gpu_batch:
+        gradient_accumulation_steps = sampled_batch // max_gpu_batch
+        per_device_train_batch_size = max_gpu_batch
+    else:
+        gradient_accumulation_steps = 1
+        per_device_train_batch_size = sampled_batch
+
     return {
         "num_train_epochs": int(random.choice([2, 5, 10, 20, 40])),
-        "per_device_train_batch_size": int(random.choice([8, 16, 32])),
+        "per_device_train_batch_size": per_device_train_batch_size,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
         "learning_rate": float(np.exp(
-            np.random.uniform(np.log(1e-5), np.log(5e-4))
+            np.random.uniform(np.log(5e-6), np.log(1e-3))
         )),
         "dropout_head": float(random.uniform(0.0, 0.3)),
         "warmup_ratio": float(random.uniform(0.0, 0.1)),
         "TrainInnerModel": bool(random.choice([True, False])),
         "loss_type": random.choice(["mae", "mse"]),
-
     }
-        
 
 
-# -----------------------------
-# DEFINE DATASETS HERE
-# -----------------------------
-datasets = [
-    # EXAMPLE:
-    {
-        "name": "FloodModeling",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/FloodModeling/train.arrow",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/FloodModeling/test.arrow",
-    },
-    {
-        "name": "HouseHoldPowerConsumption",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/HouseHoldPowerConsumption/train.arrow",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/HouseHoldPowerConsumption/test.arrow",
-    },
-    {
-        "name": "LiveFuelMoisture",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/LiveFuelMoisture/train.arrow",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/LiveFuelMoisture/test.arrow",
-    },
-    # {
-    #     "name": "NewsHeadline",
-    #     "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/NewsHeadline/train.arrow",
-    #     "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/NewsHeadline/test.arrow",
-    # },
-        {
-        "name": "PPGDalia",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/PPGDalia/train.arrow",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/TSER/PPGDalia/test.arrow",
-    }
-]
+def find_datasets():
 
+    datasets = []
 
-def load_base():
-    with open(BASE_CONFIG_PATH, "r") as f:
-        return yaml.safe_load(f)
+    for out_dir in sorted(TSER_ROOT.iterdir()):
 
+        if not out_dir.is_dir():
+            continue
 
-def make_full_config():
+        train_file = out_dir / "train_small_uni.arrow"
+        eval_file = out_dir / "eval_uni.arrow"
 
-    base = copy.deepcopy(load_base())
-    hparams = sample_config()
-    base.update(hparams)
+        if not train_file.exists():
+            continue
 
-    return base
+        if not eval_file.exists():
+            continue
+
+        datasets.append({
+            "name": out_dir.name,
+            "train": str(train_file),
+            "eval": str(eval_file),
+        })
+
+    return datasets
 
 
 def insert(conn, cfg, ds):
-    h = config_hash(cfg)
+    h = config_hash(cfg, ds["name"])
     cur = conn.cursor()
 
     try:
@@ -91,7 +89,7 @@ def insert(conn, cfg, ds):
                 config,
                 dataset,
                 train_data,
-                test_data,
+                eval_data,
                 status
             )
             VALUES (?, ?, ?, ?, ?, ?)
@@ -100,7 +98,7 @@ def insert(conn, cfg, ds):
             json.dumps(cfg),
             ds["name"],
             ds["train"],
-            ds["test"],
+            ds["eval"],
             "PENDING"
         ))
 
@@ -114,26 +112,28 @@ def insert(conn, cfg, ds):
 def generate(n_configs=20):
     conn = sqlite3.connect(DB_PATH)
 
-    inserted = 0
-    attempts = 0
+    datasets = find_datasets()
 
-    while inserted < n_configs:
-        cfg = make_full_config()
-        for dataset in datasets:
-            cfg["training_data_paths"] = [str(dataset["train"])]
+    # Generate the HPO configurations once
+    configs = [sample_config() for _ in range(n_configs)]
 
-            insert(conn, cfg, dataset)
+    for dataset in datasets:
+        print(f"Generating configs for {dataset['name']}")
 
-        inserted += 1
-        print(f"Inserted config {inserted}/{n_configs}")
+        for i, hparams in enumerate(configs, 1):
 
-        attempts += 1
+            # Only sampled HPO parameters are stored in config
+            cfg = hparams.copy()
 
-        if attempts > n_configs * 20:
-            break
+            inserted = insert(conn, cfg, dataset)
+
+            if inserted:
+                print(f"Inserted config {i}/{n_configs}")
+            else:
+                print(f"Exists config {i}/{n_configs}")
 
     conn.close()
 
 
 if __name__ == "__main__":
-    generate(20)
+    generate(100)

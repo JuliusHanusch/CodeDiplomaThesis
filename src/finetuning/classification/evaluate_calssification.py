@@ -10,6 +10,7 @@ from collections import Counter
 import argparse
 import sqlite3
 import json
+import time
 
 import numpy as np
 from pathlib import Path
@@ -21,8 +22,54 @@ sys.path.append(str((root_dir / "chronos_pkg/src").resolve()))
 
 from chronos_pkg.src.chronos import ChronosPipeline
 
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/classification_allData.db"
 
-def load_ucr_tsv(tsv_path, context_length=512):
+def get_db_connection():
+    conn = sqlite3.connect(
+        DB_PATH,
+        timeout=60,
+    )
+    conn.execute("PRAGMA busy_timeout=60000")
+    return conn
+
+def execute_db_update(sql, params, description="database update"):
+    for attempt in range(5):
+
+        conn = None
+
+        try:
+            conn = get_db_connection()
+
+            conn.execute(sql, params)
+            conn.commit()
+            conn.close()
+
+            return
+
+        except sqlite3.OperationalError as e:
+
+            if conn is not None:
+                conn.close()
+
+            if "database is locked" not in str(e):
+                raise
+
+            print(
+                f"[SQLite] Database locked during {description} "
+                f"- retry {attempt + 1}/5",
+                flush=True
+            )
+
+            if attempt < 4:
+                time.sleep(5)
+
+    raise RuntimeError(
+        f"[SQLite] Database remained locked during "
+        f"{description} after 5 attempts."
+    )
+
+
+def load_ucr_tsv(tsv_path):
     df = pd.read_csv(tsv_path, sep="\t", header=None).values
 
     y = df[:, 0]
@@ -34,17 +81,10 @@ def load_ucr_tsv(tsv_path, context_length=512):
     label_map = {v: i for i, v in enumerate(unique)}
     y = np.vectorize(label_map.get)(y)
 
-    # pad / truncate
-    # if X.shape[1] < context_length:
-    #     pad = context_length - X.shape[1]
-    #     X = np.pad(X, ((0, 0), (0, pad)), mode="constant")
-    # else:
-    #     X = X[:, -context_length:]
-
     return X, y
 
 
-def load_uci_har(test_dir: str, context_length: int = 512):
+def load_uci_har(test_dir: str):
 
     test_dir = Path(test_dir)
 
@@ -63,13 +103,6 @@ def load_uci_har(test_dir: str, context_length: int = 512):
 
     if X.ndim == 1:
         X = X.reshape(1, -1)
-
-
-    # if X.shape[1] < context_length:
-    #     pad = context_length - X.shape[1]
-    #     X = np.pad(X, ((0, 0), (0, pad)))
-    # else:
-    #     X = X[:, -context_length:]
 
     return X, y
 
@@ -101,7 +134,6 @@ def evaluate_model(model, tokenizer, X, y, batch_size=32):
 
             logits = outputs["logits"]
 
-            # safety fix (some models return (B,T,C))
             if logits.ndim == 3:
                 logits = logits[:, -1, :]
 
@@ -129,16 +161,19 @@ if __name__ == "__main__":
 
     idx = args.index
 
+
     batch_size = 32
     context_length = 512
 
-    DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/classification.db"
-
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cur = conn.cursor()
 
-    cur.execute("""
-        SELECT config, model_path, test_data, dataset
+    cur.execute(f"""
+        SELECT
+            config,
+            model_path,
+            eval_data,
+            dataset
         FROM runs
         WHERE id = ?
     """, (idx,))
@@ -148,7 +183,8 @@ if __name__ == "__main__":
     if row is None:
         raise ValueError(f"No run found for id={idx}")
 
-    config_json, model_path, test_data, dataset = row
+    config_json, model_path, eval_data, dataset = row
+
     config = json.loads(config_json)
 
     num_labels = config["num_labels"]
@@ -168,41 +204,33 @@ if __name__ == "__main__":
             torch.load(classifier_path, map_location="cpu")
         )
 
+
     if dataset == "UCI-HAR":
-
         X_test, y_test = load_uci_har(
-            test_dir=test_data,
-            context_length=context_length
+            test_dir=eval_data,
         )
-
     else:
-
         X_test, y_test = load_ucr_tsv(
-            tsv_path=test_data,
-            context_length=context_length
+            tsv_path=eval_data,
         )
-
-
 
 
     results = evaluate_model(model, tokenizer, X_test, y_test, batch_size)
 
-
-
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    cur.execute("""
-        UPDATE runs
-        SET accuracy = ?,
-            f1 = ?,
-            status = 'DONE'
-        WHERE id = ?
-    """, (
-        results["accuracy"],
-        results["f1"],
-        idx,
-    ))
+    execute_db_update(
+        """
+            UPDATE runs
+            SET
+                accuracy = ?,
+                f1 = ?
+            WHERE id = ?
+        """, (
+            results["accuracy"],
+            results["f1"],
+            idx,
+        ),
+        description="Results"
+    )
 
     conn.commit()
     conn.close()
