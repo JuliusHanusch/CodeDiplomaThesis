@@ -10,12 +10,16 @@ The `src` directory contains the training and evaluation scripts required for th
 
 ### Pretraining
 
-The pretraining is performed using:
+The pretraining implementation is based on the pretraining code provided by [AION](https://github.com/JP-SystemsX/AION) and was adapted for ChronosBERT.
+
+The changes are in the following scripts:
 
 * `train.py`
 * `hpo.py`
 * `search_space.py`
 * `utils.py`
+
+
 
 ### Finetuning
 
@@ -30,7 +34,7 @@ For **TSER** and **imputation**, the following structure is used:
 * `finetune_task.py`
 * `evaluate_task.py`
 
-For **classification** and **similarity**, the three steps are combined into a single task-specific script:
+For **classification** and **similarity**, the three steps are combined into a single script:
 
 * `task.py`
 
@@ -53,8 +57,11 @@ For TSER, the `final` directory also contains a script for performing the multiv
 
 ## Chronos Directory
 
-The `chronos_pkg` directory contains the modified Chronos implementation used for ChronosBERT and the different downstream time series tasks.
+The `chronos_pkg` directory contains the modified Chronos implementation used for ChronosBERT and the downstream time series tasks. The implementation is based on the original [Chronos](https://github.com/amazon-science/chronos-forecasting) implementation, in particular its tokenizer and model structure.
 
-* `chronos.py` contains the modifications required to load the correct model head for the respective task, as well as the modifications for handling the masking token used during BERT-style pretraining.
-* `chronos_task.py` implements the task-specific heads used for the different downstream tasks.
-* For TSER, the univariate and multivariate implementations are combined into a single file.
+The main modifications in `chronos_pkg` are:
+
+* `chronos.py` contains the modifications required to load the appropriate model head for the respective task and the additional handling of the masking token required for BERT-style masked pretraining.
+* `chronos_task.py` contains the implementations of the task-specific heads used for the different downstream time series tasks.
+* The TSER implementation contains both the univariate and multivariate variants in a single file.
+
