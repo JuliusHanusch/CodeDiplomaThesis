@@ -65,3 +65,28 @@ The main modifications in `chronos_pkg` are:
 * `chronos_task.py` contains the implementations of the task-specific heads used for the different downstream time series tasks.
 * The TSER implementation contains both the univariate and multivariate variants in a single file.
 
+## Data Directory
+
+The `data` directory contains the scripts and data preparation required for the experiments.
+
+### Data Download
+
+ETT, Similarity(ArabicSpokenDigits) and UCR datasets can be downloaded using the provided scripts.
+
+* `ett_data.py`
+* `similarity_data.py`
+* `UCR_classification_data.py`
+
+
+TSER datasets have to be downloaded manually.
+
+### Data Preparation
+
+The directory contains scripts for the required data preparation, including:
+
+Generation of masks for val/test set of the imputation experiments.
+* `create_masks.py`
+
+Creation of similarity time series pairs for the similarity experiments.
+* `splitandpairs.py` for ArabicSpokenDigits
+* `similarity_pairs.py` for UCR Benchmark
