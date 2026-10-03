@@ -4,7 +4,7 @@ This repository contains the code required to reproduce the results of my diplom
 
 The repository is structured into several main directories. The `src` directory contains the training, evaluation, and baseline scripts used in the experiments.
 
-## `src`
+## SRC Directory
 
 The `src` directory contains the training and evaluation scripts required for the experiments.
 
@@ -13,6 +13,9 @@ The `src` directory contains the training and evaluation scripts required for th
 The pretraining is performed using:
 
 * `train.py`
+* `hpo.py`
+* `search_space.py`
+* `utils.py`
 
 ### Finetuning
 
@@ -44,10 +47,14 @@ The imputation baselines are calculated directly during the evaluation of Chrono
 
 ### Final Experiments
 
-Each finetuning task contains a `Final` directory with the scripts used to perform the final training and evaluation using the best configurations identified during hyperparameter optimization.
+Each finetuning task contains a `final` directory with the scripts used to perform the final training and evaluation using the best configurations identified during hyperparameter optimization.
 
-For TSER, the `Final` directory also contains a script for performing the multivariate experiments.
+For TSER, the `final` directory also contains a script for performing the multivariate experiments.
 
-## Other Directories
+## Chronos Directory
 
-Additional directories containing data preparation scripts, Chronos modifications, and other supporting code will be added to the repository.
+The `chronos_pkg` directory contains the modified Chronos implementation used for ChronosBERT and the different downstream time series tasks.
+
+* `chronos.py` contains the modifications required to load the correct model head for the respective task, as well as the modifications for handling the masking token used during BERT-style pretraining.
+* `chronos_task.py` implements the task-specific heads used for the different downstream tasks.
+* For TSER, the univariate and multivariate implementations are combined into a single file.
