@@ -54,10 +54,6 @@ def sample_config():
     }
 
 
-# ============================================================
-# AUTOMATICALLY FIND ALL UCR DATASETS
-# ============================================================
-
 datasets = []
 
 for dataset_dir in sorted(UCR_ROOT.iterdir()):
@@ -66,7 +62,6 @@ for dataset_dir in sorted(UCR_ROOT.iterdir()):
 
     dataset_name = dataset_dir.name
     train_pairs = dataset_dir / "similarity/train_pairs.npz"
-    eval_pairs = dataset_dir / "similarity/eval_pairs.npz"
 
     if not train_pairs.exists():
         print(
@@ -78,14 +73,9 @@ for dataset_dir in sorted(UCR_ROOT.iterdir()):
     datasets.append({
         "name": dataset_name,
         "train": str(train_pairs),
-        "eval": str(eval_pairs),
         "task": "similarity"
     })
 
-
-# ============================================================
-# ARABIC SPOKEN DIGITS
-# ============================================================
 
 datasets.extend([
     {
@@ -97,13 +87,6 @@ datasets.extend([
             / "digit"
             / "train_pairs.npz"
         ),
-        "eval": str(
-            ARABIC_ROOT
-            / "similarity"
-            / "univariate"
-            / "digit"
-            / "eval_pairs.npz"
-        ),
         "task": "digit"
     },
     {
@@ -114,13 +97,6 @@ datasets.extend([
             / "univariate"
             / "voice"
             / "train_pairs.npz"
-        ),
-        "eval": str(
-            ARABIC_ROOT
-            / "similarity"
-            / "univariate"
-            / "voice"
-            / "eval_pairs.npz"
         ),
         "task": "voice"
     },
@@ -144,17 +120,15 @@ def insert(conn, cfg, ds):
                 config,
                 dataset,
                 train_data,
-                eval_data,
                 task,
                 status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
         """, (
             h,
             json.dumps(cfg),
             ds["name"],
             ds["train"],
-            ds["eval"],
             ds["task"],
             "PENDING"
         ))

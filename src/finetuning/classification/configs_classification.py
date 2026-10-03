@@ -47,16 +47,6 @@ def sample_config():
     }
 
 def find_ucr_datasets():
-    """
-    Find all UCR datasets containing:
-        *_TRAIN_small.tsv
-        *_EVAL.tsv
-        *_TEST.tsv
-
-    Only TRAIN_small and EVAL are stored in the DB.
-    TEST remains untouched and is used separately for
-    the final evaluation.
-    """
 
     datasets = []
 
@@ -69,14 +59,6 @@ def find_ucr_datasets():
             dataset_dir.glob("*_TRAIN.tsv")
         )
 
-        eval_files = list(
-            dataset_dir.glob("*_EVAL.tsv")
-        )
-
-        test_files = list(
-            dataset_dir.glob("*_TEST.tsv")
-        )
-
         if len(train) != 1:
             print(
                 f"[SKIP] {dataset_dir.name}: "
@@ -85,25 +67,7 @@ def find_ucr_datasets():
             )
             continue
 
-        if len(eval_files) != 1:
-            print(
-                f"[SKIP] {dataset_dir.name}: "
-                f"expected 1 EVAL file, "
-                f"found {len(eval_files)}"
-            )
-            continue
-
-        if len(test_files) != 1:
-            print(
-                f"[SKIP] {dataset_dir.name}: "
-                f"expected 1 TEST file, "
-                f"found {len(test_files)}"
-            )
-            continue
-
         train_file = train[0]
-        eval_file = eval_files[0]
-
         dataset_name = train_file.name.replace(
             "_TRAIN.tsv", ""
         )
@@ -111,7 +75,6 @@ def find_ucr_datasets():
         datasets.append({
             "name": dataset_name,
             "train": str(train_file),
-            "eval": str(eval_file),
         })
 
     return datasets
@@ -158,16 +121,14 @@ def insert(conn, cfg, ds):
                 config,
                 dataset,
                 train_data,
-                eval_data,
                 status
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
         """, (
             h,
             json.dumps(cfg),
             ds["name"],
             ds["train"],
-            ds["eval"],
             "PENDING"
         ))
 
