@@ -31,7 +31,7 @@ from chronos_pkg.src.chronos import ChronosConfig
 from chronos_pkg.src.chronos.chronos_bolt import ChronosBoltModelForForecasting, ChronosBoltConfig
 from src.utils import load_val_data
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/imputation_allData.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/imputation_allData_new.db"
 
 app = typer.Typer(pretty_exceptions_enable=False)
 
@@ -498,7 +498,7 @@ def main(
     eval_path_obj = Path(eval_path)
 
     mask_path = (
-        eval_path_obj.parent / "eval_masks.npz"
+        eval_path_obj.parent / "val_masks.npz"
     )
 
     if not mask_path.exists():

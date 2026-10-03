@@ -19,7 +19,7 @@ sys.path.append(str((root_dir / "chronos_pkg/src").resolve()))
 from chronos_pkg.src.chronos import ChronosPipeline
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/similarity.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/final/similarity_cv_best.db"
 
 
 def get_db_connection():
@@ -102,77 +102,56 @@ def evaluate_similarity(
 
         end = start + batch_size
 
-        if dataset_name=="ArabicSpokenDigits1" or dataset_name=="ArabicSpokenDigits2":
+        ids1_list = []
+        mask1_list = []
+        ids2_list = []
+        mask2_list = []
 
-            ids1_list = []
-            mask1_list = []
-            ids2_list = []
-            mask2_list = []
+        for a, b in zip(
+            X1[start:end],
+            X2[start:end]
+        ):
 
-            for a, b in zip(
-                X1[start:end],
-                X2[start:end]
-            ):
+            a = np.asarray(a, dtype=np.float32)
+            b = np.asarray(b, dtype=np.float32)
 
-                i1, m1, _ = tokenizer.context_input_transform(
-                    torch.tensor(a).unsqueeze(0)
-                )
-
-                i2, m2, _ = tokenizer.context_input_transform(
-                    torch.tensor(b).unsqueeze(0)
-                )
-
-                ids1_list.append(i1.squeeze(0))
-                mask1_list.append(m1.squeeze(0))
-
-                ids2_list.append(i2.squeeze(0))
-                mask2_list.append(m2.squeeze(0))
-
-
-            ids1 = pad_sequence(
-                ids1_list,
-                batch_first=True,
-                padding_value=0
+            i1, m1, _ = tokenizer.context_input_transform(
+                torch.from_numpy(a).unsqueeze(0)
             )
 
-            mask1 = pad_sequence(
-                mask1_list,
-                batch_first=True,
-                padding_value=0
+            i2, m2, _ = tokenizer.context_input_transform(
+                torch.from_numpy(b).unsqueeze(0)
             )
 
-            ids2 = pad_sequence(
-                ids2_list,
-                batch_first=True,
-                padding_value=0
-            )
+            ids1_list.append(i1.squeeze(0))
+            mask1_list.append(m1.squeeze(0))
 
-            mask2 = pad_sequence(
-                mask2_list,
-                batch_first=True,
-                padding_value=0
-            )
+            ids2_list.append(i2.squeeze(0))
+            mask2_list.append(m2.squeeze(0))
 
-        else:
+        ids1 = pad_sequence(
+            ids1_list,
+            batch_first=True,
+            padding_value=tokenizer.config.pad_token_id
+        ).to(device)
 
-            c1 = torch.tensor(
-                X1[start:end],
-                dtype=torch.float32
-            )
+        mask1 = pad_sequence(
+            mask1_list,
+            batch_first=True,
+            padding_value=0
+        ).to(device)
 
-            c2 = torch.tensor(
-                X2[start:end],
-                dtype=torch.float32
-            )
+        ids2 = pad_sequence(
+            ids2_list,
+            batch_first=True,
+            padding_value=tokenizer.config.pad_token_id
+        ).to(device)
 
-            ids1, mask1, _ = tokenizer.context_input_transform(c1)
-            ids2, mask2, _ = tokenizer.context_input_transform(c2)
-            
-        ids1 = ids1.to(device)
-        mask1 = mask1.to(device)
-
-        ids2 = ids2.to(device)
-        mask2 = mask2.to(device)
+        mask2 = pad_sequence(
+            mask2_list,
+            batch_first=True,
+            padding_value=0
+        ).to(device)
 
         outputs = model(
             input_ids_1=ids1,
@@ -195,15 +174,22 @@ def evaluate_similarity(
             sim.cpu()
         )
 
-    similarities = torch.cat(
-        similarities
-    ).numpy()
-
+    similarities = torch.cat(similarities).numpy()
 
     probs = (similarities + 1) / 2
-    preds = (
-        probs > 0.5
-    ).astype(int)
+    preds = (probs > 0.5).astype(int)
+
+    valid = np.isfinite(probs)
+
+    if not valid.all():
+        print(
+            f"[WARNING] Filtering {np.sum(~valid)} NaN/non-finite "
+            f"similarity values for dataset={dataset_name}"
+        )
+
+        probs = probs[valid]
+        preds = preds[valid]
+        y = np.asarray(y)[valid]
 
     return {
         "accuracy": accuracy_score(
@@ -274,6 +260,9 @@ if __name__ == "__main__":
         config_json
     )
 
+    start_time = time.perf_counter()
+
+
     pipeline = ChronosPipeline.from_pretrained(
         model_path,
         task="similarity"
@@ -306,22 +295,28 @@ if __name__ == "__main__":
         batch_size
     )
 
+    total_inference_time = time.perf_counter() - start_time
+
+
     accuracy_column = f"accuracy_{seed}"
     f1_column = f"f1_{seed}"
     auroc_column = f"auroc_{seed}"
+    time_column = f"inference_time_{seed}"
 
     execute_db_update(
         f"""
         UPDATE runs
         SET {accuracy_column}=?,
             {f1_column}=?,
-            {auroc_column}=?
+            {auroc_column}=?,
+            {time_column}=?
         WHERE id=?
         """,
         (
             results["accuracy"],
             results["f1"],
             results["auroc"],
+            total_inference_time,
             idx
         )
     )

@@ -3,7 +3,7 @@ import sqlite3
 
 DB_PATH = (
     "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/"
-    "src/finetuning/similarity/similarity_allData.db"
+    "src/finetuning/similarity/similarity_cv.db"
 )
 
 

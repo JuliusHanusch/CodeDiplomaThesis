@@ -2,86 +2,78 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import sqlite3
-# import sys
-# import argparse
 
-#from sklearn.linear_model import Ridge
-#from sklearn.neighbors import NearestNeighbors
-
-root_dir = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi")
-# sys.path.append(str(root_dir.resolve()))
-# sys.path.append(str((root_dir / "src").resolve()))
-# sys.path.append(str((root_dir / "chronos_pkg/src").resolve()))
+from sklearn.linear_model import Ridge
+from sklearn.neighbors import NearestNeighbors
 
 from gluonts.dataset.arrow import ArrowFile
 
 
-# -------------------------
-# METRICS
-# -------------------------
+
 def rmse(preds, labels):
-    preds = np.asarray(preds)
-    labels = np.asarray(labels)
+    preds = np.asarray(preds, dtype=np.float64)
+    labels = np.asarray(labels, dtype=np.float64)
+
     return np.sqrt(np.mean((preds - labels) ** 2))
 
 
 def mae(preds, labels):
-    preds = np.asarray(preds)
-    labels = np.asarray(labels)
+    preds = np.asarray(preds, dtype=np.float64)
+    labels = np.asarray(labels, dtype=np.float64)
+
     return np.mean(np.abs(preds - labels))
 
-def train_knn_ed(train_path, context_length=512):
+def load_arrow(path):
+    dataset = ArrowFile(Path(path))
 
-    X, y = load_arrow(train_path)
+    series = []
+    labels = []
 
-    X_feat = []
+    for entry in dataset:
 
-    for i in range(len(X)):
-        series = X[i][-context_length:]
-        X_feat.append(extract_features(series))
+        target = np.asarray(
+            entry["target"],
+            dtype=np.float32
+        )
 
-    X_feat = np.vstack(X_feat)
-    y = np.asarray(y, dtype=np.float32)
+        if "label" in entry:
+            label = entry["label"]
 
-    knn = NearestNeighbors(n_neighbors=5, metric="euclidean")
-    knn.fit(X_feat)
+        elif "y" in entry:
+            label = entry["y"]
 
-    return knn, X_feat, y
+        else:
+            raise KeyError(
+                "No label found in dataset entry"
+            )
 
-def evaluate_knn(knn, X_train_feat, y_train, test_path, context_length=512):
+        series.append(target)
+        labels.append(float(label))
 
-    X, y = load_arrow(test_path)
-
-    preds_1nn = []
-    preds_5nn = []
-
-    for i in range(len(X)):
-
-        series = X[i][-context_length:]
-        feat = extract_features(series).reshape(1, -1)
-
-        distances, indices = knn.kneighbors(feat, n_neighbors=5)
-
-        neighbors_y = y_train[indices[0]]
-
-        # 1-NN
-        preds_1nn.append(neighbors_y[0])
-
-        # 5-NN (mean regression)
-        preds_5nn.append(np.mean(neighbors_y))
-
-    return {
-        "1nn_rmse": rmse(preds_1nn, y),
-        "1nn_mae": mae(preds_1nn, y),
-
-        "5nn_rmse": rmse(preds_5nn, y),
-        "5nn_mae": mae(preds_5nn, y),
-    }
+    return (
+        np.stack(series),
+        np.asarray(labels, dtype=np.float32)
+    )
 
 
-def extract_features(series: np.ndarray):
-    series = np.asarray(series)
-    series = np.nan_to_num(series, nan=0.0, posinf=0.0, neginf=0.0)
+
+def extract_features(series):
+
+    series = np.asarray(
+        series,
+        dtype=np.float64
+    )
+
+    # Replace invalid values
+    series = np.nan_to_num(
+        series,
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0
+    )
+
+    if len(series) == 0:
+        return np.zeros(6, dtype=np.float32)
 
     mean = np.mean(series)
     std = np.std(series)
@@ -89,151 +81,411 @@ def extract_features(series: np.ndarray):
     max_v = np.max(series)
     last = series[-1]
 
-    x = np.arange(len(series))
+    x = np.arange(len(series), dtype=np.float64)
 
-    if len(series) < 2 or np.all(series == series[0]):
+    if (
+        len(series) < 2
+        or np.all(series == series[0])
+    ):
         slope = 0.0
+
     else:
         try:
-            slope = np.polyfit(x, series, 1)[0]
+            slope = np.polyfit(
+                x,
+                series,
+                1
+            )[0]
+
         except Exception:
             slope = 0.0
 
-    feat = np.array([mean, std, min_v, max_v, last, slope], dtype=np.float32)
-    return np.nan_to_num(feat)
+    features = np.array(
+        [
+            mean,
+            std,
+            min_v,
+            max_v,
+            last,
+            slope
+        ],
+        dtype=np.float32
+    )
+
+    return np.nan_to_num(
+        features,
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0
+    )
 
 
-
-def load_arrow(path: str):
-    dataset = ArrowFile(Path(path))
-
-    series, labels = [], []
-
-    for entry in dataset:
-        target = np.asarray(entry["target"], dtype=np.float32)
-
-        if "label" in entry:
-            label = entry["label"]
-        elif "y" in entry:
-            label = entry["y"]
-        else:
-            raise KeyError("No label found in dataset entry")
-
-        series.append(target)
-        labels.append(float(label))
-
-    return np.stack(series), np.array(labels, dtype=np.float32)
-
-
-# -------------------------
-# TRAIN RIDGE
-# -------------------------
-def train_ridge(train_path, context_length=512):
-
-    X, y = load_arrow(train_path)
+def create_features(X, context_length=512):
 
     X_feat = []
-    y_target = []
+    valid_indices = []
 
     for i in range(len(X)):
+
         series = X[i][-context_length:]
-        X_feat.append(extract_features(series))
-        y_target.append(y[i])
 
-    X_feat = np.vstack(X_feat)
-    y_target = np.asarray(y_target, dtype=np.float32)
+        # Skip series with any invalid values
+        if not np.all(np.isfinite(series)):
+            continue
 
-    model = Ridge(alpha=1.0)
-    model.fit(X_feat, y_target)
+        X_feat.append(series)
+        valid_indices.append(i)
 
-    return model
+    if not X_feat:
+        return (
+            np.empty((0, context_length), dtype=np.float32),
+            np.array([], dtype=np.int64)
+        )
+
+    return (
+        np.asarray(X_feat, dtype=np.float32),
+        np.asarray(valid_indices, dtype=np.int64)
+    )
 
 
-def evaluate_all(test_path, context_length=512):
+def train_knn(
+    train_path,
+    context_length=512,
+    n_neighbors=5
+):
+
+    X_train, y_train = load_arrow(train_path)
+
+    X_feat, indices = create_features(
+        X_train,
+        context_length
+    )
+
+    y_target = y_train[indices]
+
+    # Remove invalid targets
+    valid = np.isfinite(y_target)
+
+    X_feat = X_feat[valid]
+    y_target = y_target[valid]
+
+    knn = NearestNeighbors(
+        n_neighbors=n_neighbors,
+        metric="euclidean"
+    )
+
+    knn.fit(X_feat)
+
+    return knn, X_feat, y_target
+
+
+def evaluate_knn(
+    knn,
+    y_train,
+    test_path,
+    context_length=512
+):
+
+    X_test, y_test = load_arrow(test_path)
+
+    X_feat, indices = create_features(
+        X_test,
+        context_length
+    )
+
+    y_target = y_test[indices]
+
+    # Remove invalid targets
+    valid = np.isfinite(y_target)
+
+    X_feat = X_feat[valid]
+    y_target = y_target[valid]
+
+    # Get five nearest neighbors
+    distances, indices = knn.kneighbors(
+        X_feat,
+        n_neighbors=5
+    )
+
+    neighbors_y = y_train[indices]
+
+
+    predictions_1nn = neighbors_y[:, 0]
+
+    predictions_5nn = np.mean(
+        neighbors_y,
+        axis=1
+    )
+
+    return {
+        "1nn_rmse": rmse(
+            predictions_1nn,
+            y_target
+        ),
+
+        "1nn_mae": mae(
+            predictions_1nn,
+            y_target
+        ),
+
+        "5nn_rmse": rmse(
+            predictions_5nn,
+            y_target
+        ),
+
+        "5nn_mae": mae(
+            predictions_5nn,
+            y_target
+        )
+    }
+
+def train_euclidean_knn(
+    train_path,
+    context_length=512
+):
+
+    X_train, y_train = load_arrow(train_path)
+
+    X_feat, indices = create_features(
+        X_train,
+        context_length
+    )
+
+    y_target = y_train[indices]
+
+    valid = np.isfinite(y_target)
+
+    X_feat = X_feat[valid]
+    y_target = y_target[valid]
+
+    knn = NearestNeighbors(
+        n_neighbors=5,
+        metric="euclidean"
+    )
+
+    knn.fit(X_feat)
+
+    return knn, X_feat, y_target
+
+def evaluate_euclidean_knn(
+    knn,
+    y_train,
+    test_path,
+    context_length=512
+):
+
+    X_test, y_test = load_arrow(test_path)
+
+    X_feat, indices = create_features(
+        X_test,
+        context_length
+    )
+
+    y_target = y_test[indices]
+
+    valid = np.isfinite(y_target)
+
+    X_feat = X_feat[valid]
+    y_target = y_target[valid]
+
+    distances, indices = knn.kneighbors(
+        X_feat,
+        n_neighbors=5
+    )
+
+    neighbors_y = y_train[indices]
+
+    predictions_1nn = neighbors_y[:, 0]
+    predictions_5nn = np.mean(neighbors_y, axis=1)
+
+    return {
+        "1nn_rmse": rmse(
+            predictions_1nn,
+            y_target
+        ),
+        "1nn_mae": mae(
+            predictions_1nn,
+            y_target
+        ),
+        "5nn_rmse": rmse(
+            predictions_5nn,
+            y_target
+        ),
+        "5nn_mae": mae(
+            predictions_5nn,
+            y_target
+        )
+    }
+
+
+def evaluate_naive(
+    test_path,
+    context_length=512
+):
 
     X, y = load_arrow(test_path)
 
-    preds_mean = []
-    preds_last = []
+    predictions_mean = []
+    predictions_last = []
     valid_y = []
 
     for i in range(len(X)):
 
         series = X[i][-context_length:]
 
-        # Remove NaN / Inf values
-        valid_series = series[np.isfinite(series)]
+        valid_series = series[
+            np.isfinite(series)
+        ]
 
-        # Skip completely invalid series
         if len(valid_series) == 0:
             continue
 
-        # Also skip invalid target values
         if not np.isfinite(y[i]):
             continue
 
-        preds_mean.append(np.mean(valid_series))
-        preds_last.append(valid_series[-1])
-        valid_y.append(y[i])
+        predictions_mean.append(
+            np.mean(valid_series)
+        )
 
-    valid_y = np.asarray(valid_y, dtype=np.float32)
+        predictions_last.append(
+            valid_series[-1]
+        )
+
+        valid_y.append(
+            y[i]
+        )
+
+    valid_y = np.asarray(
+        valid_y,
+        dtype=np.float32
+    )
 
     return {
-        "mean_rmse": rmse(preds_mean, valid_y),
-        "mean_mae": mae(preds_mean, valid_y),
+        "mean_rmse": rmse(
+            predictions_mean,
+            valid_y
+        ),
 
-        "last_rmse": rmse(preds_last, valid_y),
-        "last_mae": mae(preds_last, valid_y),
+        "mean_mae": mae(
+            predictions_mean,
+            valid_y
+        ),
+
+        "last_rmse": rmse(
+            predictions_last,
+            valid_y
+        ),
+
+        "last_mae": mae(
+            predictions_last,
+            valid_y
+        )
     }
 
-
-# -------------------------
-# MAIN
-# -------------------------
 if __name__ == "__main__":
 
-    DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/tser_small_final.db"
-    OUTPUT_CSV = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/TSER/tsernaive.csv"
+    DB_PATH = (
+        "/data/horse/ws/"
+        "juha972b-AION-BERT-Chronos/"
+        "BERTi/src/finetuning/tser/Final/"
+        "tser_bestConfigs_time.db"
+    )
+
+    OUTPUT_CSV = (
+        "/data/horse/ws/"
+        "juha972b-AION-BERT-Chronos/"
+        "BERTi/Results/Finetuning/TSER/"
+        "tser_baselines.csv"
+    )
+
+    CONTEXT_LENGTH = 512
 
     conn = sqlite3.connect(DB_PATH)
+
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT DISTINCT dataset, train_data, test_data
+        SELECT DISTINCT
+            dataset,
+            train_data,
+            test_data
         FROM runs
     """)
 
     rows = cur.fetchall()
+
     conn.close()
 
     results = []
 
+
     for dataset, train_path, test_path in rows:
 
-        print(f"\nProcessing {dataset}")
+        print(
+            f"\nProcessing {dataset}"
+        )
 
-        # Ridge baseline
-        #ridge_model = train_ridge(train_path)
-        ridge_metrics = evaluate_all(test_path)
+        print("Training kNN...")
 
-        # kNN-ED baseline
-        #knn, X_train_feat, y_train = train_knn_ed(train_path)
-        #knn_metrics = evaluate_knn(knn, X_train_feat, y_train, test_path)
+        knn, X_train_feat, y_train = train_euclidean_knn(
+            train_path,
+            context_length=CONTEXT_LENGTH
+        )
+
+        knn_metrics = evaluate_euclidean_knn(
+            knn,
+            y_train,
+            test_path,
+            context_length=CONTEXT_LENGTH
+        )
+
+
+        print("Evaluating naive baselines...")
+
+        naive_metrics = evaluate_naive(
+            test_path,
+            context_length=CONTEXT_LENGTH
+        )
+
 
         row = {
             "dataset": dataset,
 
-            **ridge_metrics,
-            #**knn_metrics
+            **knn_metrics,
+
+            **naive_metrics
         }
 
         results.append(row)
 
-        #print(f"Ridge RMSE: {ridge_metrics['ridge_rmse']:.6f}")
-        #print(f"1NN RMSE: {knn_metrics['1nn_rmse']:.6f}")
-        #print(f"5NN RMSE: {knn_metrics['5nn_rmse']:.6f}")
-        
-    df = pd.DataFrame(results)
-    df.to_csv(OUTPUT_CSV, index=False)
 
-    print(f"\nSaved results to {OUTPUT_CSV}")
+        print(
+            f"1-NN RMSE: "
+            f"{knn_metrics['1nn_rmse']:.6f}"
+        )
+
+        print(
+            f"5-NN RMSE: "
+            f"{knn_metrics['5nn_rmse']:.6f}"
+        )
+
+        print(
+            f"Mean RMSE: "
+            f"{naive_metrics['mean_rmse']:.6f}"
+        )
+
+        print(
+            f"Last RMSE: "
+            f"{naive_metrics['last_rmse']:.6f}"
+        )
+
+    df = pd.DataFrame(results)
+
+    df.to_csv(
+        OUTPUT_CSV,
+        index=False
+    )
+
+    print(
+        f"\nSaved results to {OUTPUT_CSV}"
+    )

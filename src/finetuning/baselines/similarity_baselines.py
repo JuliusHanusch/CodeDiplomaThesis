@@ -1,493 +1,758 @@
-import sqlite3
 from pathlib import Path
 import sys
 
 import numpy as np
 import pandas as pd
-from gluonts.dataset.arrow import ArrowFile
-from scipy.signal import resample
 
-from tqdm import tqdm
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    roc_auc_score,
+)
 
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import pairwise_distances
+from tslearn.metrics import dtw
 
-from scipy.spatial.distance import cdist
 
 
 # ============================================================
 # PATHS
 # ============================================================
-RESULT="/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/Similarity/similarity_baseline.csv"
 
-root_dir = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi")
+RESULT = (
+    "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/"
+    "Results/Finetuning/Similarity/similarity_baseline.csv"
+)
+
+root_dir = Path(
+    "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi"
+)
+
 sys.path.append(str(root_dir.resolve()))
 sys.path.append(str((root_dir / "src").resolve()))
 
-datasets = [
-    {
-        "name": "UCI-HAR",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCI_HAR/UCI HAR Dataset/train/",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCI_HAR/UCI HAR Dataset/test/",
-    },
-    {
-        "name": "ArrowHead",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TRAIN.tsv",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TEST.tsv",
-    },
-    {
-        "name": "DistalPhalanxTW",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/DistalPhalanxTW/DistalPhalanxTW_TRAIN.tsv",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/DistalPhalanxTW/DistalPhalanxTW_TEST.tsv",
-    },
-    {
-        "name": "GestureMidAirD2",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/GestureMidAirD2/GestureMidAirD2_TRAIN.tsv",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/GestureMidAirD2/GestureMidAirD2_TEST.tsv",
-    },
-    {
-        "name": "Wafer",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/Wafer/Wafer_TRAIN.tsv",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/Wafer/Wafer_TEST.tsv",
-    },
-    {
-        "name": "ArabicSpokenDigits",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Similarity/ArabicSpokenDigits/arabic_digits_univariate_train.npz",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Similarity/ArabicSpokenDigits/arabic_digits_univariate_test.npz",
 
-    },
-]
+UCR_ROOT = Path(
+    "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/"
+    "finetuning/UCR_extracted/UCRArchive_2018"
+)
 
-def load_ucr_tsv(tsv_path):
+ARABIC_ROOT = Path(
+    "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/"
+    "finetuning/Similarity/ArabicSpokenDigits"
+)
 
-    df = pd.read_csv(
-        tsv_path,
-        sep="\t",
-        header=None
-    ).values
-
-    y = df[:, 0].astype(int)
-    X = df[:, 1:].astype(np.float32)
-
-    # map labels to 0..N
-    unique = np.unique(y)
-    label_map = {v: i for i, v in enumerate(unique)}
-    y = np.vectorize(label_map.get)(y)
-
-    return X, y
+VARIABLE_LENGTH_DATASETS = {
+    "ArabicSpokenDigits1",
+    "ArabicSpokenDigits2",
+}
 
 
 
-def load_uci_har(train_dir, test_dir):
+def getDatasets():
 
-    train_dir = Path(train_dir)
-    test_dir = Path(test_dir)
-
-    X_train = np.loadtxt(
-        train_dir / "X_train.txt"
-    ).astype(np.float32)
-
-    y_train = np.loadtxt(
-        train_dir / "y_train.txt"
-    ).astype(int) - 1
+    datasets = []
 
 
-    X_test = np.loadtxt(
-        test_dir / "X_test.txt"
-    ).astype(np.float32)
 
-    y_test = np.loadtxt(
-        test_dir / "y_test.txt"
-    ).astype(int) - 1
+    for dataset_dir in sorted(UCR_ROOT.iterdir()):
 
-    return X_train, y_train, X_test, y_test
+        if not dataset_dir.is_dir():
+            continue
 
-def load_arabic_digits(
-    train_path,
-    test_path,
-    task="digit"
-):
+        dataset_name = dataset_dir.name
 
-    train = np.load(
-        train_path,
-        allow_pickle=True
-    )
-
-    test = np.load(
-        test_path,
-        allow_pickle=True
-    )
-
-
-    X_train = list(train["X"])
-    X_test = list(test["X"])
-
-
-    if task == "digit":
-
-        y_train = train["digit_labels"]
-        y_test = test["digit_labels"]
-
-    elif task == "voice":
-
-        y_train = train["speaker_labels"]
-        y_test = test["speaker_labels"]
-
-    else:
-        raise ValueError(
-            "task must be digit or voice"
+        train_pairs = (
+            dataset_dir
+            / "similarity"
+            / "train_pairs.npz"
         )
 
+        test_pairs = (
+            dataset_dir
+            / "similarity"
+            / "test_pairs.npz"
+        )
+
+        if not train_pairs.exists():
+            print(
+                f"WARNING: {dataset_name}: "
+                f"train_pairs.npz not found -> skipped"
+            )
+            continue
+
+        if not test_pairs.exists():
+            print(
+                f"WARNING: {dataset_name}: "
+                f"test_pairs.npz not found -> skipped"
+            )
+            continue
+
+        datasets.append({
+            "name": dataset_name,
+            "train": str(train_pairs),
+            "test": str(test_pairs),
+            "task": "similarity",
+        })
+
+
+    datasets.extend([
+        {
+            "name": "ArabicSpokenDigits1",
+            "train": str(
+                ARABIC_ROOT
+                / "similarity"
+                / "univariate"
+                / "digit"
+                / "train_pairs.npz"
+            ),
+            "test": str(
+                ARABIC_ROOT
+                / "similarity"
+                / "univariate"
+                / "digit"
+                / "test_pairs.npz"
+            ),
+            "task": "digit",
+        },
+        {
+            "name": "ArabicSpokenDigits2",
+            "train": str(
+                ARABIC_ROOT
+                / "similarity"
+                / "univariate"
+                / "voice"
+                / "train_pairs.npz"
+            ),
+            "test": str(
+                ARABIC_ROOT
+                / "similarity"
+                / "univariate"
+                / "voice"
+                / "test_pairs.npz"
+            ),
+            "task": "voice",
+        },
+    ])
+
+    return datasets
+
+
+def load_pairs(path):
+
+    data = np.load(
+        path,
+        allow_pickle=True
+    )
+
+    pairs_1 = data["pairs_1"]
+    pairs_2 = data["pairs_2"]
+    labels = data["labels"]
 
     return (
-        X_train,
-        y_train,
-        X_test,
-        y_test
+        pairs_1,
+        pairs_2,
+        labels,
     )
 
 
-def load_dataset(info):
 
-    if info["name"] == "UCI-HAR":
+def calculate_pair_dtw_distances(
+    X1,
+    X2,
+):
 
-        return load_uci_har(
-            info["train"],
-            info["test"]
+    distances = []
+
+    for x1, x2 in zip(X1, X2):
+
+        x1 = np.asarray(
+            x1,
+            dtype=np.float64
+        ).flatten()
+
+        x2 = np.asarray(
+            x2,
+            dtype=np.float64
+        ).flatten()
+
+        x1 = x1[np.isfinite(x1)]
+        x2 = x2[np.isfinite(x2)]
+
+        if len(x1) == 0 or len(x2) == 0:
+            distances.append(np.nan)
+            continue
+
+        distance = dtw(
+            x1,
+            x2
         )
 
-    elif info["name"] == "ArabicSpokenDigits":
-
-        X_train, y_train = load_arabic_digits(
-            info["train"]
+        distances.append(
+            distance
         )
 
-        X_test, y_test = load_arabic_digits(
-            info["test"]
-        )
-
-        return (
-            X_train,
-            y_train,
-            X_test,
-            y_test
-        )
-
-    else:
-
-        X_train, y_train = load_ucr_tsv(
-            info["train"]
-        )
-
-        X_test, y_test = load_ucr_tsv(
-            info["test"]
-        )
-
-        return (
-            X_train,
-            y_train,
-            X_test,
-            y_test
-        )
-
-def evaluate_binary(y_true,y_pred,scores=None):
-
-    result={}
-
-    result["accuracy"]=accuracy_score(
-        y_true,
-        y_pred
-    )
-
-    result["f1"]=f1_score(
-        y_true,
-        y_pred
-    )
-
-    if scores is not None:
-        try:
-            result["auroc"]=roc_auc_score(
-                y_true,
-                scores
-            )
-        except:
-            result["auroc"]=np.nan
-    else:
-        result["auroc"]=np.nan
-
-    return result
-
-def random_similarity_baseline(y_pairs):
-    preds=np.random.randint(
-        0,
-        2,
-        size=len(y_pairs)
-    )
-
-    return evaluate_binary(
-        y_pairs,
-        preds
+    return np.asarray(
+        distances,
+        dtype=np.float64
     )
 
 
-def knn_classifier_baseline(
-    X_train,
+def dtw_similarity_baseline(
+    X1_train,
+    X2_train,
     y_train,
     X1_test,
     X2_test,
-    y_pairs,
-    k,
-    dataset
+    y_test,
 ):
 
-    X_train_emb = np.array(
-        [
-            sequence_embedding(x, dataset)
-            for x in X_train
-        ]
+    train_distances = calculate_pair_dtw_distances(
+        X1_train,
+        X2_train,
     )
 
-    y_pred=[]
+    threshold, train_accuracy = find_best_threshold(
+        train_distances,
+        y_train,
+    )
 
-    for a,b in zip(X1_test,X2_test):
+    test_distances = calculate_pair_dtw_distances(
+        X1_test,
+        X2_test,
+    )
 
-        ea = sequence_embedding(a, dataset)
-        eb = sequence_embedding(b, dataset)
+    y_pred = (
+        test_distances < threshold
+    ).astype(
+        np.int64
+    )
 
-        distance_a = np.linalg.norm(
-            X_train_emb - ea,
-            axis=1
-        )
+    scores = -test_distances
 
-        distance_b = np.linalg.norm(
-            X_train_emb - eb,
-            axis=1
-        )
+    metrics = evaluate_binary(
+        y_test,
+        y_pred,
+        scores,
+    )
 
-        idx_a = np.argsort(distance_a)[:k]
-        idx_b = np.argsort(distance_b)[:k]
+    metrics["threshold"] = threshold
+    metrics["train_accuracy"] = train_accuracy
 
-        class_a = np.bincount(
-            y_train[idx_a]
-        ).argmax()
+    return metrics
 
-        class_b = np.bincount(
-            y_train[idx_b]
-        ).argmax()
+def evaluate_binary(
+    y_true,
+    y_pred,
+    scores=None,
+):
 
-        y_pred.append(
-            int(class_a == class_b)
-        )
+    result = {}
+
+    result["accuracy"] = accuracy_score(
+        y_true,
+        y_pred,
+    )
+
+    result["f1"] = f1_score(
+        y_true,
+        y_pred,
+        zero_division=0,
+    )
+
+    if scores is not None:
+
+        try:
+
+            result["auroc"] = roc_auc_score(
+                y_true,
+                scores,
+            )
+
+        except Exception:
+
+            result["auroc"] = np.nan
+
+    else:
+
+        result["auroc"] = np.nan
+
+    return result
+
+
+# ============================================================
+# NAIVE BASELINE
+# ============================================================
+
+def random_similarity_baseline(
+    y_pairs,
+):
+
+    preds = np.random.randint(
+        0,
+        2,
+        size=len(y_pairs),
+    )
 
     return evaluate_binary(
         y_pairs,
-        np.array(y_pred)
-    )
-
-def create_similarity_pairs(X,y,n_pairs):
-
-    X1=[]
-    X2=[]
-    labels=[]
-
-    classes=np.unique(y)
-
-    while len(labels)<n_pairs:
-
-        if np.random.rand()<0.5:
-
-            c=np.random.choice(classes)
-
-            idx=np.where(
-                y==c
-            )[0]
-
-            if len(idx)<2:
-                continue
-
-            i,j=np.random.choice(
-                idx,
-                2,
-                replace=False
-            )
-
-            label=1
-
-        else:
-
-            i,j=np.random.choice(
-                len(X),
-                2,
-                replace=False
-            )
-
-            if y[i]==y[j]:
-                continue
-
-            label=0
-
-
-        X1.append(X[i])
-        X2.append(X[j])
-        labels.append(label)
-
-
-    return (
-        np.array(X1,dtype=object),
-        np.array(X2,dtype=object),
-        np.array(labels)
+        preds,
     )
 
 
-def sequence_embedding(x, dataset=None):
+def sequence_embedding(x):
 
-    x = np.asarray(x, dtype=np.float32)
+    return np.asarray(
+        x,
+        dtype=np.float32,
+    ).flatten()
 
-    if dataset == "ArabicSpokenDigits":
-        return resample(
-            x,
-            512
-        )
 
-    else:
+# ============================================================
+# DIRECT EUCLIDEAN PAIR DISTANCE
+# ============================================================
+
+VARIABLE_LENGTH_DATASETS = {
+    "ArabicSpokenDigits1",
+    "ArabicSpokenDigits2",
+}
+
+
+def resample_series(x, target_length=128):
+    """
+    Resample one time series to a fixed length.
+
+    Only used for variable-length Arabic Spoken Digits datasets.
+    """
+
+    x = np.asarray(
+        x,
+        dtype=np.float64
+    ).flatten()
+
+    # Keep only finite values
+    valid = np.isfinite(x)
+
+    if not np.any(valid):
+        return None
+
+    x = x[valid]
+
+    if len(x) == 0:
+        return None
+
+    # Already the desired length
+    if len(x) == target_length:
         return x
 
-
-
-def evaluate_dataset(info):
-
-    print(
-        "\nEvaluating",
-        info["name"]
+    old_positions = np.linspace(
+        0.0,
+        1.0,
+        len(x)
     )
 
-    results=[]
+    new_positions = np.linspace(
+        0.0,
+        1.0,
+        target_length
+    )
 
-    tasks=["class"]
+    return np.interp(
+        new_positions,
+        old_positions,
+        x
+    )
 
-    if info["name"]=="ArabicSpokenDigits":
-        tasks=[
-            "digit",
-            "voice"
-        ]
 
-    for task in tasks:
+def calculate_pair_distances(
+    X1,
+    X2,
+    dataset_name,
+    target_length=128,
+):
+    """
+    Calculate the Euclidean distance between the two
+    time series in every pair.
 
-        if info["name"]=="ArabicSpokenDigits":
+    For Arabic Spoken Digits:
+        Both series are resampled to target_length because
+        the original series can have different lengths.
 
-            X_train,y_train,X_test,y_test=load_arabic_digits(
-                info["train"],
-                info["test"],
-                task
+    For all other datasets:
+        The original series are used unchanged.
+
+    NaN/inf values are handled pairwise.
+    """
+
+    distances = []
+
+    for x1, x2 in zip(X1, X2):
+
+        # ========================================================
+        # ARABIC SPOKEN DIGITS
+        # ========================================================
+
+        if dataset_name in VARIABLE_LENGTH_DATASETS:
+
+            x1 = resample_series(
+                x1,
+                target_length
             )
+
+            x2 = resample_series(
+                x2,
+                target_length
+            )
+
+            if x1 is None or x2 is None:
+                distances.append(np.nan)
+                continue
 
         else:
 
-            X_train,y_train,X_test,y_test=load_dataset(
-                info
-            )
+            x1 = np.asarray(
+                x1,
+                dtype=np.float64
+            ).flatten()
+
+            x2 = np.asarray(
+                x2,
+                dtype=np.float64
+            ).flatten()
+
+            # ----------------------------------------------------
+            # Require compatible lengths
+            # ----------------------------------------------------
+
+            if len(x1) != len(x2):
+
+                raise ValueError(
+                    f"{dataset_name}: "
+                    "Time series in a pair have different lengths: "
+                    f"{len(x1)} vs {len(x2)}"
+                )
 
 
-        X1,X2,y_pairs=create_similarity_pairs(
-            X_test,
-            y_test,
-            len(X_test)*5
+        valid = (
+            np.isfinite(x1)
+            &
+            np.isfinite(x2)
+        )
+
+        if not np.any(valid):
+            distances.append(np.nan)
+            continue
+
+        distance = np.linalg.norm(
+            x1[valid] - x2[valid]
+        )
+
+        distances.append(
+            distance
+        )
+
+    return np.asarray(
+        distances,
+        dtype=np.float64
+    )
+
+def find_best_threshold(
+    distances,
+    labels,
+):
+
+    """
+    Find the distance threshold that maximizes
+    classification accuracy on the training pairs.
+
+    Smaller distance -> same label (1)
+    Larger distance -> different label (0)
+
+    Prediction:
+
+        distance < threshold -> 1
+        distance >= threshold -> 0
+    """
+
+    distances = np.asarray(
+        distances,
+        dtype=np.float64,
+    )
+
+    labels = np.asarray(
+        labels,
+        dtype=np.int64,
+    )
+
+    valid = (
+        np.isfinite(distances)
+        & np.isfinite(labels)
+    )
+
+    distances = distances[valid]
+    labels = labels[valid]
+
+    if len(distances) == 0:
+        raise ValueError(
+            "No valid training distances."
+        )
+
+    # --------------------------------------------------------
+    # Sort distances
+    # --------------------------------------------------------
+
+    order = np.argsort(
+        distances
+    )
+
+    sorted_distances = distances[order]
+    sorted_labels = labels[order]
+
+    # --------------------------------------------------------
+    # Initial threshold:
+    #
+    # Everything predicted as different.
+    # --------------------------------------------------------
+
+    n_positive = np.sum(
+        sorted_labels == 1
+    )
+
+    n_negative = np.sum(
+        sorted_labels == 0
+    )
+
+    best_correct = n_negative
+
+    best_threshold = sorted_distances[0]
+
+    correct = best_correct
+
+    i = 0
+    n = len(sorted_distances)
+
+    while i < n:
+
+        current_distance = sorted_distances[i]
+
+        j = i
+
+        while (
+            j < n
+            and sorted_distances[j] == current_distance
+        ):
+            j += 1
+
+        group_labels = sorted_labels[i:j]
+
+        group_positive = np.sum(
+            group_labels == 1
+        )
+
+        group_negative = np.sum(
+            group_labels == 0
         )
 
 
-        # Naive
-
-        metrics=random_similarity_baseline(
-            y_pairs
+        correct += (
+            group_positive
+            - group_negative
         )
 
-        metrics["dataset"]=info["name"]
-        metrics["task"]=task
-        metrics["method"]="Naive"
+        if correct > best_correct:
 
-        results.append(metrics)
+            best_correct = correct
 
 
-        # 1-NN
+            if j < n:
 
-        metrics = knn_classifier_baseline(
-            X_train,
-            y_train,
-            X1,
-            X2,
-            y_pairs,
-            1,
-            info["name"]
-        )
+                next_distance = sorted_distances[j]
 
-        metrics["dataset"]=info["name"]
-        metrics["task"]=task
-        metrics["method"]="1-NN"
+                best_threshold = (
+                    current_distance
+                    + next_distance
+                ) / 2.0
 
-        results.append(metrics)
+            else:
 
+                # Last distance
+                best_threshold = (
+                    current_distance
+                    + 1e-8
+                )
 
-        # 5-NN
+        i = j
 
-        metrics = knn_classifier_baseline(
-            X_train,
-            y_train,
-            X1,
-            X2,
-            y_pairs,
-            5,
-            info["name"]
-        )
-
-        metrics["dataset"]=info["name"]
-        metrics["task"]=task
-        metrics["method"]="5-NN"
-
-        results.append(metrics)
+    return (
+        float(best_threshold),
+        float(best_correct / len(distances)),
+    )
 
 
-    return results
+
+def euclidean_similarity_baseline(
+    dataset_name,
+    X1_train,
+    X2_train,
+    y_train,
+    X1_test,
+    X2_test,
+    y_test,
+):
 
 
-if __name__=="__main__":
+    train_distances = calculate_pair_distances(
+        X1_train,
+        X2_train,
+        dataset_name,
+        target_length = 128
+    )
+
+
+    threshold, train_accuracy = find_best_threshold(
+        train_distances,
+        y_train,
+    )
+
+
+    test_distances = calculate_pair_distances(
+        X1_test,
+        X2_test,
+        dataset_name,
+        target_length = 128
+    )
+
+
+    y_pred = (
+        test_distances < threshold
+    ).astype(
+        np.int64
+    )
+
+    scores = -test_distances
+
+    metrics = evaluate_binary(
+        y_test,
+        y_pred,
+        scores,
+    )
+
+    metrics["threshold"] = threshold
+    metrics["train_accuracy"] = train_accuracy
+
+    return metrics
+
+
+
+if __name__ == "__main__":
+
+    results = []
 
     np.random.seed(42)
 
-    all_results=[]
+    datasets = getDatasets()
+
+    print(
+        f"\nFound {len(datasets)} datasets."
+    )
 
     for info in datasets:
 
-        result=evaluate_dataset(
-            info
+        dataset_name = info["name"]
+        train_data = info["train"]
+        test_data = info["test"]
+        task = info["task"]
+
+        print(dataset_name)
+
+
+        X1_train, X2_train, labels_train = load_pairs(
+            train_data
         )
 
-        all_results.extend(
-            result
+        X1_test, X2_test, labels_test = load_pairs(
+            test_data
         )
 
-    df=pd.DataFrame(
-        all_results
+        metrics = random_similarity_baseline(
+            labels_test
+        )
+
+        metrics["dataset"] = dataset_name
+        metrics["task"] = task
+        metrics["method"] = "Naive"
+
+        results.append(
+            metrics
+        )
+
+        metrics = euclidean_similarity_baseline(
+            dataset_name,
+            X1_train,
+            X2_train,
+            labels_train,
+            X1_test,
+            X2_test,
+            labels_test,
+        )
+
+        metrics["dataset"] = dataset_name
+        metrics["task"] = task
+        metrics["method"] = "Euclidean"
+
+        results.append(
+            metrics
+        )
+
+        metrics = dtw_similarity_baseline(
+            X1_train,
+            X2_train,
+            labels_train,
+            X1_test,
+            X2_test,
+            labels_test,
+        )
+
+
+        metrics["dataset"] = dataset_name
+        metrics["task"] = task
+        metrics["method"] = "DTW"
+
+        results.append(
+            metrics
+        )
+        print(results)
+
+
+    df = pd.DataFrame(
+        results
     )
 
-    df=df[
-    [
-        "dataset",
-        "task",
-        "method",
-        "auroc",
-        "accuracy"
+    df = df[
+        [
+            "dataset",
+            "task",
+            "method",
+            "auroc",
+            "accuracy",
+            "f1",
+        ]
     ]
-]
 
-    print(df)
+
+
+    result_path = Path(RESULT)
+
+    result_path.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
 
     df.to_csv(
-        RESULT,
+        result_path,
         index=False
     )
 
     print(
-        "Saved:",
+        "\nSaved:",
         RESULT
     )

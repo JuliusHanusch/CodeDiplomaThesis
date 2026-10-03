@@ -27,7 +27,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 DB_PATH = (
     "/data/horse/ws/juha972b-AION-BERT-Chronos/"
-    "BERTi/src/finetuning/imputation/imputation_allData.db"
+    "BERTi/src/finetuning/imputation/imputation_allData_new.db"
 )
 
 SEED = 42

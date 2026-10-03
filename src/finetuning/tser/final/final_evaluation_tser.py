@@ -17,7 +17,7 @@ from chronos_pkg.src.chronos import ChronosPipeline
 
 from gluonts.dataset.arrow import ArrowFile
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/tser_allData.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/Final/tser_bestConfigs_time.db"
 
 def get_db_connection():
     conn = sqlite3.connect(
@@ -74,32 +74,6 @@ def mae(preds, labels):
     labels = np.asarray(labels)
     return np.mean(np.abs(preds - labels))
 
-def extract_features(series: np.ndarray):
-    series = np.asarray(series)
-
-    series = np.nan_to_num(series, nan=0.0, posinf=0.0, neginf=0.0)
-
-    mean = np.mean(series)
-    std = np.std(series)
-    min_v = np.min(series)
-    max_v = np.max(series)
-    last = series[-1]
-
-    x = np.arange(len(series))
-
-    if len(series) < 2 or np.all(series == series[0]):
-        slope = 0.0
-    else:
-        try:
-            slope = np.polyfit(x, series, 1)[0]
-        except Exception:
-            slope = 0.0
-
-    feat = np.array([mean, std, min_v, max_v, last, slope], dtype=np.float32)
-
-    feat = np.nan_to_num(feat, nan=0.0, posinf=0.0, neginf=0.0)
-
-    return feat
 
 
 def load_arrow(path: Path):
@@ -127,14 +101,6 @@ def load_arrow(path: Path):
         labels.append(float(label))
 
     return np.stack(series), np.array(labels, dtype=np.float32)
-
-
-def baseline_predict_mean(series):
-    return np.mean(series)
-
-
-def baseline_predict_last(series):
-    return series[-1]
 
 
 def evaluate_chronos(model, tokenizer, test_arrow_path, context_length=512):
@@ -169,34 +135,50 @@ def evaluate_chronos(model, tokenizer, test_arrow_path, context_length=512):
                 attention_mask=attention_mask,
             )
 
-            preds = outputs["logits"].detach().cpu().numpy().reshape(-1)
+            pred = outputs["logits"].detach().cpu().numpy().reshape(-1)[0]
 
-            all_preds.extend(preds)
-            all_labels.extend([label] * len(preds))
+            all_preds.append(pred)
+            all_labels.append(label)
+
+    all_preds = np.asarray(all_preds, dtype=np.float32)
+    all_labels = np.asarray(all_labels, dtype=np.float32)
+    absolute_errors = np.abs(all_preds - all_labels)
 
     return {
         "rmse": rmse(all_preds, all_labels),
         "mae": mae(all_preds, all_labels),
         "n_samples": len(all_preds),
+        "predictions": all_preds,
+        "labels": all_labels,
+        "absolute_errors": absolute_errors,
     }
+
 
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--index", type=int, required=True)
+    parser.add_argument("--seed", type=int, required=True)
+
     args = parser.parse_args()
 
     idx = args.index
+    seed = args.seed
 
 
     conn = get_db_connection()   
     cur = conn.cursor()
 
 
+    model_path_column = f"model_path_{seed}"
+
     cur.execute(
-        """
-            SELECT model_path, eval_data
+        f"""
+            SELECT
+                dataset,
+                {model_path_column},
+                test_data
             FROM runs
             WHERE id = ?
         """,
@@ -208,10 +190,11 @@ if __name__ == "__main__":
     if row is None:
         raise ValueError(f"No run found for id={idx}")
 
-    model_path, test_dataset = row
-    print("model_path", model_path)
+    dataset, model_path, test_dataset = row
 
     conn.close()
+
+    start_time = time.perf_counter()
 
     pipeline = ChronosPipeline.from_pretrained(
         model_path,
@@ -235,24 +218,41 @@ if __name__ == "__main__":
         test_arrow_path=test_dataset,
     )
 
-    conn = get_db_connection()
-    cur = conn.cursor()
+    inference_time = time.perf_counter() - start_time
 
-    print("RMSE", results["rmse"], "MAE", results["mae"])
+    output_dir = Path("/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/TSER/Predictions")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    np.savez(
+        output_dir / f"{dataset}_seed_{seed}.npz",
+        y_true=results["labels"],
+        predictions=results["predictions"],
+        absolute_errors=results["absolute_errors"],
+    )
+
+
+
+    # print("RMSE", results["rmse"], "MAE", results["mae"])
 
     execute_db_update(
-        """
+        f"""
         UPDATE runs
-        SET rmse=?,
-            mae=?
-        WHERE id=?
+        SET
+            rmse_{seed} = ?,
+            mae_{seed} = ?,
+            inference_time_{seed} = ?
+        WHERE id = ?
         """,
         (
             results["rmse"],
             results["mae"],
+            inference_time,
             idx,
         ),
-        description=f"updating results for idx {idx}"
+        description=(
+            f"updating results and inference time "
+            f"for idx {idx}, seed {seed}"
+        )
     )
 
 

@@ -4,52 +4,68 @@ from pathlib import Path
 from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score, f1_score
+from collections import Counter
+from sklearn.ensemble import RandomForestClassifier
 
 
 OUTPUT_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/Classification/Baselines.csv"
 
+DATA_ROOT = Path(
+    "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018"
+)
 
-datasets = [
-    {
-        "name": "UCI-HAR",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCI_HAR/UCI HAR Dataset/train/",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCI_HAR/UCI HAR Dataset/test/",
-    },
-    {
-        "name": "ArrowHead",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TRAIN.tsv",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/ArrowHead/ArrowHead_TEST.tsv",
-    },
-    {
-        "name": "DistalPhalanxTW",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/DistalPhalanxTW/DistalPhalanxTW_TRAIN.tsv",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/DistalPhalanxTW/DistalPhalanxTW_TEST.tsv",
-    },
-    {
-        "name": "GestureMidAirD2",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/GestureMidAirD2/GestureMidAirD2_TRAIN.tsv",
-         "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/GestureMidAirD2/GestureMidAirD2_TEST.tsv",
-    },
-    {
-        "name": "Wafer",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/Wafer/Wafer_TRAIN.tsv",
-        "test": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018/Wafer/Wafer_TEST.tsv",
-    },
-]
+EXCLUDED_DATASETS = {
+    "Fungi",
+}
+
+def get_datasets():
+
+    datasets = []
+
+    for dataset_dir in sorted(DATA_ROOT.iterdir()):
+
+        if not dataset_dir.is_dir():
+            continue
+
+        dataset = dataset_dir.name
+
+        if dataset in EXCLUDED_DATASETS:
+            print(f"Skipping {dataset}")
+            continue
+
+        train_path = dataset_dir / f"{dataset}_TRAIN.tsv"
+        test_path = dataset_dir / f"{dataset}_TEST.tsv"
+
+        if not train_path.exists():
+            print(
+                f"[WARNING] Missing train file for {dataset}: "
+                f"{train_path}"
+            )
+            continue
+
+        if not test_path.exists():
+            print(
+                f"[WARNING] Missing test file for {dataset}: "
+                f"{test_path}"
+            )
+            continue
+
+        datasets.append({
+            "name": dataset,
+            "train": str(train_path),
+            "test": str(test_path),
+        })
+
+    return datasets
 
 
 def load_ucr_tsv(tsv_path):
+    df = pd.read_csv(tsv_path, sep="\t", header=None).values
 
-    df = pd.read_csv(
-        tsv_path,
-        sep="\t",
-        header=None
-    ).values
-
-    y = df[:, 0].astype(int)
+    y = df[:, 0]
     X = df[:, 1:].astype(np.float32)
 
-    # map labels to 0..N
+    y = y.astype(int)
     unique = np.unique(y)
     label_map = {v: i for i, v in enumerate(unique)}
     y = np.vectorize(label_map.get)(y)
@@ -58,55 +74,19 @@ def load_ucr_tsv(tsv_path):
 
 
 
-def load_uci_har(train_dir, test_dir):
-
-    train_dir = Path(train_dir)
-    test_dir = Path(test_dir)
-
-    X_train = np.loadtxt(
-        train_dir / "X_train.txt"
-    ).astype(np.float32)
-
-    y_train = np.loadtxt(
-        train_dir / "y_train.txt"
-    ).astype(int) - 1
+def load_dataset(info):
 
 
-    X_test = np.loadtxt(
-        test_dir / "X_test.txt"
-    ).astype(np.float32)
+    X_train, y_train = load_ucr_tsv(
+        info["train"]
+    )
 
-    y_test = np.loadtxt(
-        test_dir / "y_test.txt"
-    ).astype(int) - 1
+    X_test, y_test = load_ucr_tsv(
+        info["test"]
+    )
 
     return X_train, y_train, X_test, y_test
 
-
-
-def load_dataset(info):
-
-    if info["name"] == "UCI-HAR":
-        return load_uci_har(
-            info["train"],
-            info["test"]
-        )
-
-    else:
-        X_train, y_train = load_ucr_tsv(
-            info["train"]
-        )
-
-        X_test, y_test = load_ucr_tsv(
-            info["test"]
-        )
-
-        return X_train, y_train, X_test, y_test
-
-
-
-from collections import Counter
-from sklearn.ensemble import RandomForestClassifier
 
 
 def run_baselines(
@@ -135,11 +115,6 @@ def run_baselines(
 
 
     results = {}
-
-
-    # -------------------------
-    # Naive majority baseline
-    # -------------------------
 
     majority = Counter(y_train).most_common(1)[0][0]
 
@@ -289,15 +264,20 @@ def run_baselines(
 if __name__ == "__main__":
 
     results = []
-
-    for dataset in datasets:
-
-        print("\n======================")
-        print(dataset["name"])
-        print("======================")
+    datasets = get_datasets()
 
 
-        X_train, y_train, X_test, y_test = load_dataset(dataset)
+    for dataset_info in datasets:
+
+        dataset = dataset_info["name"]
+        train_data = dataset_info["train"]
+        test_data = dataset_info["test"]
+
+        X_train, y_train = load_ucr_tsv(train_data)
+        X_test, y_test = load_ucr_tsv(test_data)
+
+        train_labels = np.unique(y_train)
+        test_labels = np.unique(y_test)
 
 
         metrics = run_baselines(
@@ -309,7 +289,7 @@ if __name__ == "__main__":
 
 
         row = {
-            "dataset": dataset["name"],
+            "dataset": dataset_info["name"],
             **metrics
         }
 

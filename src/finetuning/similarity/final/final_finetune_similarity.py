@@ -22,7 +22,7 @@ from chronos_pkg.src.chronos import ChronosPipeline
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/similarity.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/final/similarity_cv_best.db"
 
 
 def load_pairs(path):
@@ -149,9 +149,6 @@ if __name__=="__main__":
 
     X1, X2, labels = load_pairs(train_data)
 
-
-    is_variable_length = dataset_name=="ArabicSpokenDigits1" or dataset_name=="ArabicSpokenDigits2"
-
     dataset = SimilarityDataset(
         X1,
         X2,
@@ -162,21 +159,13 @@ if __name__=="__main__":
     generator = torch.Generator()
     generator.manual_seed(seed)
 
-    if is_variable_length:
-        loader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            collate_fn=similarity_collate,
-            generator=generator
-        )
-    else:
-        loader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            generator=generator
-        )
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=similarity_collate,
+        generator=generator
+    )
 
 
     optimizer = AdamW(

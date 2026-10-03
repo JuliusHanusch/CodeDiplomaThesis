@@ -7,7 +7,7 @@ import hashlib
 from pathlib import Path
 
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/classification_allData.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/classification_cv.db"
 UCR_ROOT = Path(
     "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/"
     "data/finetuning/UCR_extracted/UCRArchive_2018"
@@ -65,8 +65,8 @@ def find_ucr_datasets():
         if not dataset_dir.is_dir():
             continue
 
-        train_small_files = list(
-            dataset_dir.glob("*_TRAIN_small.tsv")
+        train = list(
+            dataset_dir.glob("*_TRAIN.tsv")
         )
 
         eval_files = list(
@@ -77,11 +77,11 @@ def find_ucr_datasets():
             dataset_dir.glob("*_TEST.tsv")
         )
 
-        if len(train_small_files) != 1:
+        if len(train) != 1:
             print(
                 f"[SKIP] {dataset_dir.name}: "
                 f"expected 1 TRAIN_small file, "
-                f"found {len(train_small_files)}"
+                f"found {len(train)}"
             )
             continue
 
@@ -101,16 +101,16 @@ def find_ucr_datasets():
             )
             continue
 
-        train_small_file = train_small_files[0]
+        train_file = train[0]
         eval_file = eval_files[0]
 
-        dataset_name = train_small_file.name.replace(
-            "_TRAIN_small.tsv", ""
+        dataset_name = train_file.name.replace(
+            "_TRAIN.tsv", ""
         )
 
         datasets.append({
             "name": dataset_name,
-            "train": str(train_small_file),
+            "train": str(train_file),
             "eval": str(eval_file),
         })
 

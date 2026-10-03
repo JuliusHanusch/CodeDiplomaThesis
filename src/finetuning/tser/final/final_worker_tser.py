@@ -6,8 +6,9 @@ from pathlib import Path
 import time
 
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/final/similarity_cv_best.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/Final/tser_multivariate.db"
 SEEDS = [42,43,44,45,46]
+
 def execute_db_update(sql, params, description="database update"):
     for attempt in range(5):
 
@@ -76,7 +77,7 @@ def load_config_by_idx(conn, idx):
 def run_train(idx, seed):
     subprocess.run([
         "python3",
-        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/final/final_finetune_similarity.py",
+        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/Final/final_training_tser.py",
         "--index", str(idx),
         "--seed", str(seed),
     ], check=True)
@@ -85,7 +86,15 @@ def run_train(idx, seed):
 def run_eval(idx, seed):
     subprocess.run([
         "python3",
-        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/final/final_evaluate_similarity.py",
+        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/Final/final_evaluation_tser.py",
+        "--index", str(idx),
+        "--seed", str(seed),
+    ], check=True)
+
+def run_multivariate(idx, seed):
+    subprocess.run([
+        "python3",
+        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/Final/multivariate_tser.py",
         "--index", str(idx),
         "--seed", str(seed),
     ], check=True)
@@ -97,35 +106,58 @@ def main():
 
     conn = get_db_connection()
 
-    cfg, h = load_config_by_idx(conn, idx)
+    # cfg, h = load_config_by_idx(conn, idx)
 
-    conn.close
+    # conn.close()
 
+
+    cur = conn.cursor()
 
     for seed in SEEDS:
 
-        model_path = Path(
-            f"./FineTunedModels/Similarity/Small/Final/{h}/seed-{seed}/checkpoint-final"
-        )
+        mae_column = f"mae_{seed}"
 
-        model_path.parent.mkdir(
-            parents=True,
-            exist_ok=True
-        )
-
-        execute_db_update(
+        cur.execute(
             f"""
-            UPDATE runs
-            SET model_path_{seed}=?
-            WHERE id=?
+            SELECT {mae_column}
+            FROM runs
+            WHERE id = ?
             """,
-            (str(model_path), idx),
-            description=f"setting model_path_{seed} for idx {idx}"
+            (idx,),
         )
 
-        run_train(idx, seed)
+        row = cur.fetchone()
 
-        run_eval(idx, seed)
+        if row is not None and row[0] is not None:
+            print(f"Skipping idx={idx}, seed={seed}: {mae_column} already exists.")
+            continue
+
+        print(f"Running idx={idx}, seed={seed}...")
+
+        # model_path = Path(
+        #     f"/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/FineTunedModels/TSER/Small/Final/{h}/seed-{seed}/checkpoint-final"
+        # )
+
+        # model_path.parent.mkdir(
+        #     parents=True,
+        #     exist_ok=True
+        # )
+
+        # execute_db_update(
+        #     f"""
+        #     UPDATE runs
+        #     SET model_path_{seed}=?
+        #     WHERE id=?
+        #     """,
+        #     (str(model_path), idx),
+        #     description=f"setting model_path_{seed} for idx {idx}"
+        # )
+
+        # run_train(idx, seed)
+
+        #run_eval(idx, seed)
+
+        run_multivariate(idx, seed)
 
     print(f"[IDX {idx}] Finished")
 

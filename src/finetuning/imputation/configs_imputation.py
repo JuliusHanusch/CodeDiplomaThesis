@@ -6,7 +6,7 @@ import numpy as np
 import hashlib
 import copy
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/imputation_allData.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/imputation_allData_new.db"
 
 def config_hash(config: dict,) -> str:
     return hashlib.sha256(
@@ -39,23 +39,23 @@ def sample_config():
 datasets = [
     {
         "name": "ETTh1",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTh1/train_small.npz",
-        "eval": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTh1/eval.npz",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTh1/train.npz",
+        "eval": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTh1/val.npz",
     },
     {
         "name": "ETTh2",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTh2/train_small.npz",
-        "eval": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTh2/eval.npz",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTh2/train.npz",
+        "eval": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTh2/val.npz",
     },
     {
         "name": "ETTm1",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTm1/train_small.npz",
-        "eval": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTm1/eval.npz",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTm1/train.npz",
+        "eval": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTm1/val.npz",
     },
     {
         "name": "ETTm2",
-        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTm2/train_small.npz",
-        "eval": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTm2/eval.npz",
+        "train": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTm2/train.npz",
+        "eval": "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/Imputation/ETTm2/val.npz",
     },
 ]
 

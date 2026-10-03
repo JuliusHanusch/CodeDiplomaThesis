@@ -1,9 +1,6 @@
 import logging
-from typing import Optional
 import sqlite3
 import argparse
-import yaml
-import json
 import torch
 import typer
 from gluonts.itertools import batcher
@@ -16,7 +13,7 @@ import numpy as np
 import pandas as pd
 pd.set_option("display.max_columns", None)
 pd.set_option("display.max_rows", None)
-pd.set_option("display.width", 200)  # optional, for wide display
+pd.set_option("display.width", 200) 
 pd.set_option("display.max_colwidth", None)
 
 # Include Parent Directory to load packages from
@@ -27,10 +24,8 @@ sys.path.append(str((root_dir/"src").resolve()))
 sys.path.append(str((root_dir / "chronos_pkg/src").resolve()))
 
 from chronos_pkg.src.chronos import ChronosConfig
-from chronos_pkg.src.chronos.chronos_bolt import ChronosBoltModelForForecasting, ChronosBoltConfig
-from src.utils import load_val_data
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/imputation.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/final/imputation_defaultConfigs.db"
 
 app = typer.Typer(pretty_exceptions_enable=False)
 
@@ -475,11 +470,7 @@ def main(
 
     test_path, model_path, config_json = row
 
-    model, tokenizer, context_length = load_chronos_bert(
-        model_path,
-        device,
-        torch_dtype,
-    )
+    
 
     data = np.load(
         test_path,
@@ -519,6 +510,16 @@ def main(
     ]
 
     results = {}
+
+    start_time = time.perf_counter()
+    print("START:", start_time)
+
+    model, tokenizer, context_length = load_chronos_bert(
+            model_path,
+            device,
+            torch_dtype,
+    )
+
 
     for masking_ratio in MASKING_RATIOS:
 
@@ -607,6 +608,27 @@ def main(
             f"MAE={MAE_Chronos:.5f}, "
             f"MASE={MASE_Chronos:.5f}"
         )
+
+    total_inference_time = time.perf_counter() - start_time
+
+    end_time = time.perf_counter()
+    print("END:", end_time)
+
+    total_inference_time = end_time - start_time
+    print("ELAPSED:", total_inference_time)
+
+    execute_db_update(
+        f"""
+        UPDATE runs
+        SET inference_time_{seed} = ?
+        WHERE id = ?
+        """,
+        (
+            total_inference_time,
+            idx,
+        ),
+        f"update inference time for seed {seed}",
+    )
 
 
     avg_MAE = np.mean(

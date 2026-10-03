@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from sklearn.linear_model import RidgeCV
+from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 import time
@@ -24,14 +25,19 @@ name = "Rocket"
 # =========================================================
 
 DB_PATH = (
-    "/data/horse/ws/juha972b-AION-BERT-Chronos/"
-    "BERTi/src/finetuning/tser/tser_small_final.db"
+    "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/Final/tser_bestConfigs_time.db"
 )
 
 OUTPUT_PATH = (
     "/data/horse/ws/juha972b-AION-BERT-Chronos/"
-    "BERTi/Results/Finetuning/TSER/rocket_results.csv"
+    "BERTi/Results/Finetuning/TSER/rocket_results_allData.csv"
 )
+
+PREDICTIONS_PATH = Path(
+    "/data/horse/ws/juha972b-AION-BERT-Chronos/"
+    "BERTi/Results/Finetuning/TSER/Predictions/"
+)
+PREDICTIONS_PATH.mkdir(parents=True, exist_ok=True)
 
 
 np.random.seed(42)
@@ -252,7 +258,7 @@ class RocketRegressor(TimeSeriesRegressor):
         self.kernels = None
         self.regressor = make_pipeline(
             StandardScaler(),
-            RidgeCV(alphas=np.logspace(-3,3,10))
+            Ridge(alpha=1.0, solver="lsqr")
         )
 
     def fit(self,
@@ -321,7 +327,6 @@ def mae(y_true,y_pred):
     )
 
 
-
 def get_runs():
 
     conn = sqlite3.connect(DB_PATH)
@@ -344,7 +349,6 @@ def get_runs():
 
 if __name__ == "__main__":
 
-    N_RUNS = 1
     results = []
 
     for dataset, train_path, test_path in get_runs():
@@ -355,13 +359,13 @@ if __name__ == "__main__":
         versions = [
             (
                 "univariate",
-                train_path.parent / "train.arrow",
-                test_path.parent / "test.arrow",
+                train_path.parent / "train_uni.arrow",
+                test_path.parent / "test_uni.arrow",
             ),
             (
                 "multivariate",
-                train_path.parent / "train_full.arrow",
-                test_path.parent / "test_full.arrow",
+                train_path.parent / "train_multi.arrow",
+                test_path.parent / "test_multi.arrow",
             ),
         ]
 
@@ -378,59 +382,55 @@ if __name__ == "__main__":
             X_train, y_train = load_arrow(train_file)
             X_test, y_test = load_arrow(test_file)
 
-            print("Train shape:", X_train.shape)
 
-            runs = N_RUNS
+            np.random.seed(42)
+            
+            
+            model = RocketRegressor(
+                output_directory="/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/TSER",
+                n_kernels=10000,
+            )
 
-            best_rmse = np.inf
-            best_mae = np.inf
-            best_seed = None
+            model.fit(
+                X_train,
+                y_train,
+            )
 
-            for seed in range(runs):
+            start_time = time.time()
 
-                print(f"\nRun {seed + 1}/{runs}")
+            pred = model.predict(X_test)
+            inference_time = time.time() - start_time
 
-                np.random.seed(seed)
+            rocekt_rmse = rmse(y_test, pred)
+            rocekt_mae = mae(y_test, pred)
 
-                model = RocketRegressor(
-                    output_directory="/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/TSER",
-                    n_kernels=10000,
-                )
+            print(
+                f"RMSE = {rocekt_rmse:.6f}, "
+                f"MAE = {rocekt_mae:.6f}"
+            )
 
-                model.fit(
-                    X_train,
-                    y_train,
-                )
-
-                pred = model.predict(X_test)
-
-                current_rmse = rmse(y_test, pred)
-                current_mae = mae(y_test, pred)
-
-                print(
-                    f"RMSE = {current_rmse:.6f}, "
-                    f"MAE = {current_mae:.6f}"
-                )
-
-                if current_rmse < best_rmse:
-                    best_rmse = current_rmse
-                    best_mae = current_mae
-                    best_seed = seed
 
             result = {
                 "dataset": dataset,
                 "version": version,
-                "best_seed": best_seed,
-                "rmse": best_rmse,
-                "mae": best_mae,
+                "rmse": rocekt_rmse,
+                "mae": rocekt_mae,
+                "inference_time" : inference_time,
             }
 
             results.append(result)
-            print("\nBest:", result)
 
-    pd.DataFrame(results).to_csv(
-        OUTPUT_PATH,
-        index=False,
-    )
 
-    print("\nFinished")
+
+            # np.savez(
+            #     PREDICTIONS_PATH / f"rocket_{dataset}_{version}.npz",
+            #     y_true=y_test,
+            #     predictions=pred,
+            #     absolute_errors=np.abs(y_test - pred),
+            # )
+
+    # pd.DataFrame(results).to_csv(
+    #     OUTPUT_PATH,
+    #     index=False,
+    # )
+

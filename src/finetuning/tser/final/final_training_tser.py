@@ -5,6 +5,7 @@ import sys
 import argparse
 import numpy as np
 import torch
+import math
 from torch.utils.data import Dataset, DataLoader
 from transformers import AdamW, get_linear_schedule_with_warmup
 from sklearn.metrics import mean_absolute_error, mean_squared_error
@@ -23,9 +24,8 @@ from chronos_pkg.src.chronos import ChronosPipeline
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/tser_allData.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/Final/tser_bestConfigs_time.db"
 
-SEED = 42
 
 def set_seed(seed):
     random.seed(seed)
@@ -91,27 +91,30 @@ class TSERDataset(Dataset):
             ),
         }
 
-
-
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--index",type=int,required=True)
+    parser.add_argument("--index", type=int, required=True)
+    parser.add_argument("--seed", type=int, required=True)
 
     args = parser.parse_args()
-    set_seed(SEED)
 
     idx = args.index
+    seed = args.seed
+
+    set_seed(seed)
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
+    model_path_column = f"model_path_{seed}"
+
     cur.execute(
-        """
+        f"""
         SELECT config,
-               train_data,
-               dataset,
-               model_path
+            train_data,
+            dataset,
+            {model_path_column}
         FROM runs
         WHERE id=?
         """,
@@ -125,8 +128,6 @@ if __name__ == "__main__":
     config = json.loads(config_json)
 
     output_dir = Path(model_path)
-
-
 
     # Hyperparameters
     batch_size = config["per_device_train_batch_size"]
@@ -167,7 +168,7 @@ if __name__ == "__main__":
 
 
     generator = torch.Generator()
-    generator.manual_seed(SEED)
+    generator.manual_seed(seed)
 
     loader = DataLoader(
         dataset,
@@ -186,14 +187,11 @@ if __name__ == "__main__":
     )
 
 
-    import math
-
     steps_per_epoch = math.ceil(
         len(loader) / gradient_accumulation_steps
     )
 
     total_steps = num_epochs * steps_per_epoch
-
     warmup_steps = int(
         total_steps * warmup_ratio
     )
@@ -205,7 +203,6 @@ if __name__ == "__main__":
     )
 
     model.train()
-
     optimizer.zero_grad()
 
     for epoch in range(num_epochs):

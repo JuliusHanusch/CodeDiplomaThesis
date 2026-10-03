@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/classification.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/final/classification_cv_best.db"
 
 SEEDS = [42, 43, 44, 45, 46]
 
@@ -41,7 +41,7 @@ def load_config_by_idx(conn, idx):
 def run_train(idx, seed):
     subprocess.run([
         "python3",
-        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/finetune_classification.py",
+        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/final/final_finetune_classification.py",
         "--index", str(idx),
         "--seed", str(seed)
     ], check=True)
@@ -50,7 +50,7 @@ def run_train(idx, seed):
 def run_eval(idx, seed):
     subprocess.run([
         "python3",
-        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/evaluate_calssification.py",
+        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/final/final_evaluation_classification.py",
         "--index", str(idx),
         "--seed", str(seed)
     ], check=True)

@@ -20,7 +20,7 @@ from chronos_pkg.src.chronos import ChronosPipeline
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/classification.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/classification/final/classification_cv_best.db"
 
 
 def load_ucr_tsv(tsv_path):
@@ -74,6 +74,26 @@ class ClassificationDataset(Dataset):
             "labels": torch.tensor(self.y[idx], dtype=torch.long),
         }
 
+def get_num_labels(train_file):
+    """
+    Determine number of classes from the first column
+    of the UCR TRAIN_small file.
+    """
+
+    labels = set()
+
+    with open(train_file, "r") as f:
+        for line in f:
+            line = line.strip()
+
+            if not line:
+                continue
+
+            label = line.split("\t")[0]
+            labels.add(label)
+
+    return len(labels)
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
@@ -116,6 +136,12 @@ if __name__ == "__main__":
 
     #Load HPs
     num_labels = config["num_labels"]
+
+    print(num_labels)
+
+    new_labels =  get_num_labels(train_data)
+
+    
     num_epochs = config["num_train_epochs"]
     batch_size = config["per_device_train_batch_size"]
     learning_rate = config["learning_rate"]

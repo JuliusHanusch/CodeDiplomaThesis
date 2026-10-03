@@ -8,7 +8,7 @@ import copy
 from pathlib import Path
 
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/similarity_allData.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/similarity_cv.db"
 
 BASE_CONFIG_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/similarity/base_config.yaml"
 
@@ -65,7 +65,8 @@ for dataset_dir in sorted(UCR_ROOT.iterdir()):
         continue
 
     dataset_name = dataset_dir.name
-    train_pairs = dataset_dir / "similarity/train_small_pairs.npz"
+    train_pairs = dataset_dir / "similarity/train_pairs.npz"
+    eval_pairs = dataset_dir / "similarity/eval_pairs.npz"
 
     if not train_pairs.exists():
         print(
@@ -77,9 +78,7 @@ for dataset_dir in sorted(UCR_ROOT.iterdir()):
     datasets.append({
         "name": dataset_name,
         "train": str(train_pairs),
-        "eval": str(
-            dataset_dir / f"{dataset_name}_TEST.tsv"
-        ),
+        "eval": str(eval_pairs),
         "task": "similarity"
     })
 
@@ -96,7 +95,7 @@ datasets.extend([
             / "similarity"
             / "univariate"
             / "digit"
-            / "train_small_pairs.npz"
+            / "train_pairs.npz"
         ),
         "eval": str(
             ARABIC_ROOT
@@ -114,7 +113,7 @@ datasets.extend([
             / "similarity"
             / "univariate"
             / "voice"
-            / "train_small_pairs.npz"
+            / "train_pairs.npz"
         ),
         "eval": str(
             ARABIC_ROOT

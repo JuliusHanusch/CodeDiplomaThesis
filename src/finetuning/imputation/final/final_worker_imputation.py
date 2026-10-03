@@ -6,7 +6,8 @@ from pathlib import Path
 import time
 
 
-DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/imputation_allData_new.db"
+DB_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/final/imputation_defaultConfigs.db"
+SEEDS = [42, 43, 44, 45, 46]
 
 
 def get_db_connection():
@@ -81,23 +82,25 @@ def load_config_by_idx(conn, idx):
     return json.loads(cfg_json), h
 
 
-def run_train(idx):
+def run_train(idx, seed):
 
     subprocess.run([
         "python3",
         "-u",
-        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/finetune_imputation.py",
+        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/final/final_finetune_imputation.py",
         "--index", str(idx),
+        "--seed", str(seed)
     ], check=True)
 
 
-def run_eval(idx):
+def run_eval(idx, seed):
 
     subprocess.run([
         "python3",
         "-u",
-        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/evaluate_imputation.py",
+        "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/imputation/final/final_evaluate_imputation.py",
         "--index", str(idx),
+        "--seed", str(seed)
     ], check=True)
 
 
@@ -109,70 +112,58 @@ def main():
 
     cfg, h = load_config_by_idx(conn, idx)
 
+    conn.close()
+
     if cfg is None:
-        conn.close()
         print(f"No config for idx {idx}")
         return
 
     print(f"[IDX {idx}] Running config {h}", flush=True)
 
-    cur = conn.cursor()
+    for seed in SEEDS:
 
-    cur.execute("""
-        SELECT MAE_avg
-        FROM runs
-        WHERE id = ?
-    """, (idx,))
-
-    row = cur.fetchone()
-
-    conn.close()
-
-    if row is None:
-        print(f"No database row for idx {idx}")
-        return
-
-    mae_avg = row[0]
-
-    if mae_avg is not None:
         print(
-            f"[IDX {idx}] Already complete "
-            f"(MAE_avg={mae_avg}) - SKIPPING",
+            f"[IDX {idx}] Starting seed {seed}",
             flush=True
         )
-        return
 
-    output_dir = Path(
-        f"./FineTunedModels/Imputation/Small/{h}/"
-    )
+        output_dir = Path(
+            f"/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/FineTunedModels/Imputation/final/{h}/seed-{seed}"
+        )
 
-    output_dir.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+        output_dir.mkdir(
+            parents=True,
+            exist_ok=True
+        )
 
-    model_path = output_dir / "checkpoint-final"
+        model_path = output_dir / "checkpoint-final"
+
+        model_path_column = f"model_path_{seed}"
+
+
+        execute_db_update(
+            f"""
+            UPDATE runs
+            SET {model_path_column}=?
+            WHERE id=?
+            """,
+            (
+                str(model_path),
+                idx
+            ),
+            description=f"model path update "
+                        f"(IDX {idx}, seed {seed})"
+        )
 
 
 
-    execute_db_update(
-        """
-        UPDATE runs
-        SET model_path=?
-        WHERE id=?
-        """,
-        (
-            str(model_path),
-            idx
-        ),
-        description="model path update "
-                    
-    )
+        run_train(idx, seed)
+        run_eval(idx, seed)
 
-    run_train(idx)
-    run_eval(idx)
-
-    print(f"[IDX {idx}] Finished")
+        print(
+            f"[IDX {idx}] Finished seed {seed}",
+            flush=True
+        )
 
 
     execute_db_update(
@@ -183,6 +174,11 @@ def main():
         """,
         (idx,),
         description=f"final status update (IDX {idx})"
+    )
+
+    print(
+        f"[IDX {idx}] All seeds finished",
+        flush=True
     )
 
 
