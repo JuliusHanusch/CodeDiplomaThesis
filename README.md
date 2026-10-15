@@ -40,14 +40,33 @@ For **classification** and **similarity**, the three steps are combined into a s
 
 ### Baselines
 
-The repository contains both classical/naive and more advanced baselines for the different tasks.
+The repository includes classical and naive baselines as well as more advanced models for each task.
+
+Classical and naive baselines:
+
+* `classification_baseline.py`
+* `similarity_baselines.py`
+* `imputation_baselines.py`
+* `tser_baselines.py`
+
 
 Advanced baselines include:
 
-* `rocket.py`
-* `siamese_rnn.py`
+For Classification:
+* `moment_classification.py`
 
-The imputation baselines are calculated directly during the evaluation of ChronosBERT.
+For Similarity:
+* `siamese_rnn.py` 
+* `siamese_rnn_hpo.py`
+
+For Imputation:
+* `moment_imputation.py`
+
+For TSER:
+* `InceptionTime.py`
+* `fcn.py`
+* `rocket.py`
+
 
 ### Final Experiments
 
