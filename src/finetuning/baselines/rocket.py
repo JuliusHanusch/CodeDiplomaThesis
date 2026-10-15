@@ -1,37 +1,33 @@
-print("Start")
-
 import numpy as np
 import pandas as pd
 import sqlite3
 from pathlib import Path
+import argparse
 
-from sklearn.linear_model import RidgeCV
 from sklearn.linear_model import Ridge
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 import time
-
-import numpy as np
 from numba import njit, prange
 
+import numpy as np
 from gluonts.dataset.arrow import ArrowFile
 
 print("Finished Imports")
 
 name = "Rocket"
 
-# =========================================================
-# CONFIG
-# =========================================================
 
 DB_PATH = (
-    "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/Final/tser_bestConfigs_time.db"
+    "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/src/finetuning/tser/final/tser_bestConfigs_time.db"
 )
 
-OUTPUT_PATH = (
+OUTPUT_DIR = Path(
     "/data/horse/ws/juha972b-AION-BERT-Chronos/"
-    "BERTi/Results/Finetuning/TSER/rocket_results_allData.csv"
+    "BERTi/Results/Finetuning/TSER/ROCKET"
 )
+
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 PREDICTIONS_PATH = Path(
     "/data/horse/ws/juha972b-AION-BERT-Chronos/"
@@ -236,78 +232,135 @@ class TimeSeriesRegressor:
         pass
 
 class RocketRegressor(TimeSeriesRegressor):
-    """
-    This is a class implementing Rocket for time series regression.
-    The code is adapted by the authors from the original Rocket implementation at https://github.com/angus924/rocket
-    """
 
-    def __init__(self,
-                 output_directory: str,
-                 n_kernels: int = 10000):
-        """
-        Initialise the Rocket model
-
-        Inputs:
-            output_directory: path to store results/models
-            n_kernels: number of random kernels
-        """
+    def __init__(
+        self,
+        output_directory: str,
+        n_kernels: int = 10000,
+        alphas=None,
+    ):
         super().__init__(output_directory)
-        print('[{}] Creating Regressor'.format(self.name))
-        self.name = name
+
+        self.name = "Rocket"
         self.n_kernels = n_kernels
-        self.kernels = None
-        self.regressor = make_pipeline(
-            StandardScaler(),
-            Ridge(alpha=1.0, solver="lsqr")
+        self.alphas = (
+            [0.01, 0.1, 1.0, 10.0, 100.0]
+            if alphas is None else alphas
         )
 
-    def fit(self,
-            x_train: np.array,
-            y_train: np.array,
-            x_val: np.array = None,
-            y_val: np.array = None):
-        """
-        Fit Rocket
+        self.kernels = None
+        self.best_alpha = None
+        self.scaler = StandardScaler()
+        self.regressor = None
 
-        Inputs:
-            x_train: training data (num_examples, num_timestep, num_channels)
-            y_train: training target
-            x_val: validation data (num_examples, num_timestep, num_channels)
-            y_val: validation target
-        """
+        self.train_duration = None
+        self.inference_duration = None
+
+    def fit(
+        self,
+        x_train,
+        y_train,
+        x_val=None,
+        y_val=None,
+    ):
         start_time = time.perf_counter()
-        print('[{}] Generating kernels'.format(self.name))
-        self.kernels = generate_kernels(x_train.shape[1], self.n_kernels, x_train.shape[2])
-        print('[{}] Applying kernels'.format(self.name))
-        x_training_transform = apply_kernels(x_train, self.kernels)
 
-        print('[{}] Training'.format(self.name))
-        self.regressor.fit(x_training_transform, y_train)
+        print(f"[{self.name}] Generating kernels")
+
+        self.kernels = generate_kernels(
+            x_train.shape[1],
+            self.n_kernels,
+            x_train.shape[2],
+        )
+
+        print(f"[{self.name}] Transforming training data")
+
+        X_train_features = apply_kernels(
+            x_train, self.kernels
+        )
+
+        # Standard ROCKET: fixed alpha = 1.0.
+        if x_val is None or y_val is None:
+            self.best_alpha = 1.0
+
+        else:
+            print(f"[{self.name}] Transforming validation data")
+
+            X_val_features = apply_kernels(
+                x_val, self.kernels
+            )
+
+            # Fit scaling using training data only.
+            X_train_scaled = self.scaler.fit_transform(
+                X_train_features
+            )
+            X_val_scaled = self.scaler.transform(
+                X_val_features
+            )
+
+            best_val_rmse = np.inf
+
+            print(f"[{self.name}] Tuning Ridge alpha")
+
+            for alpha in self.alphas:
+                ridge = Ridge(
+                    alpha=alpha,
+                    solver="lsqr",
+                )
+
+                ridge.fit(X_train_scaled, y_train)
+
+                val_pred = ridge.predict(X_val_scaled)
+                val_rmse = rmse(y_val, val_pred)
+
+                print(
+                    f"alpha={alpha}: "
+                    f"validation RMSE={val_rmse:.6f}"
+                )
+
+                if val_rmse < best_val_rmse:
+                    best_val_rmse = val_rmse
+                    self.best_alpha = alpha
+
+            print(
+                f"[{self.name}] Best alpha="
+                f"{self.best_alpha}, "
+                f"validation RMSE={best_val_rmse:.6f}"
+            )
+
+        # Fit the final Ridge model on the complete supplied
+        # training set using the selected alpha.
+        X_train_scaled = self.scaler.fit_transform(
+            X_train_features
+        )
+
+        self.regressor = Ridge(
+            alpha=self.best_alpha,
+            solver="lsqr",
+        )
+
+        self.regressor.fit(X_train_scaled, y_train)
+
         self.train_duration = time.perf_counter() - start_time
 
+        print(
+            f"[{self.name}] Training completed in "
+            f"{self.train_duration:.2f}s"
+        )
 
-        print('[{}] Training done!, took {}s'.format(self.name, self.train_duration))
-
-    def predict(self, x: np.array):
-        """
-        Do prediction with Rocket
-
-        Inputs:
-            x: data for prediction (num_examples, num_timestep, num_channels)
-        Outputs:
-            y_pred: prediction
-        """
-        print('[{}] Predicting'.format(self.name))
+    def predict(self, x):
         start_time = time.perf_counter()
-        print('[{}] Applying kernels'.format(self.name))
-        x_test_transform = apply_kernels(x, self.kernels)
-        y_pred = self.regressor.predict(x_test_transform)
 
-        test_duration = time.perf_counter() - start_time
+        X_features = apply_kernels(x, self.kernels)
+        X_scaled = self.scaler.transform(X_features)
 
-        print("[{}] Predicting completed, took {}s".format(self.name, test_duration))
+        predictions = self.regressor.predict(X_scaled)
 
-        return y_pred
+        self.inference_duration = (
+            time.perf_counter() - start_time
+        )
+
+        return predictions
 
 def rmse(y_true,y_pred):
 
@@ -317,7 +370,6 @@ def rmse(y_true,y_pred):
         )
     )
 
-
 def mae(y_true,y_pred):
 
     return np.mean(
@@ -325,7 +377,6 @@ def mae(y_true,y_pred):
             y_true-y_pred
         )
     )
-
 
 def get_runs():
 
@@ -349,9 +400,29 @@ def get_runs():
 
 if __name__ == "__main__":
 
-    results = []
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--index", type=int, required=True)
+    args = parser.parse_args()
 
-    for dataset, train_path, test_path in get_runs():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT dataset, train_data, test_data
+        FROM runs
+        WHERE id = ?
+        """,
+        (args.index,),
+    )
+
+    runs = cur.fetchall()
+    conn.close()
+
+    if not runs:
+        raise ValueError(f"No run found for index {args.index}")
+
+    for dataset, train_path, test_path in runs:
 
         train_path = Path(train_path)
         test_path = Path(test_path)
@@ -360,77 +431,137 @@ if __name__ == "__main__":
             (
                 "univariate",
                 train_path.parent / "train_uni.arrow",
+                train_path.parent / "train_small_uni.arrow",
+                train_path.parent / "eval_uni.arrow",
                 test_path.parent / "test_uni.arrow",
             ),
             (
                 "multivariate",
                 train_path.parent / "train_multi.arrow",
+                train_path.parent / "train_small_multi.arrow",
+                train_path.parent / "eval_multi.arrow",
                 test_path.parent / "test_multi.arrow",
             ),
         ]
 
-        for version, train_file, test_file in versions:
+        for version, train_file, train_small_file, val_file, test_file in versions:
 
-            if not train_file.exists():
-                continue
-
-            if not test_file.exists():
-                continue
-
-            print(f"\nProcessing {dataset} ({version})")
-
-            X_train, y_train = load_arrow(train_file)
+            # -------------------------------------------------
+            # 1. Load small training split, validation, and test
+            # -------------------------------------------------
+            X_train_small, y_train_small = load_arrow(train_small_file)
+            X_val, y_val = load_arrow(val_file)
             X_test, y_test = load_arrow(test_file)
 
+            if (
+                X_train_small.shape[1:] != X_val.shape[1:]
+                or X_train_small.shape[1:] != X_test.shape[1:]
+            ):
+                raise ValueError(
+                    f"Incompatible shapes for {dataset} ({version}): "
+                    f"train_small={X_train_small.shape}, "
+                    f"val={X_val.shape}, test={X_test.shape}"
+                )
 
+            # -------------------------------------------------
+            # 2. Select alpha using validation data
+            # -------------------------------------------------
             np.random.seed(42)
-            
-            
-            model = RocketRegressor(
-                output_directory="/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/TSER",
+
+            selector = RocketRegressor(
+                output_directory=str(PREDICTIONS_PATH),
                 n_kernels=10000,
+                alphas=[0.01, 0.1, 1.0, 10.0, 100.0],
             )
 
-            model.fit(
-                X_train,
-                y_train,
+            selector.fit(
+                X_train_small,
+                y_train_small,
+                x_val=X_val,
+                y_val=y_val,
             )
 
-            start_time = time.time()
+            best_alpha = selector.best_alpha
 
-            pred = model.predict(X_test)
-            inference_time = time.time() - start_time
+            print(f"Selected alpha = {best_alpha}")
 
-            rocekt_rmse = rmse(y_test, pred)
-            rocekt_mae = mae(y_test, pred)
+            # -------------------------------------------------
+            # 3. Refit using the complete training set
+            # -------------------------------------------------
+            X_train_full, y_train_full = load_arrow(train_file)
+
+            if X_train_full.shape[1:] != X_test.shape[1:]:
+                raise ValueError(
+                    f"Full training/test shape mismatch for "
+                    f"{dataset} ({version}): "
+                    f"train={X_train_full.shape}, test={X_test.shape}"
+                )
+
+            # Use the same random seed for reproducibility.
+            np.random.seed(42)
+
+            final_model = RocketRegressor(
+                output_directory=str(PREDICTIONS_PATH),
+                n_kernels=10000,
+                alphas=[best_alpha],
+            )
+
+            final_model.fit(
+                X_train_full,
+                y_train_full,
+            )
+
+            # -------------------------------------------------
+            # 4. Evaluate on the held-out test set
+            # -------------------------------------------------
+            pred = final_model.predict(X_test)
+
+            rocket_rmse = rmse(y_test, pred)
+            rocket_mae = mae(y_test, pred)
 
             print(
-                f"RMSE = {rocekt_rmse:.6f}, "
-                f"MAE = {rocekt_mae:.6f}"
+                f"Best alpha = {best_alpha}, "
+                f"test RMSE = {rocket_rmse:.6f}, "
+                f"test MAE = {rocket_mae:.6f}"
             )
-
 
             result = {
                 "dataset": dataset,
                 "version": version,
-                "rmse": rocekt_rmse,
-                "mae": rocekt_mae,
-                "inference_time" : inference_time,
+                "method": "ROCKET Optimized",
+                "best_alpha": best_alpha,
+                "rmse": rocket_rmse,
+                "mae": rocket_mae,
+                "selection_train_size": len(y_train_small),
+                "final_train_size": len(y_train_full),
+                "validation_size": len(y_val),
+                "test_size": len(y_test),
+                "train_duration": final_model.train_duration,
+                "inference_time": final_model.inference_duration,
             }
 
-            results.append(result)
+            output_file = OUTPUT_DIR / f"{dataset}.csv"
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Preserve results from the other version of this dataset.
+            if output_file.exists():
+                existing = pd.read_csv(output_file)
+                existing = existing[
+                    ~(
+                        (existing["version"] == version)
+                        & (existing["method"] == "ROCKET Optimized")
+                    )
+                ]
+                results_df = pd.concat(
+                    [existing, pd.DataFrame([result])],
+                    ignore_index=True,
+                )
+            else:
+                results_df = pd.DataFrame([result])
+
+            results_df.to_csv(output_file, index=False)
+
+            print(f"Saved results to {output_file}")
 
 
-
-            # np.savez(
-            #     PREDICTIONS_PATH / f"rocket_{dataset}_{version}.npz",
-            #     y_true=y_test,
-            #     predictions=pred,
-            #     absolute_errors=np.abs(y_test - pred),
-            # )
-
-    # pd.DataFrame(results).to_csv(
-    #     OUTPUT_PATH,
-    #     index=False,
-    # )
 

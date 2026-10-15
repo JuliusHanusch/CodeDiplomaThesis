@@ -13,14 +13,9 @@ from sklearn.metrics import (
 from tslearn.metrics import dtw
 
 
-
-# ============================================================
-# PATHS
-# ============================================================
-
 RESULT = (
     "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/"
-    "Results/Finetuning/Similarity/similarity_baseline.csv"
+    "Results/Finetuning/Similarity/similarity_baseline_optimized.csv"
 )
 
 root_dir = Path(
@@ -45,6 +40,181 @@ VARIABLE_LENGTH_DATASETS = {
     "ArabicSpokenDigits1",
     "ArabicSpokenDigits2",
 }
+
+N_SPLITS = 5
+SEED = 42
+
+DTW_RADIUS_OPTIONS = [
+    None,
+    0.01,
+    0.02,
+    0.05,
+    0.10,
+    0.20,
+    0.50,
+]
+
+
+def create_cv_splits(y, n_splits=5, seed=42):
+
+    y = np.asarray(y)
+
+    rng = np.random.RandomState(seed)
+
+    fold_val_indices = [[] for _ in range(n_splits)]
+
+    for cls in np.unique(y):
+
+        indices = np.where(y == cls)[0]
+
+        rng.shuffle(indices)
+
+        for i, idx in enumerate(indices):
+            fold_val_indices[i % n_splits].append(idx)
+
+    all_indices = np.arange(len(y))
+
+    for fold in range(n_splits):
+
+        val_idx = np.array(
+            fold_val_indices[fold],
+            dtype=int,
+        )
+
+        train_idx = np.setdiff1d(
+            all_indices,
+            val_idx,
+        )
+
+        yield train_idx, val_idx
+
+
+def optimized_dtw_similarity_baseline(
+    X1_train,
+    X2_train,
+    y_train,
+    X1_test,
+    X2_test,
+    y_test,
+    radius_options=DTW_RADIUS_OPTIONS,
+    n_splits=N_SPLITS,
+    seed=SEED,
+):
+    y_train = np.asarray(y_train, dtype=np.int64)
+    y_test = np.asarray(y_test, dtype=np.int64)
+
+    splits = list(
+        create_cv_splits(
+            y_train,
+            n_splits=n_splits,
+            seed=seed,
+        )
+    )
+
+    best_radius = None
+    best_cv_auc = -np.inf
+
+    for radius in radius_options:
+        fold_aucs = []
+
+        for fit_idx, val_idx in splits:
+            fit_distances = calculate_pair_dtw_distances_optimized(
+                X1_train[fit_idx],
+                X2_train[fit_idx],
+                radius,
+            )
+
+            val_distances = calculate_pair_dtw_distances_optimized(
+                X1_train[val_idx],
+                X2_train[val_idx],
+                radius,
+            )
+
+            threshold, _ = find_best_threshold(
+                fit_distances,
+                y_train[fit_idx],
+            )
+
+            valid = (
+                np.isfinite(val_distances)
+                & np.isfinite(y_train[val_idx])
+            )
+
+            val_distances = val_distances[valid]
+            y_val = y_train[val_idx][valid]
+
+            if len(np.unique(y_val)) < 2:
+                continue
+
+            fold_aucs.append(
+                roc_auc_score(y_val, -val_distances)
+            )
+
+        mean_auc = (
+            float(np.mean(fold_aucs))
+            if fold_aucs else np.nan
+        )
+
+        print(
+            f"Radius={radius}, "
+            f"CV AUROC={mean_auc:.4f}"
+            if np.isfinite(mean_auc)
+            else f"Radius={radius}, no valid CV AUROC"
+        )
+
+        if np.isfinite(mean_auc) and mean_auc > best_cv_auc:
+            best_cv_auc = mean_auc
+            best_radius = radius
+
+    if not np.isfinite(best_cv_auc):
+        raise ValueError("No valid DTW configuration found.")
+
+    print(
+        f"Selected radius={best_radius}, "
+        f"CV AUROC={best_cv_auc:.4f}"
+    )
+
+    train_distances = calculate_pair_dtw_distances_optimized(
+        X1_train,
+        X2_train,
+        best_radius,
+    )
+
+    threshold, train_accuracy = find_best_threshold(
+        train_distances,
+        y_train,
+    )
+
+    test_distances = calculate_pair_dtw_distances_optimized(
+        X1_test,
+        X2_test,
+        best_radius,
+    )
+
+    valid_test = (
+        np.isfinite(test_distances)
+        & np.isfinite(y_test)
+    )
+
+    test_distances = test_distances[valid_test]
+    y_test_valid = y_test[valid_test]
+
+    y_pred = (test_distances < threshold).astype(np.int64)
+
+    metrics = evaluate_binary(
+        y_test_valid,
+        y_pred,
+        scores=-test_distances,
+    )
+
+    metrics["threshold"] = threshold
+    metrics["train_accuracy"] = train_accuracy
+    metrics["dtw_radius_fraction"] = (
+        "unconstrained" if best_radius is None else best_radius
+    )
+    metrics["cv_auroc"] = best_cv_auc
+
+    return metrics
 
 
 
@@ -154,7 +324,44 @@ def load_pairs(path):
         labels,
     )
 
+def calculate_pair_dtw_distances_optimized(
+    X1,
+    X2,
+    radius_fraction,
+):
+    distances = []
 
+    for x1, x2 in zip(X1, X2):
+        x1 = np.asarray(x1, dtype=np.float64).flatten()
+        x2 = np.asarray(x2, dtype=np.float64).flatten()
+
+        x1 = x1[np.isfinite(x1)]
+        x2 = x2[np.isfinite(x2)]
+
+        if len(x1) == 0 or len(x2) == 0:
+            distances.append(np.nan)
+            continue
+
+        if radius_fraction is None:
+            distance = dtw(x1, x2)
+        else:
+            radius = max(
+                abs(len(x1) - len(x2)),
+                int(np.ceil(
+                    radius_fraction * max(len(x1), len(x2))
+                )),
+            )
+
+            distance = dtw(
+                x1,
+                x2,
+                global_constraint="sakoe_chiba",
+                sakoe_chiba_radius=radius,
+            )
+
+        distances.append(distance)
+
+    return np.asarray(distances, dtype=np.float64)
 
 def calculate_pair_dtw_distances(
     X1,
@@ -279,9 +486,6 @@ def evaluate_binary(
     return result
 
 
-# ============================================================
-# NAIVE BASELINE
-# ============================================================
 
 def random_similarity_baseline(
     y_pairs,
@@ -307,9 +511,6 @@ def sequence_embedding(x):
     ).flatten()
 
 
-# ============================================================
-# DIRECT EUCLIDEAN PAIR DISTANCE
-# ============================================================
 
 VARIABLE_LENGTH_DATASETS = {
     "ArabicSpokenDigits1",
@@ -329,7 +530,6 @@ def resample_series(x, target_length=128):
         dtype=np.float64
     ).flatten()
 
-    # Keep only finite values
     valid = np.isfinite(x)
 
     if not np.any(valid):
@@ -340,7 +540,6 @@ def resample_series(x, target_length=128):
     if len(x) == 0:
         return None
 
-    # Already the desired length
     if len(x) == target_length:
         return x
 
@@ -387,9 +586,6 @@ def calculate_pair_distances(
 
     for x1, x2 in zip(X1, X2):
 
-        # ========================================================
-        # ARABIC SPOKEN DIGITS
-        # ========================================================
 
         if dataset_name in VARIABLE_LENGTH_DATASETS:
 
@@ -419,9 +615,6 @@ def calculate_pair_distances(
                 dtype=np.float64
             ).flatten()
 
-            # ----------------------------------------------------
-            # Require compatible lengths
-            # ----------------------------------------------------
 
             if len(x1) != len(x2):
 
@@ -496,10 +689,6 @@ def find_best_threshold(
             "No valid training distances."
         )
 
-    # --------------------------------------------------------
-    # Sort distances
-    # --------------------------------------------------------
-
     order = np.argsort(
         distances
     )
@@ -507,11 +696,6 @@ def find_best_threshold(
     sorted_distances = distances[order]
     sorted_labels = labels[order]
 
-    # --------------------------------------------------------
-    # Initial threshold:
-    #
-    # Everything predicted as different.
-    # --------------------------------------------------------
 
     n_positive = np.sum(
         sorted_labels == 1
@@ -574,7 +758,6 @@ def find_best_threshold(
 
             else:
 
-                # Last distance
                 best_threshold = (
                     current_distance
                     + 1e-8
@@ -720,39 +903,39 @@ if __name__ == "__main__":
         results.append(
             metrics
         )
-        print(results)
 
+        metrics = optimized_dtw_similarity_baseline(
+            X1_train,
+            X2_train,
+            labels_train,
+            X1_test,
+            X2_test,
+            labels_test,
+        )
 
-    df = pd.DataFrame(
-        results
-    )
+        metrics["dataset"] = dataset_name
+        metrics["task"] = task
+        metrics["method"] = "DTW Optimized"
 
-    df = df[
-        [
-            "dataset",
-            "task",
-            "method",
-            "auroc",
-            "accuracy",
-            "f1",
+        results.append(metrics)
+
+        df = pd.DataFrame(results)
+        df = df[
+            [
+                "dataset",
+                "task",
+                "method",
+                "auroc",
+                "accuracy",
+                "f1",
+                "dtw_radius_fraction",
+                "cv_auroc",
+            ]
         ]
-    ]
 
+        result_path = Path(RESULT)
+        result_path.parent.mkdir(parents=True, exist_ok=True)
 
+        df.to_csv(result_path, index=False)
 
-    result_path = Path(RESULT)
-
-    result_path.parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    df.to_csv(
-        result_path,
-        index=False
-    )
-
-    print(
-        "\nSaved:",
-        RESULT
-    )
+        print(f"Saved {len(results)} results to {RESULT}")

@@ -1,29 +1,42 @@
+import json
 import numpy as np
 import pandas as pd
+
 from pathlib import Path
-from sklearn.preprocessing import StandardScaler
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, f1_score
 from collections import Counter
+
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import (
+    GridSearchCV,
+    RandomizedSearchCV,
+)
+from sklearn.metrics import accuracy_score
 
 
-OUTPUT_PATH = "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/Results/Finetuning/Classification/Baselines.csv"
-
-DATA_ROOT = Path(
-    "/data/horse/ws/juha972b-AION-BERT-Chronos/BERTi/data/finetuning/UCR_extracted/UCRArchive_2018"
+OUTPUT_PATH = (
+    "/data/horse/ws/juha972b-AION-BERT-Chronos/"
+    "BERTi/Results/Finetuning/Classification/"
+    "Baselines_Optimized.csv"
 )
 
-EXCLUDED_DATASETS = {
-    "Fungi",
-}
+DATA_ROOT = Path(
+    "/data/horse/ws/juha972b-AION-BERT-Chronos/"
+    "BERTi/data/finetuning/UCR_extracted/UCRArchive_2018"
+)
+
+EXCLUDED_DATASETS = {"Fungi"}
+
+RANDOM_STATE = 42
+N_JOBS = -1
+
 
 def get_datasets():
-
     datasets = []
 
     for dataset_dir in sorted(DATA_ROOT.iterdir()):
-
         if not dataset_dir.is_dir():
             continue
 
@@ -36,18 +49,8 @@ def get_datasets():
         train_path = dataset_dir / f"{dataset}_TRAIN.tsv"
         test_path = dataset_dir / f"{dataset}_TEST.tsv"
 
-        if not train_path.exists():
-            print(
-                f"[WARNING] Missing train file for {dataset}: "
-                f"{train_path}"
-            )
-            continue
-
-        if not test_path.exists():
-            print(
-                f"[WARNING] Missing test file for {dataset}: "
-                f"{test_path}"
-            )
+        if not train_path.exists() or not test_path.exists():
+            print(f"[WARNING] Missing data for {dataset}")
             continue
 
         datasets.append({
@@ -62,275 +65,241 @@ def get_datasets():
 def load_ucr_tsv(tsv_path):
     df = pd.read_csv(tsv_path, sep="\t", header=None).values
 
-    y = df[:, 0]
+    # Preserve the original class labels across train and test.
+    y = df[:, 0].astype(int)
     X = df[:, 1:].astype(np.float32)
 
-    y = y.astype(int)
-    unique = np.unique(y)
-    label_map = {v: i for i, v in enumerate(unique)}
-    y = np.vectorize(label_map.get)(y)
+    X = np.nan_to_num(
+        X,
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    )
 
     return X, y
 
+def create_cv_splits(y, n_splits=5, seed=42):
+    y = np.asarray(y)
+    rng = np.random.RandomState(seed)
+    fold_val_indices = [[] for _ in range(n_splits)]
 
+    for cls in np.unique(y):
+        indices = np.where(y == cls)[0]
+        rng.shuffle(indices)
 
-def load_dataset(info):
+        if len(indices) == 1:
+            continue
 
+        for i, idx in enumerate(indices):
+            fold_val_indices[i % n_splits].append(idx)
 
-    X_train, y_train = load_ucr_tsv(
-        info["train"]
-    )
+    all_indices = np.arange(len(y))
 
-    X_test, y_test = load_ucr_tsv(
-        info["test"]
-    )
+    for fold in range(n_splits):
+        val_idx = np.array(fold_val_indices[fold], dtype=int)
+        train_idx = np.setdiff1d(all_indices, val_idx)
 
-    return X_train, y_train, X_test, y_test
+        yield train_idx, val_idx
 
-
-
-def run_baselines(
-    X_train,
-    y_train,
-    X_test,
-    y_test
-):
-
-    X_train = np.asarray(X_train, dtype=np.float32)
-    X_test = np.asarray(X_test, dtype=np.float32)
-
-    X_train = np.nan_to_num(
-        X_train,
-        nan=0.0,
-        posinf=0.0,
-        neginf=0.0
-    )
-
-    X_test = np.nan_to_num(
-        X_test,
-        nan=0.0,
-        posinf=0.0,
-        neginf=0.0
-    )
-
-
+def run_baselines(X_train, y_train, X_test, y_test):
     results = {}
 
-    majority = Counter(y_train).most_common(1)[0][0]
+    majority_class = Counter(y_train).most_common(1)[0][0]
+    y_pred_naive = np.full(len(y_test), majority_class)
 
-    preds = np.full(
-        len(y_test),
-        majority
+    results["Naive_accuracy"] = accuracy_score(y_test, y_pred_naive)
+
+    knn_1 = Pipeline([
+        ("scaler", StandardScaler()),
+        (
+            "model",
+            KNeighborsClassifier(
+                n_neighbors=1,
+                metric="euclidean",
+                weights="uniform",
+                n_jobs=N_JOBS,
+            ),
+        ),
+    ])
+
+    knn_1.fit(X_train, y_train)
+    y_pred_1nn = knn_1.predict(X_test)
+
+    results["1NN_accuracy"] = accuracy_score(y_test, y_pred_1nn)
+
+    cv = list(
+        create_cv_splits(
+            y_train,
+            n_splits=5,
+            seed=RANDOM_STATE,
+        )
     )
 
-    results["Naive_accuracy"] = accuracy_score(
-        y_test,
-        preds
+    for fold, (train_idx, val_idx) in enumerate(cv, start=1):
+        if len(val_idx) == 0:
+            raise ValueError(f"Fold {fold} has an empty validation set")
+
+        if len(train_idx) < 5:
+            raise ValueError(
+                f"Fold {fold} has fewer than five training samples; "
+                "5-NN cannot be evaluated reliably."
+            )
+
+    knn_pipeline = Pipeline([
+        ("scaler", StandardScaler()),
+        (
+            "model",
+            KNeighborsClassifier(
+                n_neighbors=5,
+                n_jobs=1,
+            ),
+        ),
+    ])
+
+    knn_param_grid = {
+        "scaler": [
+            StandardScaler(),
+            RobustScaler(),
+            "passthrough",
+        ],
+        "model__n_neighbors": [1, 2, 3, 4, 5],
+        "model__metric": [
+            "euclidean",
+            "manhattan",
+        ],
+        "model__weights": [
+            "uniform",
+            "distance",
+        ],
+    }
+
+    knn_search = GridSearchCV(
+        estimator=knn_pipeline,
+        param_grid=knn_param_grid,
+        scoring="accuracy",
+        cv=cv,
+        n_jobs=N_JOBS,
+        refit=True,
+        error_score="raise",
     )
 
-    results["Naive_f1"] = f1_score(
-        y_test,
-        preds,
-        average="macro"
-    )
+    knn_search.fit(X_train, y_train)
 
+    y_pred_knn = knn_search.best_estimator_.predict(X_test)
 
-    scaler = StandardScaler()
-
-    X_train_scaled = scaler.fit_transform(
-        X_train
-    )
-
-    X_test_scaled = scaler.transform(
-        X_test
-    )
-
-
-    knn1 = KNeighborsClassifier(
-        n_neighbors=1,
-        metric="euclidean",
-        n_jobs=-1
-    )
-
-    knn1.fit(
-        X_train_scaled,
-        y_train
-    )
-
-    preds = knn1.predict(
-        X_test_scaled
-    )
-
-    results["1NN_accuracy"] = accuracy_score(
-        y_test,
-        preds
-    )
-
-    results["1NN_f1"] = f1_score(
-        y_test,
-        preds,
-        average="macro"
-    )
-
-
-    knn5 = KNeighborsClassifier(
-        n_neighbors=5,
-        metric="euclidean",
-        n_jobs=-1
-    )
-
-    knn5.fit(
-        X_train_scaled,
-        y_train
-    )
-
-    preds = knn5.predict(
-        X_test_scaled
-    )
-
-    results["5NN_accuracy"] = accuracy_score(
-        y_test,
-        preds
-    )
-
-    results["5NN_f1"] = f1_score(
-        y_test,
-        preds,
-        average="macro"
-    )
-
-
-    rf_small = RandomForestClassifier(
-        n_estimators=100,
-        max_depth=5,
-        random_state=42,
-        n_jobs=-1
-    )
-
-    rf_small.fit(
-        X_train,
-        y_train
-    )
-
-    preds = rf_small.predict(
-        X_test
-    )
-
-    results["RF_small_accuracy"] = accuracy_score(
-        y_test,
-        preds
-    )
-
-    results["RF_small_f1"] = f1_score(
-        y_test,
-        preds,
-        average="macro"
+    results["5NN_accuracy"] = accuracy_score(y_test, y_pred_knn)
+    results["5NN_best_params"] = json.dumps(
+        {
+            key: (
+                value
+                if isinstance(value, (str, int, float, bool, type(None)))
+                else value.__class__.__name__
+            )
+            for key, value in knn_search.best_params_.items()
+        }
     )
 
 
-
-    rf_large = RandomForestClassifier(
-        n_estimators=300,
-        max_depth=None,
-        random_state=42,
-        n_jobs=-1
+    rf = RandomForestClassifier(
+        random_state=RANDOM_STATE,
+        n_jobs=1,
     )
 
-    rf_large.fit(
-        X_train,
-        y_train
+    rf_param_distributions = {
+        "n_estimators": [10, 50, 100],
+        "max_depth": [2, 3, 4, 5],
+        "min_samples_split": [2, 5, 10],
+        "min_samples_leaf": [1, 2, 4],
+        "max_features": ["sqrt", 0.5, 1.0],
+    }
+
+    rf_search = RandomizedSearchCV(
+        estimator=rf,
+        param_distributions=rf_param_distributions,
+        n_iter=100,
+        scoring="accuracy",
+        cv=cv,
+        random_state=RANDOM_STATE,
+        n_jobs=N_JOBS,
+        refit=True,
+        error_score="raise",
     )
 
-    preds = rf_large.predict(
-        X_test
-    )
+    rf_search.fit(X_train, y_train)
 
-    results["RF_large_accuracy"] = accuracy_score(
-        y_test,
-        preds
-    )
+    y_pred_rf = rf_search.best_estimator_.predict(X_test)
 
-    results["RF_large_f1"] = f1_score(
-        y_test,
-        preds,
-        average="macro"
+    results["RF_accuracy"] = accuracy_score(y_test, y_pred_rf)
+    results["RF_best_params"] = json.dumps(
+        rf_search.best_params_
     )
-
 
     return results
-
 
 
 if __name__ == "__main__":
 
     results = []
-    datasets = get_datasets()
 
+    output_file = Path(OUTPUT_PATH)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    for dataset_info in datasets:
+    for info in get_datasets():
 
-        dataset = dataset_info["name"]
-        train_data = dataset_info["train"]
-        test_data = dataset_info["test"]
+        dataset = info["name"]
 
-        X_train, y_train = load_ucr_tsv(train_data)
-        X_test, y_test = load_ucr_tsv(test_data)
+        try:
+            X_train, y_train = load_ucr_tsv(info["train"])
+            X_test, y_test = load_ucr_tsv(info["test"])
 
-        train_labels = np.unique(y_train)
-        test_labels = np.unique(y_test)
+            metrics = run_baselines(
+                X_train,
+                y_train,
+                X_test,
+                y_test,
+            )
 
+            row = {
+                "dataset": dataset,
+                **metrics,
+            }
 
-        metrics = run_baselines(
-            X_train,
-            y_train,
-            X_test,
-            y_test
-        )
+            results.append(row)
 
+            print(
+                f"{dataset}: "
+                f"5-NN={metrics['5NN_accuracy']:.4f}, "
+                f"RF-small={metrics['RF_accuracy']:.4f}"
+            )
 
-        row = {
-            "dataset": dataset_info["name"],
-            **metrics
-        }
+            # Save after every successfully evaluated dataset.
+            df = pd.DataFrame(results)
 
-        results.append(row)
+            # Add average row to the saved CSV.
+            avg = {"dataset": "Average"}
 
+            for col in [
+                "Naive_accuracy",
+                "1NN_accuracy",
+                "5NN_accuracy",
+                "RF_accuracy",
+            ]:
+                avg[col] = df[col].mean()
 
-    df = pd.DataFrame(results)
+            df = pd.concat(
+                [df, pd.DataFrame([avg])],
+                ignore_index=True,
+            )
 
+            df.to_csv(output_file, index=False)
 
-    # Add average
-    avg = {
-        "dataset": "Average"
-    }
+            print(f"Saved progress: {output_file}")
 
-    for col in df.columns:
-        if col != "dataset":
-            avg[col] = df[col].mean()
+        except Exception as exc:
+            print(f"[ERROR] {dataset}: {exc}")
 
+    if not results:
+        raise RuntimeError("No datasets were evaluated.")
 
-    df = pd.concat(
-        [
-            df,
-            pd.DataFrame([avg])
-        ],
-        ignore_index=True
-    )
-
-
-    Path(OUTPUT_PATH).parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-
-    df.to_csv(
-        OUTPUT_PATH,
-        index=False
-    )
-
-
-    print("\nSaved:")
-    print(OUTPUT_PATH)
-
-    print(df)
+    print(f"\nFinished. Results saved to: {output_file}")
+    print(df.to_string(index=False))

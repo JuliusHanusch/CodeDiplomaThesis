@@ -762,7 +762,6 @@ if __name__ == "__main__":
             print(f"Selected Threshold: {best_threshold:.4f}")
             print(f"{'='*60}")
 
-            # Train on the entire training set
             encoder, head, _ = train(
                 X1,
                 X2,
@@ -772,7 +771,6 @@ if __name__ == "__main__":
                 epochs=best_epoch
             )
 
-            # Evaluate on the independent test set
             test_metrics = evaluate(
                 encoder,
                 head,
