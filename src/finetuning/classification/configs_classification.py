@@ -46,13 +46,27 @@ def sample_config():
         "TrainInnerModel": bool(random.choice([True, False])),
     }
 
+
 def find_ucr_datasets():
+
+    excluded_datasets = {
+        "Fungi",
+        "PigAirwayPressure",
+        "PigArtPressure",
+        "PigCVP",
+    }
 
     datasets = []
 
     for dataset_dir in sorted(UCR_ROOT.iterdir()):
 
         if not dataset_dir.is_dir():
+            continue
+
+        dataset_name = dataset_dir.name
+
+        if dataset_name in excluded_datasets:
+            print(f"[SKIP] {dataset_name}: excluded dataset")
             continue
 
         train = list(
@@ -78,6 +92,7 @@ def find_ucr_datasets():
         })
 
     return datasets
+
 
 def get_num_labels(train_file):
     """

@@ -110,6 +110,13 @@ def get_embedding(model, dataloader):
 
     return embeddings, labels
 
+EXCLUDED_DATASETS = {
+        "Fungi",
+        "PigAirwayPressure",
+        "PigArtPressure",
+        "PigCVP",
+    }
+
 datasets = []
 
 DATA_ROOT = Path(
@@ -124,18 +131,19 @@ for dataset_dir in sorted(DATA_ROOT.iterdir()):
 
     dataset_name = dataset_dir.name
 
+    if dataset_name in EXCLUDED_DATASETS:
+        print(f"[SKIP] {dataset_name}: excluded dataset")
+        continue
+
     train_path = dataset_dir / f"{dataset_name}_TRAIN.tsv"
     test_path = dataset_dir / f"{dataset_name}_TEST.tsv"
 
     if train_path.exists() and test_path.exists():
-
-        datasets.append(
-            {
-                "name": dataset_name,
-                "train": str(train_path),
-                "test": str(test_path),
-            }
-        )
+        datasets.append({
+            "name": dataset_name,
+            "train": str(train_path),
+            "test": str(test_path),
+        })
 
 print(f"Found {len(datasets)} datasets")
 

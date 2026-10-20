@@ -218,11 +218,17 @@ def optimized_dtw_similarity_baseline(
 
 
 
+EXCLUDED_DATASETS = {
+    "Fungi"
+    "plaid",
+    "FordA",
+    "HandOutlines",
+}
+
+
 def getDatasets():
 
     datasets = []
-
-
 
     for dataset_dir in sorted(UCR_ROOT.iterdir()):
 
@@ -231,31 +237,17 @@ def getDatasets():
 
         dataset_name = dataset_dir.name
 
+        if dataset_name in EXCLUDED_DATASETS:
+            print(f"[SKIP] {dataset_name}: excluded dataset")
+            continue
+
         train_pairs = (
-            dataset_dir
-            / "similarity"
-            / "train_pairs.npz"
+            dataset_dir / "similarity/train_pairs.npz"
         )
 
         test_pairs = (
-            dataset_dir
-            / "similarity"
-            / "test_pairs.npz"
+            dataset_dir / "similarity/test_pairs.npz"
         )
-
-        if not train_pairs.exists():
-            print(
-                f"WARNING: {dataset_name}: "
-                f"train_pairs.npz not found -> skipped"
-            )
-            continue
-
-        if not test_pairs.exists():
-            print(
-                f"WARNING: {dataset_name}: "
-                f"test_pairs.npz not found -> skipped"
-            )
-            continue
 
         datasets.append({
             "name": dataset_name,
@@ -264,42 +256,30 @@ def getDatasets():
             "task": "similarity",
         })
 
-
+    # ArabicSpokenDigits datasets remain unchanged
     datasets.extend([
         {
             "name": "ArabicSpokenDigits1",
-            "train": str(
-                ARABIC_ROOT
-                / "similarity"
-                / "univariate"
-                / "digit"
-                / "train_pairs.npz"
-            ),
-            "test": str(
-                ARABIC_ROOT
-                / "similarity"
-                / "univariate"
-                / "digit"
-                / "test_pairs.npz"
-            ),
+            "train": str(ARABIC_ROOT / "similarity/univariate/digit/train_pairs.npz"),
+            "test": str(ARABIC_ROOT / "similarity/univariate/digit/test_pairs.npz"),
             "task": "digit",
         },
         {
             "name": "ArabicSpokenDigits2",
-            "train": str(
-                ARABIC_ROOT
-                / "similarity"
-                / "univariate"
-                / "voice"
-                / "train_pairs.npz"
-            ),
-            "test": str(
-                ARABIC_ROOT
-                / "similarity"
-                / "univariate"
-                / "voice"
-                / "test_pairs.npz"
-            ),
+            "train": str(ARABIC_ROOT / "similarity/univariate/voice/train_pairs.npz"),
+            "test": str(ARABIC_ROOT / "similarity/univariate/voice/test_pairs.npz"),
+            "task": "voice",
+        },
+        {
+            "name": "ArabicSpokenDigits1_Multivariate",
+            "train": str(ARABIC_ROOT / "similarity/multivariate/digit/train_pairs.npz"),
+            "test": str(ARABIC_ROOT / "similarity/multivariate/digit/test_pairs.npz"),
+            "task": "digit",
+        },
+        {
+            "name": "ArabicSpokenDigits2_Multivariate",
+            "train": str(ARABIC_ROOT / "similarity/multivariate/voice/train_pairs.npz"),
+            "test": str(ARABIC_ROOT / "similarity/multivariate/voice/test_pairs.npz"),
             "task": "voice",
         },
     ])
@@ -653,18 +633,6 @@ def find_best_threshold(
     labels,
 ):
 
-    """
-    Find the distance threshold that maximizes
-    classification accuracy on the training pairs.
-
-    Smaller distance -> same label (1)
-    Larger distance -> different label (0)
-
-    Prediction:
-
-        distance < threshold -> 1
-        distance >= threshold -> 0
-    """
 
     distances = np.asarray(
         distances,

@@ -55,12 +55,25 @@ def sample_config():
 
 
 datasets = []
+EXCLUDED_DATASETS = {
+    "Fungi"
+    "plaid",
+    "FordA",
+    "HandOutlines",
+}
+
+datasets = []
 
 for dataset_dir in sorted(UCR_ROOT.iterdir()):
     if not dataset_dir.is_dir():
         continue
 
     dataset_name = dataset_dir.name
+
+    if dataset_name in EXCLUDED_DATASETS:
+        print(f"[SKIP] {dataset_name}: excluded dataset")
+        continue
+
     train_pairs = dataset_dir / "similarity/train_pairs.npz"
 
     if not train_pairs.exists():
@@ -75,7 +88,6 @@ for dataset_dir in sorted(UCR_ROOT.iterdir()):
         "train": str(train_pairs),
         "task": "similarity"
     })
-
 
 datasets.extend([
     {

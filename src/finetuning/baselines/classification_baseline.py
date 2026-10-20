@@ -27,7 +27,12 @@ DATA_ROOT = Path(
     "BERTi/data/finetuning/UCR_extracted/UCRArchive_2018"
 )
 
-EXCLUDED_DATASETS = {"Fungi"}
+EXCLUDED_DATASETS = {
+        "Fungi",
+        "PigAirwayPressure",
+        "PigArtPressure",
+        "PigCVP",
+    }
 
 RANDOM_STATE = 42
 N_JOBS = -1

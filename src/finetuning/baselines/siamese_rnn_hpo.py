@@ -56,7 +56,6 @@ BEST_CONFIGS_PATH = (
     OUTPUT_DIR / "siamese_rnn_hpo_best_configs.csv"
 )
 
-
 # Experiment settings
 N_SPLITS = 5
 N_TRIALS = 100
@@ -65,21 +64,13 @@ SEED = 42
 RESUME = True
 
 
-
-
 HPO_SPACE = {
     "learning_rate": loguniform(1e-5, 1e-3),
-
     "hidden_size": [64, 128, 256],
-
     "embedding_dim": [64, 128, 256],
-
     "aggregation": ["last", "average"],
-
     "dropout": [0.0, 0.1, 0.2, 0.3],
-
     "batch_size": [16, 32, 64],
-
     "epochs": [10, 20, 40],
 }
 
@@ -417,6 +408,14 @@ def select_pairs(X1, X2, y, indices):
 
 
 
+EXCLUDED_DATASETS = {
+    "Fungi"
+    "plaid",
+    "FordA",
+    "HandOutlines",
+}
+
+
 def getDatasets():
 
     datasets = []
@@ -427,6 +426,10 @@ def getDatasets():
             continue
 
         dataset_name = dataset_dir.name
+
+        if dataset_name in EXCLUDED_DATASETS:
+            print(f"[SKIP] {dataset_name}: excluded dataset")
+            continue
 
         train_pairs = (
             dataset_dir / "similarity/train_pairs.npz"
@@ -443,81 +446,30 @@ def getDatasets():
             "task": "similarity",
         })
 
+    # ArabicSpokenDigits datasets remain unchanged
     datasets.extend([
-
         {
             "name": "ArabicSpokenDigits1",
-            "train": str(
-                ARABIC_ROOT
-                / "similarity"
-                / "univariate"
-                / "digit"
-                / "train_pairs.npz"
-            ),
-            "test": str(
-                ARABIC_ROOT
-                / "similarity"
-                / "univariate"
-                / "digit"
-                / "test_pairs.npz"
-            ),
+            "train": str(ARABIC_ROOT / "similarity/univariate/digit/train_pairs.npz"),
+            "test": str(ARABIC_ROOT / "similarity/univariate/digit/test_pairs.npz"),
             "task": "digit",
         },
-
         {
             "name": "ArabicSpokenDigits2",
-            "train": str(
-                ARABIC_ROOT
-                / "similarity"
-                / "univariate"
-                / "voice"
-                / "train_pairs.npz"
-            ),
-            "test": str(
-                ARABIC_ROOT
-                / "similarity"
-                / "univariate"
-                / "voice"
-                / "test_pairs.npz"
-            ),
+            "train": str(ARABIC_ROOT / "similarity/univariate/voice/train_pairs.npz"),
+            "test": str(ARABIC_ROOT / "similarity/univariate/voice/test_pairs.npz"),
             "task": "voice",
         },
-
         {
             "name": "ArabicSpokenDigits1_Multivariate",
-            "train": str(
-                ARABIC_ROOT
-                / "similarity"
-                / "multivariate"
-                / "digit"
-                / "train_pairs.npz"
-            ),
-            "test": str(
-                ARABIC_ROOT
-                / "similarity"
-                / "multivariate"
-                / "digit"
-                / "test_pairs.npz"
-            ),
+            "train": str(ARABIC_ROOT / "similarity/multivariate/digit/train_pairs.npz"),
+            "test": str(ARABIC_ROOT / "similarity/multivariate/digit/test_pairs.npz"),
             "task": "digit",
         },
-
         {
             "name": "ArabicSpokenDigits2_Multivariate",
-            "train": str(
-                ARABIC_ROOT
-                / "similarity"
-                / "multivariate"
-                / "voice"
-                / "train_pairs.npz"
-            ),
-            "test": str(
-                ARABIC_ROOT
-                / "similarity"
-                / "multivariate"
-                / "voice"
-                / "test_pairs.npz"
-            ),
+            "train": str(ARABIC_ROOT / "similarity/multivariate/voice/train_pairs.npz"),
+            "test": str(ARABIC_ROOT / "similarity/multivariate/voice/test_pairs.npz"),
             "task": "voice",
         },
     ])
