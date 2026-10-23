@@ -276,63 +276,8 @@ def load_model(
         if bolt:
             return config
         
-        if task == "classification":
-            from chronos_pkg.src.chronos.chronos_classification import ChronosModelForClassification
-
-
-            config = AutoConfig.from_pretrained(model_id)
-            inner_model = AutoModelClass.from_config(config)
-
-            model = ChronosModelForClassification(
-                config=ChronosConfig(model_type="mlm"),
-                model=inner_model,
-                num_labels=num_labels,
-                TrainInnerModel = TrainInnerModel,
-                dropout_head = dropout_head
-            )
-
-        elif task == "similarity":
-            from chronos_pkg.src.chronos.chronos_similarity import ChronosModelForSimilarity
-
-
-            config = AutoConfig.from_pretrained(model_id)
-            inner_model = AutoModelClass.from_config(config)
-
-            model = ChronosModelForSimilarity(
-                config=ChronosConfig(model_type="mlm"),
-                model=inner_model,
-                num_labels=num_labels,
-                TrainInnerModel = TrainInnerModel,
-                dropout_head = dropout_head
-            )
-            
-        elif task == "anomaly":
-            from chronos_pkg.src.chronos.chronos_anomaly import ChronosModelForAnomalyDetection
-
-            config = AutoConfig.from_pretrained(model_id)
-            inner_model = AutoModelClass.from_config(config)
        
-            model = ChronosModelForAnomalyDetection(
-                config=ChronosConfig(model_type="mlm"),
-                model=inner_model,
-                TrainInnerModel = TrainInnerModel,
-                dropout_head = dropout_head
-            )
-        elif task == "tser":
-            from chronos_pkg.src.chronos.chronos_tser import ChronosModelForTSER
-
-            config = AutoConfig.from_pretrained(model_id)
-            inner_model = AutoModelClass.from_config(config)
-       
-            model = ChronosModelForTSER(
-                config=ChronosConfig(model_type="mlm"),
-                model=inner_model,
-                loss_type = loss_type,
-                TrainInnerModel = TrainInnerModel,
-                dropout_head = dropout_head
-            )
-        else:
-            model = AutoModelClass.from_config(config)
+        model = AutoModelClass.from_config(config)
 
     # Load from pretrained
     else:
@@ -340,57 +285,7 @@ def load_model(
         if config_overrides:
             raise ValueError("--config_overrides cannot be used with pretrained models")
 
-        if task == "classification":
-            log_on_main("Loading classification model via ChronosPipeline", logger)
-
-            pipeline = ChronosPipeline.from_pretrained(
-                model_id,
-                task="classification",
-                num_labels=num_labels,
-                TrainInnerModel = TrainInnerModel,
-                dropout_head = dropout_head
-            )
-            model = pipeline.model
-
-        elif task == "similarity":
-            log_on_main("Loading Similarity model via ChronosPipeline", logger)
-
-            pipeline = ChronosPipeline.from_pretrained(
-                model_id,
-                task="similarity",
-                num_labels=num_labels,
-                TrainInnerModel = TrainInnerModel,
-                dropout_head = dropout_head
-            )
-            model = pipeline.model
-
-
-        elif task == "anomaly":
-            log_on_main("Loading anomaly model via ChronosPipeline", logger)
-
-            pipeline = ChronosPipeline.from_pretrained(
-                model_id,
-                task="anomaly",
-                TrainInnerModel = TrainInnerModel,
-                dropout_head = dropout_head
-            )
-            model = pipeline.model
-
-        elif task == "tser":
-            log_on_main("Loading tser model via ChronosPipeline", logger)
-
-            pipeline = ChronosPipeline.from_pretrained(
-                model_id,
-                task="tser",
-                loss_type = loss_type,
-                TrainInnerModel = TrainInnerModel,
-                dropout_head = dropout_head
-            )
-            model = pipeline.model
-
-        else:
-            # ✅ Standard HF loading for MLM / seq2seq / causal
-            model = AutoModelClass.from_pretrained(model_id)
+        model = AutoModelClass.from_pretrained(model_id)
 
 
     # Resize token embeddings to match vocab size
@@ -557,85 +452,9 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         self.task = task
         self.label_indices = []
 
-        if self.task == "similarity":
-
-            self.similarity_data = []
-
-            for dataset in self.datasets:
-
-                data = []
-
-                for entry in dataset:
-
-                    data.append(
-                        {
-                            "target": np.asarray(
-                                entry["target"],
-                                dtype=self.np_dtype
-                            ),
-                            "label": int(entry["label"])
-                        }
-                    )
-
-                self.similarity_data.append(data)
 
     def preprocess_entry(self, entry: dict, mode: str) -> dict:
-        #logger.info(f"RAW ENTRY KEYS: {list(entry.keys())}")
 
-        # CLASSIFICATION PATH
-        if self.task == "classification":
-            assert "label" in entry, f"Missing label. Keys: {list(entry.keys())}"
-
-            return {
-                "target": np.asarray(entry["target"], dtype=self.np_dtype),
-                "label": int(entry["label"]),
-            }
-        elif self.task == "similarity":
-            assert "label" in entry, f"Missing label. Keys: {list(entry.keys())}"
-
-            return {
-                "target": np.asarray(
-                    entry["target"],
-                    dtype=self.np_dtype
-                ),
-                "label": int(entry["label"]),
-            }
-        elif self.task == "anomaly":
-            assert "label" in entry, f"Missing timestep mask. Keys: {list(entry.keys())}"
-
-            target = np.asarray(entry["target"], dtype=self.np_dtype)
-            label = np.asarray(entry["label"], dtype=np.float32)  # (T,) binary mask
-
-            # safety checks (important for debugging shape bugs later)
-            assert target.shape[0] == label.shape[0], (
-                f"Target/label length mismatch: {target.shape} vs {label.shape}"
-            )
-
-            return {
-                "target": target,
-                "label": label,   # (T,) float mask for BCEWithLogitsLoss
-            }
-    
-        elif self.task == "tser":
-            assert "target" in entry, f"Missing target. Keys: {list(entry.keys())}"
-            assert "to_predict" in entry, f"Missing regression label. Keys: {list(entry.keys())}"
-
-
-            target = np.asarray(entry["target"], dtype=self.np_dtype)
-            label = float(entry["to_predict"])  
-
-            assert target.ndim == 1, f"Expected (T,), got {target.shape}"
-            assert np.isfinite(target).all(), "NaN/Inf in target"
-            assert np.isfinite(label).all(), "NaN/Inf in labels"
-
-            return {
-                "target": target,   # (T,)
-                "label": label,   # (1,)
-            }
-
-
-
-        # FORECASTING / MLM PATH
         entry = {
             "start": entry["start"],
             "target": np.asarray(entry["target"], dtype=self.np_dtype),
@@ -720,14 +539,6 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         }
 
     def create_training_data(self, data):
-        if self.task == "classification":
-            return data
-        elif self.task == "similarity":
-            return data
-        elif self.task == "anomaly":
-            return data
-        elif self.task == "tser":
-            return data
         # forecasting path (unchanged)
         data = Cyclic(data)
         split_transform = self._create_instance_splitter(
@@ -749,75 +560,10 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
     def to_hf_format(self, entry: dict) -> dict:
         if self.task == "mlm":
             return self._to_mlm(entry)
-        elif self.task == "classification":
-            return self._to_classification(entry)
-        elif self.task == "similarity":
-            return self._to_similarity(entry)
-        elif self.task == "anomaly":
-            return self._to_anomaly(entry)
-        elif self.task == "tser":
-            return self._to_tser(entry)
         else:
             raise ValueError(f"Unknown task: {self.task}")
         
     
-    def _to_classification(self, entry: dict) -> dict:
-        
-        target = np.asarray(entry["target"], dtype=np.float32)
-        context = torch.tensor(target[-self.context_length:]).unsqueeze(0)
-        input_ids, attention_mask, _ = self.tokenizer.context_input_transform(context)
-
-        return {
-            "input_ids": input_ids.squeeze(0),
-            "attention_mask": attention_mask.squeeze(0),
-            "labels": entry["label"],
-        }
-    
-    def _to_similarity(self, entry: dict) -> dict:
-        target_1 = np.asarray(entry["target_1"], dtype=np.float32)
-        target_2 = np.asarray(entry["target_2"], dtype=np.float32)
-
-        context_1 = torch.tensor(target_1[-self.context_length:]).unsqueeze(0)
-        context_2 = torch.tensor(target_2[-self.context_length:]).unsqueeze(0)
-
-        input_ids_1, attention_mask_1, _ = self.tokenizer.context_input_transform(context_1)
-        input_ids_2, attention_mask_2, _ = self.tokenizer.context_input_transform(context_2)
-
-        return {
-            "input_ids_1": input_ids_1.squeeze(0),
-            "attention_mask_1": attention_mask_1.squeeze(0),
-            "input_ids_2": input_ids_2.squeeze(0),
-            "attention_mask_2": attention_mask_2.squeeze(0),
-            "labels": torch.tensor(entry["similarity_label"], dtype=torch.float32),
-        }
-        
-    def _to_tser(self, entry: dict) -> dict:
-
-        target = np.asarray(entry["target"], dtype=np.float32)
-        context = torch.tensor(target[-self.context_length:]).unsqueeze(0)
-
-        input_ids, attention_mask, _ = self.tokenizer.context_input_transform(context)
-
-        return {
-            "input_ids": input_ids.squeeze(0),          # (T')
-            "attention_mask": attention_mask.squeeze(0), # (T')
-            "labels": entry["label"]  
-        }             
-    
-    def _to_anomaly(self, entry: dict) -> dict:
-        target = np.asarray(entry["target"], dtype=np.float32)
-        label = np.asarray(entry["label"], dtype=np.float32)
-
-        context = torch.tensor(target[-self.context_length:]).unsqueeze(0)
-        label = torch.tensor(label[-self.context_length:]).unsqueeze(0)
-
-        input_ids, attention_mask, _ = self.tokenizer.context_input_transform(context)
-
-        return {
-            "input_ids": input_ids.squeeze(0),
-            "attention_mask": attention_mask.squeeze(0),
-            "labels": label.squeeze(0),   # (T,) binary mask
-        }
         
         
     def _to_mlm(self, entry: dict) -> dict:
@@ -901,63 +647,28 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
         }
 
     def __iter__(self) -> Iterator:
-        if self.task == "classification":
-            preprocessed_datasets = self.datasets
-        elif self.task == "anomaly":
-            preprocessed_datasets = self.datasets
-        elif self.task == "similarity":
-            preprocessed_datasets = self.datasets
-        elif self.task == "tser":
-            preprocessed_datasets = self.datasets
-        else:
-            preprocessed_datasets = [
-                Map(
-                    partial(self.preprocess_entry, mode=self.mode),
-                    dataset,
-                )
-                for dataset in self.datasets
-            ]
+
+        preprocessed_datasets = [
+            Map(
+                partial(self.preprocess_entry, mode=self.mode),
+                dataset,
+            )
+            for dataset in self.datasets
+        ]
 
         if self.mode == "training":
-            if self.task == "classification":
-                iterables = preprocessed_datasets
-            elif self.task == "anomaly":
-                iterables = preprocessed_datasets
-            elif self.task == "similarity":
-                iterables = preprocessed_datasets
-            elif self.task == "tser":
-                iterables = preprocessed_datasets
-            else:
-                iterables = [
-                    self.create_training_data(dataset) for dataset in preprocessed_datasets
-                ]
+            iterables = [
+                self.create_training_data(dataset) for dataset in preprocessed_datasets
+            ]
         elif self.mode == "test":
-            if self.task == "classification":
-                iterables = preprocessed_datasets
-            elif self.task == "anomaly":
-                iterables = preprocessed_datasets
-            elif self.task == "similarity":
-                iterables = preprocessed_datasets
-            elif self.task == "tser":
-                iterables = preprocessed_datasets
-            else:
-                iterables = [
-                    self.create_test_data(dataset) for dataset in preprocessed_datasets
-                ]
+            iterables = [
+                self.create_test_data(dataset) for dataset in preprocessed_datasets
+            ]
         else:
-            if self.task == "classification":
-                iterables = preprocessed_datasets
-            elif self.task == "anomaly":
-                iterables = preprocessed_datasets
-            elif self.task == "similarity":
-                iterables = preprocessed_datasets
-            elif self.task == "tser":
-                iterables = preprocessed_datasets
-            else:
-                iterables = [
-                    self.create_validation_data(dataset)
-                    for dataset in preprocessed_datasets
-                ]
+            iterables = [
+                self.create_validation_data(dataset)
+                for dataset in preprocessed_datasets
+            ]
 
         worker_info = get_worker_info()
         if worker_info is None:
@@ -978,12 +689,6 @@ class ChronosDataset(IterableDataset, ShuffleMixin):
                 idx = np.random.choice(range(len(iterators)), p=probs)
                 try:
                     entry = next(iterators[idx])
-                    #get 0 or 1 depending if labels align
-                    if self.task == "similarity":
-                        entry = self.create_similarity_pair(
-                            entry,
-                            idx
-                        )
                     yield self.to_hf_format(entry)
 
                 except StopIteration:
@@ -1079,16 +784,16 @@ def main(
     loss_type: str = "mae",
     TrainInnerModel: bool = True,
     dropout_head: float = 0.1,
+    warmup_steps: int = 0, # 0 when using warmup_ratio
     # ROBERTA Args
     adam_beta1: float = 0.9,
     adam_beta2: float = 0.98,
     adam_epsilon: float = 1e-6,
     weight_decay: float = 0.01,
     max_grad_norm: float = 0.0,
-    warmup_steps: int = 0, # 0 when using warmup_ratio
-    #Finetuning
-    num_train_epochs: int = 1,
     resume_from_checkpoint: Optional[str] = None,
+    #Finetuning
+    num_train_epochs = 1
 
 
 
@@ -1117,7 +822,6 @@ def main(
         )
         tf32 = False
 
-    print("task", task)
 
     if seed is None:
         seed = random.randint(0, 2**32)
@@ -1369,20 +1073,17 @@ def main(
         ddp_find_unused_parameters=False,
         remove_unused_columns=False,
         save_safetensors=False,
-        adam_beta1=adam_beta1,
-        adam_beta2=adam_beta2,
-        adam_epsilon=adam_epsilon,
-        weight_decay=weight_decay,
-        max_grad_norm=max_grad_norm,
-        warmup_steps=warmup_steps,
+        ignore_data_skip=True,
+        # adam_beta1=adam_beta1,
+        # adam_beta2=adam_beta2,
+        # adam_epsilon=adam_epsilon,
+        # weight_decay=weight_decay,
+        # max_grad_norm=max_grad_norm,
+        # warmup_steps=warmup_steps,
     )
-    if task in ["classification", "similarity", "tser", "anomaly"]:
-        training_args_kwargs["num_train_epochs"] = num_train_epochs
-        print("Epochs:", num_train_epochs)
 
-    else:
-        training_args_kwargs["max_steps"] = max_steps
-        print("Steps:", max_steps)
+
+    training_args_kwargs["max_steps"] = max_steps
 
     training_args = TrainingArguments(**training_args_kwargs)
 
@@ -1413,33 +1114,8 @@ def main(
     if is_main_process():
         save_path = output_dir / "checkpoint-final"
 
-        if task == "classification":
-            model.model.save_pretrained(save_path)
-            torch.save(
-                model.classifier.state_dict(),
-                save_path / "classifier.pt"
-            )
-        elif task == "similarity":
-            model.model.save_pretrained(save_path)
-            torch.save(
-                model.projection.state_dict(),
-                save_path / "projection.pt"
-            )
-        elif task == "anomaly":
-            model.model.save_pretrained(save_path)
-            torch.save(
-                model.classifier.state_dict(),
-                save_path / "anomaly.pt"
-            )
-        elif task == "tser":
-            model.model.save_pretrained(save_path)
-            torch.save(
-                model.regressor.state_dict(),
-                save_path / "tser.pt"
-            )
 
-        else:
-            model.save_pretrained(save_path)
+        model.save_pretrained(save_path)
 
         save_training_info(
             save_path,
