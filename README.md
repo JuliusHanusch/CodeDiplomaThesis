@@ -4,6 +4,17 @@ This repository contains the code required to reproduce the results of my diplom
 
 The repository is structured into several main directories. The `src` directory contains the training, evaluation, and baseline scripts used in the experiments.
 
+## Environment
+
+To create a wokring virtual environment execute the:
+
+* ´setup_venv_gpu.sh`
+
+This script creates the virutal environment and installs the needed packages for ChronosBERT experiments.
+For MOMENT and InceptionTime different environments are requirend due to dependency conflicts. The requirements files are available in the requirements folder.
+
+In this scrip as well as in all other python scripts paths to scripts or databases have to be adapted. The usage of absolute paths is recommended.
+
 ## SRC Directory
 
 The `src` directory contains the training and evaluation scripts required for the experiments.
