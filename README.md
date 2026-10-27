@@ -6,14 +6,15 @@ The repository is structured into several main directories. The `src` directory 
 
 ## Environment
 
-To create a wokring virtual environment execute the:
+To create a wokring virtual environment and install requirements execute the:
 
-* ´setup_venv_gpu.sh`
+```setup
+sbatch hpc/venvs/setup_gpu_venv.sh
+```
 
-This script creates the virutal environment and installs the needed packages for ChronosBERT experiments.
 For MOMENT and InceptionTime different environments are requirend due to dependency conflicts. The requirements files are available in the requirements folder.
 
-In this scrip as well as in all other python scripts paths to scripts or databases have to be adapted. The usage of absolute paths is recommended.
+In this scrip as well as in all other python scripts paths to scripts or databases have to be adapted.
 
 ## Data Directory
 
@@ -23,27 +24,39 @@ The `data` directory contains the scripts and data preparation required for the 
 
 To download and transform the pretraining data to arrow format use:
 
-* `get_train_data.py`
+```pretraining data
+python3 data/get_train_data.py
+```
 
 ETT, Similarity(ArabicSpokenDigits) and UCR datasets can be downloaded using the provided scripts.
 
-* `ett_data.py`
-* `similarity_data.py`
-* `UCR_classification_data.py`
+```finetuning data
+python3 data/finetuning/Imputation/ett_data.py
+python3 data/finetuning/Similarity/similarity_data.py
+python3 data/finetuning/UCI_HAR/UCI_HARclassification_data.py
+```
 
 
 TSER datasets have to be downloaded manually.
 
-### Data Preparation
+### Data Preprocessing
 
 The directory contains scripts for the required data preparation, including:
 
 Generation of masks for val/test set of the imputation experiments.
-* `create_masks.py`
+
+```data preprocessing
+python3 data/finetuning/Imputation/create_masks.py
+```
 
 Creation of similarity time series pairs for the similarity experiments.
-* `splitandpairs.py` for ArabicSpokenDigits
-* `similarity_pairs.py` for UCR Benchmark
+
+```data preprocessing
+python3 data/finetuning/Similarity/splitandpairs.py
+python3 data/finetuning/UCR_extracted/similarity_pairs.py
+```
+
+data/finetuning/TSER/create_tser_data.py
 
 
 ## SRC Directory
