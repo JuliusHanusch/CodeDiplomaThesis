@@ -3,19 +3,18 @@ import requests
 import numpy as np
 import zipfile
 
-
+#data source
 URL = (
     "https://archive.ics.uci.edu/static/public/195/"
     "spoken+arabic+digit.zip"
 )
-
+#adapt path
 ROOT = Path(
     "/data/horse/ws/juha972b-AION-BERT-Chronos/"
     "BERTi/data/finetuning/Similarity/ArabicSpokenDigits"
 )
 
 ROOT.mkdir(exist_ok=True)
-
 
 def download():
 
@@ -73,7 +72,6 @@ def load_file(path, train=True):
                 ]
             )
 
-
     if current:
         sequences.append(
             np.asarray(
@@ -82,10 +80,8 @@ def load_file(path, train=True):
             )
         )
 
-
     digit_labels=[]
     speaker_labels=[]
-
 
     utterances_per_digit = 660 if train else 220
 
@@ -93,21 +89,16 @@ def load_file(path, train=True):
     for idx in range(len(sequences)):
 
         digit = idx // utterances_per_digit
-
         within_digit = idx % utterances_per_digit
-
         speaker = within_digit // 10
-
 
         if train:
             speaker_id=speaker
         else:
             speaker_id=speaker+66
 
-
         digit_labels.append(digit)
         speaker_labels.append(speaker_id)
-
 
     return (
         sequences,
@@ -115,37 +106,21 @@ def load_file(path, train=True):
         np.array(speaker_labels)
     )
 
-
+#univariate data
 def create_univariate(sequences):
-
-    """
-    Convert:
-        (time,13)
-
-    into:
-        (time,)
-
-    using MFCC coefficient 0
-    """
 
     return [
         seq[:,0].astype(np.float32)
         for seq in sequences
     ]
-
-
+#multivariate data
 def create_multivariate(sequences):
-
-    """
-    Keep original MFCC representation
-
-    (time,13)
-    """
 
     return [
         seq.astype(np.float32)
         for seq in sequences
     ]
+
 def split_similarity_dataset(
     sequences,
     digit_labels,
@@ -245,7 +220,7 @@ def main():
         speaker_labels
     )
 
-
+    # multivariate and univariate data
     save_dataset(
         "arabic_digits_multivariate_train.npz",
         create_multivariate(train_sequences),
@@ -277,17 +252,6 @@ def main():
 
 
     print("Finished")
-
-    print(
-        "Example multivariate:",
-        train_sequences[0].shape
-    )
-
-    print(
-        "Example univariate:",
-        create_univariate(train_sequences)[0].shape
-    )
-
 
 if __name__=="__main__":
     main()

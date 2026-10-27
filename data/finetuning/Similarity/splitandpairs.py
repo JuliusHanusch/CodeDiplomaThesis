@@ -1,7 +1,7 @@
 import numpy as np
 from pathlib import Path
 
-
+#adapt path
 DATASET_ROOT = Path(
     "/data/horse/ws/juha972b-AION-BERT-Chronos/"
     "BERTi/data/finetuning/Similarity/ArabicSpokenDigits"
@@ -24,7 +24,6 @@ def load_npz(path):
         np.asarray(data["speaker_labels"]),
     )
 
-
 def create_pairs(X, y, n_pairs=None, seed=None):
     if n_pairs is None:
         n_pairs = len(X)
@@ -38,6 +37,7 @@ def create_pairs(X, y, n_pairs=None, seed=None):
     classes = np.unique(y)
 
     while len(labels) < n_pairs:
+        # 50% similar pairs, 50% dissimilar pairs
         if rng.random() < 0.5:
             c = rng.choice(classes)
             idx = np.where(y == c)[0]
@@ -72,7 +72,7 @@ def create_pairs(X, y, n_pairs=None, seed=None):
 
 def generate_pairs(input_path, output_path, task):
     X, digit_labels, speaker_labels = load_npz(input_path)
-
+    #both labels
     if task == "digit":
         y = digit_labels
     elif task == "voice":
@@ -136,6 +136,7 @@ def get_splits():
 def generate_all_pairs():
     similarity_dir = DATASET_ROOT / "similarity"
 
+    #create univariate and multivariate pairs
     for representation, split, input_path in get_splits():
         if not input_path.exists():
             raise FileNotFoundError(f"Missing dataset:\n{input_path}")

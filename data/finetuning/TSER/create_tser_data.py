@@ -8,6 +8,7 @@ from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 import sys
 
+#adapt path
 REPO_ROOT = Path(
     "/data/horse/ws/juha972b-AION-BERT-Chronos/"
     "TS-Extrinsic-Regression"
@@ -17,12 +18,13 @@ sys.path.append(str(REPO_ROOT))
 
 from utils.data_loader import load_from_tsfile_to_dataframe
 
-
+#adapt path
 ROOT = Path(
     "/data/horse/ws/juha972b-AION-BERT-Chronos/"
     "BERTi/data/finetuning/TSER"
 )
 
+#define splits
 TRAIN_RATIO = 0.80
 EVAL_RATIO = 0.20
 RANDOM_SEED = 42
@@ -39,73 +41,56 @@ def dataframe_to_array(df, multivariate=False):
     X = []
 
     for i in range(len(df)):
-
         if multivariate:
-
             series = []
-
             for dim in dims:
 
                 values = np.asarray(
                     df.iloc[i][dim].values,
                     dtype=np.float32
                 )
-
                 series.append(values)
-
             # Maximum length among channels
             max_len = max(
                 len(x) for x in series
             )
-
             padded = []
-
             for x in series:
-
                 arr = np.full(
                     max_len,
                     np.nan,
                     dtype=np.float32
                 )
-
                 arr[:len(x)] = x
                 padded.append(arr)
-
             X.append(
                 np.stack(padded, axis=0)
             )
 
         else:
-
             values = np.asarray(
                 df.iloc[i][dims[0]].values,
                 dtype=np.float32
             )
-
             X.append(values)
-
     return np.array(X, dtype=object)
 
 
 def write_arrow(X, y, out_file, multivariate=False):
 
     dataset = []
-
     for i in tqdm(
         range(len(X)),
         desc=f"Writing {out_file.name}"
     ):
-
         series = np.asarray(
             X[i],
             dtype=np.float32
         )
-
         if multivariate:
             target = series
         else:
             target = series
-
         dataset.append({
             "start": datetime(2000, 1, 1),
             "target": target,
@@ -121,36 +106,13 @@ def write_arrow(X, y, out_file, multivariate=False):
 
 def split_train_eval(df, y):
 
-    try:
-
-        train_df, eval_df, train_y, eval_y = train_test_split(
-            df,
-            y,
-            train_size=TRAIN_RATIO,
-            test_size=EVAL_RATIO,
-            random_state=RANDOM_SEED,
-            stratify=y
-        )
-
-
-    except ValueError as e:
-
-        print(
-            f"        [WARNING] Stratified split failed:"
-            f"\n        {e}"
-        )
-
-        print(
-            "        Falling back to random split."
-        )
-
-        train_df, eval_df, train_y, eval_y = train_test_split(
-            df,
-            y,
-            train_size=TRAIN_RATIO,
-            test_size=EVAL_RATIO,
-            random_state=RANDOM_SEED,
-            shuffle=True
+    train_df, eval_df, train_y, eval_y = train_test_split(
+        df,
+        y,
+        train_size=TRAIN_RATIO,
+        test_size=EVAL_RATIO,
+        random_state=RANDOM_SEED,
+        stratify=y
         )
 
     return (
@@ -161,7 +123,7 @@ def split_train_eval(df, y):
     )
 
 def load_tser_file(file_path):
-
+    # problems with Unicode Error
     try:
         return load_from_tsfile_to_dataframe(
             file_path,
@@ -191,7 +153,7 @@ def process_dataset(zip_path):
     out_dir = ROOT / name
     out_dir.mkdir(exist_ok=True)
 
-
+    #all files multi/uni, train+val, full train and test
     required_files = [
         "train_multi.arrow",
         "train_uni.arrow",
@@ -221,27 +183,14 @@ def process_dataset(zip_path):
         out_dir.rglob("*TRAIN.ts")
     )
 
-    print(
-        "Loading train:",
-        train_file
-    )
-
     df_train, y_train = load_tser_file(train_file)
-
-    print(
-        f"Original TRAIN samples: "
-        f"{len(df_train)}"
-    )
-
-
-    print()
-    print("Writing FULL TRAIN")
-
 
     X_train = dataframe_to_array(
         df_train,
         multivariate=True
     )
+
+    #write all files to arrow format
 
     write_arrow(
         X_train,
@@ -249,8 +198,6 @@ def process_dataset(zip_path):
         out_dir / "train_multi.arrow",
         multivariate=True
     )
-
-
 
     X_train_uni = dataframe_to_array(
         df_train,
@@ -264,10 +211,6 @@ def process_dataset(zip_path):
         multivariate=False
     )
 
-
-    print()
-    print("Splitting TRAIN 80/20")
-
     (
         df_train_small,
         df_eval,
@@ -276,13 +219,6 @@ def process_dataset(zip_path):
     ) = split_train_eval(
         df_train,
         y_train
-    )
-
-    print(
-        f"        Train small: "
-        f"{len(df_train_small)}"
-        f" | Eval: "
-        f"{len(df_eval)}"
     )
 
 
@@ -342,19 +278,7 @@ def process_dataset(zip_path):
         out_dir.rglob("*TEST.ts")
     )
 
-    print()
-    print(
-        "Loading test:",
-        test_file
-    )
-
     df_test, y_test = load_tser_file(test_file)
-
-    print(
-        f"        Test samples: "
-        f"{len(df_test)}"
-    )
-
 
     X_test = dataframe_to_array(
         df_test,
@@ -379,11 +303,6 @@ def process_dataset(zip_path):
         out_dir / "test_uni.arrow",
         multivariate=False
     )
-
-
-    print()
-    print(f"Finished {name}")
-
 
 
 def main():

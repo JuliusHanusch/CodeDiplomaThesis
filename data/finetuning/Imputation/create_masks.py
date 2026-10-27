@@ -14,6 +14,7 @@ DATASETS = [
     "ETTm2",
 ]
 
+#masking ratios like MOMENT
 MASKING_RATIOS = [
     0.125,
     0.25,
@@ -24,8 +25,6 @@ MASKING_RATIOS = [
 PATCH_LEN = 8
 SEED = 13
 
-
-
 def generate_mask(
     series_length,
     patch_len,
@@ -34,8 +33,6 @@ def generate_mask(
 ):
 
     n_patches = series_length // patch_len
-
-    usable_length = n_patches * patch_len
 
     mask = np.zeros(
         series_length,
@@ -67,12 +64,11 @@ rng = np.random.default_rng(SEED)
 
 for dataset_name in DATASETS:
 
-    print("\n============================")
     print(dataset_name)
-    print("============================")
 
     dataset_dir = BASE_DIR / dataset_name
 
+    #use test or val files to create masks
     eval_path = dataset_dir / "test.npz"
 
     if not eval_path.exists():
@@ -98,19 +94,9 @@ for dataset_name in DATASETS:
     )
 
     series_length = len(series)
-
-    print(
-        f"Test series length: {series_length}"
-    )
-
-
     masks = {}
 
     for ratio in MASKING_RATIOS:
-
-        print(
-            f"Generating mask: {ratio:.3f}"
-        )
 
         masks[ratio] = generate_mask(
             series_length=series_length,
@@ -118,13 +104,6 @@ for dataset_name in DATASETS:
             mask_ratio=ratio,
             rng=rng,
         )
-
-        print(
-            f"  masked points: "
-            f"{masks[ratio].sum()} / {series_length} "
-            f"({masks[ratio].mean():.4f})"
-        )
-
 
     mask_path = dataset_dir / "test_masks.npz"
 
