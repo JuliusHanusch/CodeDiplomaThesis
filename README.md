@@ -108,6 +108,18 @@ For **classification** and **similarity**, the training and evaluation scripts a
 ```finetuning
 python3 BERTi/src/finetuning/classification/classification.py --index <index>
 ```
+
+### Final Experiments
+
+Each finetuning task contains a `final` directory with the scripts used to perform the final training and testing using the best configurations identified during hyperparameter optimization. Use the final worker to perform the retraining on full training data and get test results. E.g. for imputation:
+
+```baselines
+python3 src/finetuning/imputation/final/final_db_imputation.py
+python3 src/finetuning/imputation/final/final_worker_imputation.py <index>
+```
+
+For TSER, the `final` directory also contains a script for performing the multivariate experiments.
+
 ### Baselines
 
 The repository includes classical and naive baselines as well as more advanced models for each task. Each of the following scripts searches for finetuning datasets. The index thus defines which dataset is perfromed.
@@ -120,7 +132,6 @@ python3 src/finetuning/baselines/similarity_baselines.py`
 python3 src/finetuning/baselines/imputation_baselines.py`
 python3 src/finetuning/baselines/tser_baselines.py` --index <index>
 ```
-
 
 Advanced baselines include:
 
@@ -151,16 +162,6 @@ python3 src/finetuning/baselines/fcn.py` --index <index>
 python3 src/finetuning/baselines/rocket.py` --index <index>
 ```
 
-### Final Experiments
-
-Each finetuning task contains a `final` directory with the scripts used to perform the final training and testing using the best configurations identified during hyperparameter optimization. Use the final worker to perform the retraining on full training data and get test results. E.g. for imputation:
-
-```baselines
-python3 src/finetuning/imputation/final/final_db_imputation.py
-python3 src/finetuning/imputation/final/final_worker_imputation.py <index>
-```
-
-For TSER, the `final` directory also contains a script for performing the multivariate experiments.
 
 ## Chronos Directory
 
