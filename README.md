@@ -28,16 +28,15 @@ To download and transform the pretraining data to arrow format use:
 python3 data/get_train_data.py
 ```
 
-ETT, Similarity(ArabicSpokenDigits) and UCR datasets can be downloaded using the provided scripts.
+ETT, and Similarity(ArabicSpokenDigits) can be downloaded using the provided scripts.
 
 ```finetuning data
 python3 data/finetuning/Imputation/ett_data.py
 python3 data/finetuning/Similarity/similarity_data.py
-python3 data/finetuning/UCI_HAR/UCI_HARclassification_data.py
 ```
 
 
-TSER datasets have to be downloaded manually.
+TSER datasets and UCR classification archive have to be downloaded manually.
 
 ### Data Preprocessing
 
@@ -56,7 +55,16 @@ python3 data/finetuning/Similarity/splitandpairs.py
 python3 data/finetuning/UCR_extracted/similarity_pairs.py
 ```
 
-data/finetuning/TSER/create_tser_data.py
+Preprocess the TSER data after downloading
+
+```data preprocessing
+python3 data/finetuning/TSER/create_tser_data.py
+```
+Preprocess the classification data after downloading
+
+```data preprocessing
+python3 data/finetuning/UCR_extracted/UCR_classification_data.py
+```
 
 
 ## SRC Directory
@@ -67,65 +75,90 @@ The `src` directory contains the training and evaluation scripts required for th
 
 The pretraining implementation is based on the pretraining code provided by [AION](https://github.com/JP-SystemsX/AION) and was adapted for ChronosBERT.
 
-The changes are in the following scripts:
+The run the pretraining run:
 
-* `train.py`
-* `hpo.py`
-* `search_space.py`
-* `utils.py`
+```pretraining
+python3 src/hpo.py --config src/search_configs/search.yml
+```
 
+The pretrained model is available [here](https://huggingface.co/juliushanusch/ChronosBERT-Default)
 
 
 ### Finetuning
 
-The finetuning scripts are organized by task. They include scripts for creating databases and generating search spaces for hyperparameter optimization:
+The finetuning scripts are organized by task. Each task has a directory containing similar scripts. They include scripts for creating databases and generating configs from the seach space.
 
-* `db_task.py`
-* `configs_task.py`
+To create a database and insert the configs for e.g. imputation tasks run:
 
-For **TSER** and **imputation**, the following structure is used:
+```finetuning setup
+python3 src/finetuning/imputation/db_imputation.py
+python3 src/finetuning/imputation/configs_imputation.py
+```
 
-* `worker_task.py`
-* `finetune_task.py`
-* `evaluate_task.py`
+To perform finetuning and evaluation use the following scripts:
 
-For **classification** and **similarity**, the three steps are combined into a single script:
+For **TSER** and **imputation**, use a worker which starts the finetunnign and evaluation script where the index is an integer which defines which ID from the db is executed.
 
-* `task.py`
+```finetuning
+python3 /src/finetuning/tser/worker_imputation.py <index>
+```
 
+For **classification** and **similarity**, the training and evaluation scripts are combined.
+
+```finetuning
+python3 BERTi/src/finetuning/classification/classification.py --index <index>
+```
 ### Baselines
 
-The repository includes classical and naive baselines as well as more advanced models for each task.
+The repository includes classical and naive baselines as well as more advanced models for each task. Each of the following scripts searches for finetuning datasets. The index thus defines which dataset is perfromed.
 
 Classical and naive baselines:
 
-* `classification_baseline.py`
-* `similarity_baselines.py`
-* `imputation_baselines.py`
-* `tser_baselines.py`
+```finetuning
+python3 src/finetuning/baselines/classification_baseline.py`
+python3 src/finetuning/baselines/similarity_baselines.py`
+python3 src/finetuning/baselines/imputation_baselines.py`
+python3 src/finetuning/baselines/tser_baselines.py` --index <index>
+```
 
 
 Advanced baselines include:
 
 For Classification:
-* `moment_classification.py`
+
+```baselines
+python3 src/finetuning/baselines/moment_classification.py
+```
 
 For Similarity:
-* `siamese_rnn.py` 
-* `siamese_rnn_hpo.py`
+
+```baselines
+python3 src/finetuning/baselines/siamese_rnn.py
+python3 src/finetuning/baselines/siamese_rnn_hpo.py --index <index>
+```
 
 For Imputation:
-* `moment_imputation.py`
+
+```baselines
+python3 src/finetuning/baselines/moment_imputation.py`
+```
 
 For TSER:
-* `InceptionTime.py`
-* `fcn.py`
-* `rocket.py`
 
+```baselines
+python3 src/finetuning/baselines/InceptionTime.py` --index <index>
+python3 src/finetuning/baselines/fcn.py` --index <index>
+python3 src/finetuning/baselines/rocket.py` --index <index>
+```
 
 ### Final Experiments
 
-Each finetuning task contains a `final` directory with the scripts used to perform the final training and evaluation using the best configurations identified during hyperparameter optimization.
+Each finetuning task contains a `final` directory with the scripts used to perform the final training and testing using the best configurations identified during hyperparameter optimization. Use the final worker to perform the retraining on full training data and get test results. E.g. for imputation:
+
+```baselines
+python3 src/finetuning/imputation/final/final_db_imputation.py
+python3 src/finetuning/imputation/final/final_worker_imputation.py <index>
+```
 
 For TSER, the `final` directory also contains a script for performing the multivariate experiments.
 
